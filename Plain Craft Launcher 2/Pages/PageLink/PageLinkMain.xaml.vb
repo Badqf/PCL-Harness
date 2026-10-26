@@ -1,4 +1,4 @@
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.ObjectModel
 Imports System.Globalization
 Imports System.Net.Sockets
 Imports System.Reflection
@@ -716,7 +716,11 @@ Public Class PageLinkMain
                     Case -1 'CLI 无返回
                         Panic("无法启动联机模块", "近期日志：" & vbCrLf & LogHistory.Join(vbCrLf))
                     Case 0 'CLI 有返回，但未连接到任何节点
-                        Panic("无法连接到节点", $"请检查你的网络环境是否良好。")
+                        If IsDirectMode Then
+                            Panic("无法连接到节点", $"没有连上邀请码里的地址。请确认：{vbCrLf}- 房主的电脑和端口 {ServerPort} 可以访问（房主需放行防火墙）{vbCrLf}- 你在同一局域网，或房主已做端口映射{vbCrLf}- 邀请码没有输错、房间还没关闭")
+                        Else
+                            Panic("无法连接到节点", $"当前没开直连模式，联机需要通过中继节点 {String.Join("、", RawPeers)}，而这些节点目前连不上。{vbCrLf}{vbCrLf}建议：设置 → 联机 → 勾选「打开直连模式」，然后用邀请码直连（不需要中继节点）。")
+                        End If
                     Case Else '已连接到节点，但未连接到房主
                         Panic("无法连接到房主", $"可能的原因：{vbCrLf}- 你或者房主的网络环境不佳{vbCrLf}- 房主已关闭房间{vbCrLf}- 邀请码输错了")
                 End Select
