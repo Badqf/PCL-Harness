@@ -65,6 +65,11 @@ Public Class PageLoginMs
     End Function
 
     Private Sub BtnLogin_Click(sender As Object, e As EventArgs) Handles BtnLogin.Click
+        ' 未配置 Client ID 时直接给出明确提示，避免出现看不懂的 OAuth 报错
+        If String.IsNullOrWhiteSpace(OAuthClientId) Then
+            Hint("尚未配置微软登录的 Client ID（PCLHarness\Secrets.json 中的 MsClientId），暂时无法使用正版登录，请先用离线登录。", HintType.Red)
+            Return
+        End If
         ComboAccounts.IsEnabled = False
         BtnLogin.IsEnabled = False
         BtnLogin.Text = "0%"
