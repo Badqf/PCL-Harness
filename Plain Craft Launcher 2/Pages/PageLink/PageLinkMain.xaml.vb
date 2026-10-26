@@ -1070,7 +1070,6 @@ ForcedPass:
     ''' </summary>
     Private RefreshPeerLoader As New LoaderTask(Of Integer, List(Of Peer))("EasyTier CLI", AddressOf RefreshPeer)
     Private Sub RefreshPeer()
-        If IsDirectMode Then Exit Sub '直连模式不是自己启动的联机模块，不需要轮询节点列表
         Try
             Dim CliResult = RunCliAndGetOutput(PathEasyTier & "联机模块 CLI.exe", $"-o json -p 127.0.0.1:{RPCPort} peer", 2000)
             '解析
@@ -1241,6 +1240,7 @@ ForcedPass:
         CheckCrash()
         '检查节点状态
         If Not Peers.Any Then
+            If IsDirectMode AndAlso IsServerSide Then Return '直连房主在等待玩家加入，此时没有节点是正常的
             Panic("网络连接已断开", "请检查你的网络环境是否正常。")
             Return
         End If
