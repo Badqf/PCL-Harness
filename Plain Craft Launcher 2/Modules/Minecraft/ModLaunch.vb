@@ -1191,6 +1191,8 @@ Retry:
 #Region "启动参数"
     Private McLaunchArgument As String
     Private McLaunchEncoding As Encoding
+    ''' <summary>启动参数阶段传给插件的附加信息（v3 事件用）。</summary>
+    Private McLaunchPluginInfo As PluginLaunchInfo
 
     '主方法
     Private Sub McLaunchArgumentMain(Loader As LoaderTask(Of String, Integer))
@@ -1198,8 +1200,26 @@ Retry:
         Dim Arguments As New List(Of String)
         McLaunchLog("参数获取开始")
         Arguments.AddRange(McLaunchArgumentsJVM()) 'JVM 参数
+        '插件事件（v3）：允许插件追加 JVM 参数（插在 mainClass 之前才不会被当成游戏参数）
+        Dim PluginInfo As New PluginLaunchInfo With {
+            .InstanceName = If(McInstanceSelected?.Name, ""),
+            .InstanceFolder = If(McInstanceSelected?.PathIndie, ""),
+            .PlayerName = If(McLoginName(), "")
+        }
+        ModPlugin.RaiseGameLaunching(PluginInfo)
+        For Each Extra In PluginInfo.ExtraJvmArgs
+            If String.IsNullOrWhiteSpace(Extra) Then Continue For
+            Arguments.Add(Extra)
+            McLaunchLog("[插件] 追加 JVM 参数：" & Extra)
+        Next
         Arguments.Add(McInstanceSelected.JsonObject("mainClass")) 'mainClass
         Arguments.AddRange(McLaunchArgumentsGame()) '游戏参数
+        For Each Extra In PluginInfo.ExtraGameArgs
+            If String.IsNullOrWhiteSpace(Extra) Then Continue For
+            Arguments.Add(Extra)
+            McLaunchLog("[插件] 追加游戏参数：" & Extra)
+        Next
+        McLaunchPluginInfo = PluginInfo
         '替换
         McLaunchLog("=================== 启动参数开始 ===================")
         Dim Replacements = McLaunchArgumentsReplace(Arguments).ToList
@@ -2138,6 +2158,13 @@ IgnoreCustomSkin:
         '开始进程
         Dim GameProcess = StartProcess(StartInfo)
         McLaunchLog("已启动游戏进程：" & McLaunchJavaSelected.JavaExePath)
+        '插件事件（v3）：游戏进程已启动
+        If McLaunchPluginInfo Is Nothing Then McLaunchPluginInfo = New PluginLaunchInfo With {
+            .InstanceName = If(McInstanceSelected?.Name, ""),
+            .InstanceFolder = If(McInstanceSelected?.PathIndie, "")
+        }
+        McLaunchPluginInfo.ProcessId = GameProcess.Id
+        ModPlugin.RaiseGameLaunched(McLaunchPluginInfo)
         If Loader.IsCanceled Then
             McLaunchLog("由于取消启动，已强制结束游戏进程") '#1631
             GameProcess.Kill()

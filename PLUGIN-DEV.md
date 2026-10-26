@@ -1,6 +1,6 @@
-# PCL Harness 插件开发说明（API v2）
+# PCL Harness 插件开发说明（API v3）
 
-> v2 在 v1（发现 / 启停 / 宿主 API）之上增加了三个 UI 扩展点：**自定义页面、标题栏入口、设置项**。
+> v2 在 v1（发现 / 启停 / 宿主 API）之上增加了三个 UI 扩展点：**自定义页面、标题栏入口、设置项**；v3 又加了**事件接口**与 **Number / Choice 设置类型**，详见文末「API v3 追加内容」。
 > 只实现 `IPclPlugin` 的旧插件不受影响，照常可用。
 
 ## 目录结构
@@ -186,5 +186,103 @@ $fw  = "C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8"
 
 - 插件跑在启动器进程内、完全信任（无沙箱）。只装你信任的插件。
 - 目标框架 .NET Framework 4.8，语言版本按 Roslyn 4.14（VB 16.x / C# 12）。
-- v2 的扩展点只有「页面 / 入口 / 设置项」三类；还没有事件挂钩（如启动流程、下载流程回调），后续可加。
+- v3 已有事件挂钩（就绪 / 页面切换 / 游戏启动前后）；下载流程回调仍未提供。
 - 插件页面没有独立的 Loader 机制：需要后台加载数据时请自己在页面里起线程，并用 `RunInUi` 回到 UI 线程。
+
+---
+
+# API v3 追加内容
+
+> v3 在 v2（页面 / 标题栏入口 / 设置项）之上补了两块：**事件接口** 与 **更丰富的设置类型**，并给 `Host` 增加了当前实例信息、导航与线程辅助。
+> 只实现 `IPclPlugin` 或 v2 接口的插件不受影响。
+
+## 1. 事件：`IPclPluginEvents`（可选接口）
+
+```vb
+Public Interface IPclPluginEvents
+    Sub OnLauncherReady()                                   ' 启动器初始化完成、插件全部加载后调用一次
+    Sub OnPageChanged(Page As Integer, SubType As Integer)  ' 主页面切换完成（Page = FormMain.PageType 数值）
+    Sub OnGameLaunching(Info As PluginLaunchInfo)           ' 构建启动参数时，可追加 JVM / 游戏参数
+    Sub OnGameLaunched(Info As PluginLaunchInfo)            ' 进程刚启动，Info.ProcessId 可用
+End Interface
+```
+
+`PluginLaunchInfo` 字段：
+
+| 成员 | 说明 |
+| --- | --- |
+| `InstanceName` / `InstanceFolder` | 要启动的版本名 / 版本隔离目录 |
+| `PlayerName` | 当前选择的玩家名 |
+| `ExtraJvmArgs` | 追加到 JVM 参数区（mainClass 之前） |
+| `ExtraGameArgs` | 追加到游戏参数区末尾 |
+| `ProcessId` | 仅 `OnGameLaunched` 有效，失败为 -1 |
+
+示例：
+
+```vb
+Public Class MyPlugin
+    Implements PCL.IPclPlugin
+    Implements PCL.IPclPluginEvents
+
+    Public Sub OnGameLaunching(Info As PCL.PluginLaunchInfo) Implements PCL.IPclPluginEvents.OnGameLaunching
+        Info.ExtraJvmArgs.Add("-Dmyplugin.instance=" & Info.InstanceName)
+        Info.ExtraGameArgs.Add("--demo-flag")
+    End Sub
+
+    Public Sub OnGameLaunched(Info As PCL.PluginLaunchInfo) Implements PCL.IPclPluginEvents.OnGameLaunched
+        Logger.Info("游戏已启动，PID = " & Info.ProcessId)
+    End Sub
+End Class
+```
+
+注意：`OnGameLaunching` 抛异常会被吞掉并记日志，不会中断启动；请自行 try/catch 处理关键逻辑。
+
+## 2. 设置类型扩展
+
+`PluginSettingType` 现有四种：
+
+| 值 | 类型 | 界面 | 额外字段 |
+| --- | --- | --- | --- |
+| `Boolean` | 勾选 | `MyCheckBox` | — |
+| `Text` | 文本 | `MyTextBox` + 保存 | — |
+| `Number` | 整数 | 输入框 + 范围提示 + 保存 | `MinValue` / `MaxValue`（默认 0 ~ 100，越界自动夹紧） |
+| `Choice` | 单选下拉 | `MyComboBox` | `Options As String()` |
+
+```vb
+New PCL.PluginSetting With {
+    .Key = "maxRetry", .Title = "重试次数", .Description = "下载失败时的重试上限。",
+    .SettingType = PCL.PluginSettingType.Number, .DefaultValue = 2,
+    .MinValue = 1, .MaxValue = 5,
+    .Handler = Sub(value) Logger.Info("重试次数改为 " & value)
+}
+
+New PCL.PluginSetting With {
+    .Key = "theme", .Title = "页面主题",
+    .SettingType = PCL.PluginSettingType.Choice, .DefaultValue = "蓝",
+    .Options = New String() {"蓝", "紫", "绿"}
+}
+```
+
+值统一存在 `PCL\Plugins\plugins.settings.json`，读取仍用 `ModPlugin.GetSetting(Info, Key, DefaultValue)`。
+
+## 3. `Host` 新增成员
+
+| 成员 | 说明 |
+| --- | --- |
+| `InstanceName` / `InstanceFolder` / `PlayerName` | 启动器当前选中的版本与玩家 |
+| `Navigate(Page As Integer)` | 切到主页面，参数用 `FormMain.PageType` 数值 |
+| `RunInUi(Action)` | 从后台线程回到 UI 线程 |
+| `RunLater(Milliseconds, Action)` | 延时执行（内部转 `RunInUi`） |
+
+```vb
+Host.RunLater(1500, Sub() Host.Hint("两秒后提醒"))
+Host.Navigate(CInt(PCL.FormMain.PageType.Setup))
+```
+
+## 4. 版本对照
+
+| 版本 | 能力 |
+| --- | --- |
+| v1 | 发现 / 启停 / `Host` 基础 API |
+| v2 | 自定义页面、标题栏入口、设置项（Boolean / Text） |
+| v3 | 事件接口（就绪 / 页面切换 / 游戏启动前后）、Number / Choice 设置、`Host` 导航与线程辅助 |

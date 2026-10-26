@@ -454,6 +454,8 @@ Public Class FormMain
             If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.WarnFailed())
             '初始化结束后补刷一次插件入口，避免早期刷新被布局重建覆盖
             RunInUi(Sub() RefreshPluginNav())
+            '插件就绪事件（v3）：此时插件已全部加载、标题栏入口也已建好
+            If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.RaiseLauncherReady())
         End Sub, "初始化", ThreadPriority.Lowest)
 
         Logger.Info($"第三阶段加载用时：{GetTimeMs() - ApplicationStartTick} ms")
@@ -1418,6 +1420,7 @@ Public Class FormMain
                     CType(FrmOtherLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
+            ModPlugin.RaisePageChanged(CInt(Stack.Page), CInt(SubType))
         Else
             '切换到次页面
             Select Case Stack.Page
@@ -1426,6 +1429,7 @@ Public Class FormMain
                     CType(FrmInstanceLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
+            ModPlugin.RaisePageChanged(CInt(Stack.Page), CInt(SubType))
         End If
     End Sub
     ''' <summary>

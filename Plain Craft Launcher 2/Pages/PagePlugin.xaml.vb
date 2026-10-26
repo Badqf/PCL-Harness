@@ -332,6 +332,54 @@ Public Class PagePlugin
                                            End Try
                                        End Sub
                 Return Chk
+            Case ModPlugin.PluginSettingType.Number
+                Dim PanNum As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
+                Dim TxtNum As New MyTextBox With {.Width = 110, .Height = 30, .Text = If(Value Is Nothing, "0", CStr(Value)), .VerticalAlignment = VerticalAlignment.Center}
+                PanNum.Children.Add(TxtNum)
+                PanNum.Children.Add(New TextBlock With {.Text = $"（{Setting.MinValue} ~ {Setting.MaxValue}）", .VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(8, 0, 0, 0), .Opacity = 0.6})
+                Dim BtnNum = MkButton("保存", Nothing)
+                BtnNum.Margin = New Thickness(8, 0, 0, 0)
+                AddHandler BtnNum.Click, Sub(sender As Object, e As RoutedEventArgs)
+                                             Dim Num As Integer
+                                             If Not Integer.TryParse(TxtNum.Text, Num) Then
+                                                 Hint("请输入整数", HintType.Red)
+                                                 Return
+                                             End If
+                                             If Num < Setting.MinValue Then Num = Setting.MinValue
+                                             If Num > Setting.MaxValue Then Num = Setting.MaxValue
+                                             TxtNum.Text = Num.ToString()
+                                             ModPlugin.SetSetting(Owner, Setting.Key, Num)
+                                             Try
+                                                 If Setting.Handler IsNot Nothing Then Setting.Handler.Invoke(Num)
+                                             Catch ex As Exception
+                                                 Logger.Error(ex, "插件设置回调失败：" & Setting.Title, LogBehavior.Toast)
+                                             End Try
+                                             Hint("已保存：" & Setting.Title)
+                                         End Sub
+                PanNum.Children.Add(BtnNum)
+                Return PanNum
+            Case ModPlugin.PluginSettingType.Choice
+                Dim Cmb As New MyComboBox With {.Width = 200, .Height = 30, .VerticalAlignment = VerticalAlignment.Center}
+                Dim Options = If(Setting.Options, New String() {})
+                For Each Item In Options
+                    Cmb.Items.Add(New MyComboBoxItem With {.Content = Item})
+                Next
+                Dim CurrentText = If(Value Is Nothing, If(Options.Length > 0, Options(0), ""), CStr(Value))
+                Dim SelectedIndex As Integer = Array.IndexOf(Options, CurrentText)
+                If SelectedIndex < 0 Then SelectedIndex = 0
+                If Cmb.Items.Count > 0 Then Cmb.SelectedIndex = SelectedIndex
+                AddHandler Cmb.SelectionChanged, Sub(sender As Object, e As SelectionChangedEventArgs)
+                                                     Dim Now = Cmb.SelectedItem
+                                                     Dim NewValue As String = If(TypeOf Now Is MyComboBoxItem, CType(Now, MyComboBoxItem).Content, CStr(Now))
+                                                     If String.IsNullOrEmpty(NewValue) Then Return
+                                                     ModPlugin.SetSetting(Owner, Setting.Key, NewValue)
+                                                     Try
+                                                         If Setting.Handler IsNot Nothing Then Setting.Handler.Invoke(NewValue)
+                                                     Catch ex As Exception
+                                                         Logger.Error(ex, "插件设置回调失败：" & Setting.Title, LogBehavior.Toast)
+                                                     End Try
+                                                 End Sub
+                Return Cmb
             Case Else
                 Dim Pan As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
                 Dim Txt As New MyTextBox With {.Width = 300, .Height = 30, .Text = If(Value Is Nothing, "", CStr(Value)), .VerticalAlignment = VerticalAlignment.Center}

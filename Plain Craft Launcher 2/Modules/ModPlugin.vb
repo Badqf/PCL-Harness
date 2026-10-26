@@ -20,8 +20,8 @@ Public Module ModPlugin
     Private ReadOnly Property PathEnabledFile As String = Path.Combine(PathPluginRoot, "plugins.json")
     Public ReadOnly Property PathSettingsFile As String = Path.Combine(PathPluginRoot, "plugins.settings.json")
 
-    ''' <summary>UI 扩展点版本：v2 起支持 自定义页面 / 标题栏入口 / 设置项。</summary>
-    Public Const ApiVersionUi As Integer = 2
+    ''' <summary>UI 扩展点版本：v2 起支持 自定义页面 / 标题栏入口 / 设置项；v3 起支持事件钩子。</summary>
+    Public Const ApiVersionUi As Integer = 3
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -29,6 +29,8 @@ Public Module ModPlugin
     Public ReadOnly PluginNavItems As New List(Of PluginNavItem)
     ''' <summary>插件注册的全部设置项。</summary>
     Public ReadOnly PluginSettings As New List(Of PluginSetting)
+    ''' <summary>实现了 IPclPluginEvents 的插件及其所属插件信息。</summary>
+    Public ReadOnly PluginEventHandlers As New List(Of (Handler As IPclPluginEvents, Owner As PluginInfo))
 
     ''' <summary>
     ''' 已发现的一个插件。
@@ -99,6 +101,10 @@ Public Module ModPlugin
     Public Enum PluginSettingType
         [Boolean] = 0
         [Text] = 1
+        ''' <summary>整数，范围由 MinValue / MaxValue 限定。</summary>
+        [Number] = 2
+        ''' <summary>下拉选择，候选项来自 Options。</summary>
+        [Choice] = 3
     End Enum
 
     ''' <summary>
@@ -110,9 +116,33 @@ Public Module ModPlugin
         Public Description As String = ""
         Public SettingType As PluginSettingType = PluginSettingType.Boolean
         Public DefaultValue As Object
+        ''' <summary>Number 类型的最小值。</summary>
+        Public MinValue As Integer = 0
+        ''' <summary>Number 类型的最大值。</summary>
+        Public MaxValue As Integer = 100
+        ''' <summary>Choice 类型的候选项文本。</summary>
+        Public Options As String() = New String() {}
         ''' <summary>值变化回调（新值）。</summary>
         Public Handler As Action(Of Object)
         Public Owner As PluginInfo
+    End Class
+
+    ''' <summary>
+    ''' 启动游戏前后传给插件的信息。OnGameLaunching 阶段可以往 ExtraJvmArgs / ExtraGameArgs 里追加参数。
+    ''' </summary>
+    Public Class PluginLaunchInfo
+        ''' <summary>要启动的版本名。</summary>
+        Public Property InstanceName As String = ""
+        ''' <summary>版本隔离目录。</summary>
+        Public Property InstanceFolder As String = ""
+        ''' <summary>启动器当前选择的玩家名。</summary>
+        Public Property PlayerName As String = ""
+        ''' <summary>追加到 JVM 参数区（mainClass 之前）的参数。</summary>
+        Public ReadOnly Property ExtraJvmArgs As New List(Of String)
+        ''' <summary>追加到游戏参数区末尾的参数。</summary>
+        Public ReadOnly Property ExtraGameArgs As New List(Of String)
+        ''' <summary>OnGameLaunched 阶段可读到进程 ID。</summary>
+        Public Property ProcessId As Integer = -1
     End Class
 
     ''' <summary>
@@ -232,6 +262,7 @@ Public Module ModPlugin
         PluginPages.Clear()
         PluginNavItems.Clear()
         PluginSettings.Clear()
+        PluginEventHandlers.Clear()
         For Each Info In Plugins
             If Info.Loaded AndAlso Info.Instance IsNot Nothing Then
                 Try
@@ -358,6 +389,10 @@ Public Module ModPlugin
     Private Sub CollectUi(Info As PluginInfo)
         '重复启用同一插件时，先清掉它上一次注册的条目，避免标题栏入口与设置项重复
         RemoveUi(Info)
+        '事件钩子：实现了 IPclPluginEvents 就登记，不需要再实现 IPclPluginUi
+        If TypeOf Info.Instance Is IPclPluginEvents Then
+            PluginEventHandlers.Add((CType(Info.Instance, IPclPluginEvents), Info))
+        End If
         If Not TypeOf Info.Instance Is IPclPluginUi Then Return
         Dim Ui = CType(Info.Instance, IPclPluginUi)
         Try
@@ -411,6 +446,53 @@ Public Module ModPlugin
         PluginPages.RemoveAll(Function(P) P IsNot Nothing AndAlso P.Owner Is Info)
         PluginNavItems.RemoveAll(Function(N) N IsNot Nothing AndAlso N.Owner Is Info)
         PluginSettings.RemoveAll(Function(S) S IsNot Nothing AndAlso S.Owner Is Info)
+        PluginEventHandlers.RemoveAll(Function(H) H.Owner Is Info)
+    End Sub
+
+    ' ================= 事件分发（v3） =================
+
+    ''' <summary>启动器就绪（插件全部加载完成后调用一次）。</summary>
+    Public Sub RaiseLauncherReady()
+        For Each Entry In PluginEventHandlers.ToList()
+            Try
+                Entry.Handler.OnLauncherReady()
+            Catch ex As Exception
+                Logger.Error(ex, "插件事件 OnLauncherReady 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+            End Try
+        Next
+    End Sub
+
+    ''' <summary>主页面切换完成。</summary>
+    Public Sub RaisePageChanged(Page As Integer, Optional SubType As Integer = -1)
+        For Each Entry In PluginEventHandlers.ToList()
+            Try
+                Entry.Handler.OnPageChanged(Page, SubType)
+            Catch ex As Exception
+                Logger.Error(ex, "插件事件 OnPageChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+            End Try
+        Next
+    End Sub
+
+    ''' <summary>构建启动参数时；插件可往 Info.ExtraJvmArgs / ExtraGameArgs 追加参数。</summary>
+    Public Sub RaiseGameLaunching(Info As PluginLaunchInfo)
+        For Each Entry In PluginEventHandlers.ToList()
+            Try
+                Entry.Handler.OnGameLaunching(Info)
+            Catch ex As Exception
+                Logger.Error(ex, "插件事件 OnGameLaunching 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+            End Try
+        Next
+    End Sub
+
+    ''' <summary>游戏进程刚启动后。</summary>
+    Public Sub RaiseGameLaunched(Info As PluginLaunchInfo)
+        For Each Entry In PluginEventHandlers.ToList()
+            Try
+                Entry.Handler.OnGameLaunched(Info)
+            Catch ex As Exception
+                Logger.Error(ex, "插件事件 OnGameLaunched 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+            End Try
+        Next
     End Sub
 
     ''' <summary>
@@ -492,6 +574,21 @@ Public Interface IPclPlugin
 End Interface
 
 ''' <summary>
+''' 可选的事件接口（v3）。插件在实现 IPclPlugin 的同时实现本接口，
+''' 即可收到启动器就绪、页面切换、游戏启动前后的事件。所有方法都实现了空体即可，可以只关心其中一个。
+''' </summary>
+Public Interface IPclPluginEvents
+    ''' <summary>启动器初始化完成、插件已全部加载时调用一次。</summary>
+    Sub OnLauncherReady()
+    ''' <summary>主页面切换完成时调用。Page 对应 FormMain.PageType 的数值。</summary>
+    Sub OnPageChanged(Page As Integer, SubType As Integer)
+    ''' <summary>构建启动参数时调用；可以往 Info.ExtraJvmArgs / ExtraGameArgs 追加参数。</summary>
+    Sub OnGameLaunching(Info As PluginLaunchInfo)
+    ''' <summary>游戏进程刚启动后调用，此时 Info.ProcessId 可用。</summary>
+    Sub OnGameLaunched(Info As PluginLaunchInfo)
+End Interface
+
+''' <summary>
 ''' 提供给插件的宿主对象。
 ''' </summary>
 Public Class PluginHost
@@ -534,6 +631,53 @@ Public Class PluginHost
     ''' <summary>在资源管理器中打开插件目录。</summary>
     Public Sub OpenFolder()
         ModPlugin.OpenFolder()
+    End Sub
+
+    ''' <summary>当前选中的游戏版本名（未选择时返回空字符串）。</summary>
+    Public ReadOnly Property InstanceName As String
+        Get
+            If McInstanceSelected Is Nothing Then Return ""
+            Return If(McInstanceSelected.Name, "")
+        End Get
+    End Property
+
+    ''' <summary>当前版本隔离目录（未选择版本时返回空字符串）。</summary>
+    Public ReadOnly Property InstanceFolder As String
+        Get
+            If McInstanceSelected Is Nothing Then Return ""
+            Return If(McInstanceSelected.PathIndie, "")
+        End Get
+    End Property
+
+    ''' <summary>当前登录的玩家名（未登录时返回空字符串）。</summary>
+    Public ReadOnly Property PlayerName As String
+        Get
+            Return If(McLoginName(), "")
+        End Get
+    End Property
+
+    ''' <summary>跳到启动器的主页面。Page 对应 FormMain.PageType 的数值，例如 1 = PageType.Launch。</summary>
+    Public Sub Navigate(Page As Integer)
+        ModBase.RunInUi(Sub()
+                            If ModMain.FrmMain Is Nothing Then Return
+                            ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = CType(Page, FormMain.PageType)})
+                        End Sub)
+    End Sub
+
+    ''' <summary>在 UI 线程执行（插件自己的线程里操作界面时用）。</summary>
+    Public Sub RunInUi(Action As Action)
+        ModBase.RunInUi(Sub() Action.Invoke())
+    End Sub
+
+    ''' <summary>延迟若干毫秒后在 UI 线程执行。</summary>
+    Public Sub RunLater(Milliseconds As Integer, Action As Action)
+        If Milliseconds < 0 Then Milliseconds = 0
+        Dim T As New Threading.Thread(
+            Sub()
+                Threading.Thread.Sleep(Milliseconds)
+                RunInUi(Action)
+            End Sub) With {.IsBackground = True}
+        T.Start()
     End Sub
 
 End Class

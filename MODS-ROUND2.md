@@ -342,3 +342,29 @@ cd F:\PCL2-Source
 - 实现：新增 `AnimateContent()`，对 `PanContent.Children` 逐个做与 `MyPageRight.TriggerEnterAnimation` 同款的三段动画（`AaOpacity` 0→1 / 100ms、`AaTranslateY` 5 / 250ms、`AaTranslateY` 11 / 350ms，每项延迟 +25ms），起始 `RenderTransform = TranslateTransform(0, -16)`。
 - **踩坑**：一开始直接调 `MyPageRight.TriggerEnterAnimation(PanContent)`，会触发 `执行动画失败：在状态为 ContentStay 时触发了 PageOnEnterAnimationFinished 事件` —— 因为该动画内部的完成回调要走 MyPageRight 的状态机（`ContentEnter → ContentStay`），页面已经在 `ContentStay` 时手动调用就会状态冲突。所以改为自建等价的 AniData 列表，只做视觉、不碰状态机。
 - 验证：切换瞬间逐帧采样卡片像素，`(34,45,68) → (29,38,58) → (33,43,65) → (34,45,68)`，约 100ms 完成淡入，与原生页面节奏一致。
+---
+
+## 17. 插件 API v3：事件钩子、更多设置类型、宿主增强
+
+**为什么要做**：v2 只能注册「页面 / 入口 / 设置项」，插件拿到控制权只有 `OnLoad` 一次；想在页面切换、游戏启动前后做点事就没办法。
+
+**`IPclPluginEvents`（新接口，可选实现）**
+- `OnLauncherReady()`：启动器初始化完成、所有插件加载后调一次（`FormMain` 初始化线程末尾 `RunInUi` 里 `ModPlugin.RaiseLauncherReady()`）。
+- `OnPageChanged(Page, SubType)`：主页面切换后触发（`FormMain.PageChange` 与 `PageChangeActual` 两处调用 `RaisePageChanged`）。
+- `OnGameLaunching(Info)`：构建启动参数时触发，可向 `Info.ExtraJvmArgs` / `Info.ExtraGameArgs` 追加参数（`ModLaunch.McLaunchArgumentMain` 内追加，`InstanceName` / `InstanceFolder` / `PlayerName` 一并带上）。
+- `OnGameLaunched(Info)`：进程启动后触发，`Info.ProcessId` 可用（`McLaunchRun` 里拿到的 PID 回填）。
+- 所有回调都包在 try/catch 里，插件异常只记日志，不打断启动器；`PluginEventHandlers` 列表由 `CollectUi` 收集，`RemoveUi` 一并移除，避免重载重复触发。
+
+**设置类型扩展**
+- `PluginSettingType` 增加 `Number`（`MinValue` / `MaxValue`，越界夹紧）与 `Choice`（`Options As String()`）。
+- 插件页的 `BuildSettingControl` 相应渲染为「输入框 + 范围提示 + 保存」与「`MyComboBox` 下拉，选中即写入」。
+- 写入仍走 `ModPlugin.SetSetting`，落 `PCL\Plugins\plugins.settings.json`。
+
+**`PluginHost` 增强**
+- 新增 `InstanceName` / `InstanceFolder` / `PlayerName`（当前选中的版本与玩家）。
+- 新增 `Navigate(Page As Integer)`（切主页面，参数为 `FormMain.PageType` 数值）。
+- 新增 `RunInUi(Action)` 与 `RunLater(Milliseconds, Action)`，省得插件自己写 Dispatcher。
+
+**示例插件同步升级到 v1.3.0**：实现 `IPclPluginEvents`（就绪时打日志、页面切换时记一行、启动前后各记一行），设置项变成三类共 3 个（勾选 / 数字 1~5 / 下拉主题），可直接当模板抄。
+
+**文档**：`PLUGIN-DEV.md` 标题升到 API v3，文末追加「API v3 追加内容」（事件接口、设置类型表、`Host` 成员表、版本对照）。
