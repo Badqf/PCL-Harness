@@ -1,4 +1,4 @@
-﻿Imports System.Collections.ObjectModel
+Imports System.Collections.ObjectModel
 Imports System.Globalization
 Imports System.Net.Sockets
 Imports System.Reflection
@@ -484,13 +484,26 @@ Public Class PageLinkMain
     })
 
     '1. 获取服务器配置
+    '开源版本体自带一份默认联机配置，首次使用时自动写到数据目录，用户仍可自行修改
+    Private Const DefaultServerConfig As String = "{""Link"":{""EasyTierVersion"":264,""Downloads"":[""https://ghfast.top/https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip"",""https://gh-proxy.com/https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip"",""https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip""],""Argument"":""--no-tun --relay-all-peer-rpc"",""Peers"":[""tcp://public.easytier.cn:11010""],""MandatoryPeers"":[],""PeersBlackList"":[],""RandomPeer"":0,""DiscoverPeerId"":0,""DiscoverPeer"":""tcp://public.easytier.cn:11010""}}"
+
     Private Sub InitConfig(Task As LoaderTask(Of Integer, Integer))
         If VersionBranchMain <> "Official" Then
             '开源版没有联网配置，改为读取本地的 ServerConfig.json
             UpdateLoadingPage("正在读取本地联机配置……", "读取配置")
             Dim ConfigPath As String = Paths.AppDataThenName & "ServerConfig.json"
             If Not FileUtils.Exists(ConfigPath) Then
-                Throw New Exception($"$未找到联机配置文件。{vbCrLf}请把 ServerConfig.json 放到 {vbLQ}{ConfigPath}{vbRQ} 后再试，格式见 samples\LinkConfig\ServerConfig.example.json。")
+                '首次使用（只有本体、没有配置文件）时自动生成一份默认配置
+                Try
+                    IO.Directory.CreateDirectory(Paths.AppDataThenName)
+                    IO.File.WriteAllText(ConfigPath, DefaultServerConfig, New Text.UTF8Encoding(False))
+                    Logger.Info($"未找到联机配置，已写入默认配置：{ConfigPath}")
+                Catch ex As Exception
+                    Logger.Warn(ex, $"写入默认联机配置失败：{ConfigPath}")
+                End Try
+            End If
+            If Not FileUtils.Exists(ConfigPath) Then
+                Throw New Exception($"$未找到联机配置文件，且自动生成失败。{vbCrLf}请手动把 ServerConfig.json 放到 {vbLQ}{ConfigPath}{vbRQ} 后再试，格式见 samples\LinkConfig\ServerConfig.example.json。")
             End If
             Try
                 ServerConfig = JObject.Parse(IO.File.ReadAllText(ConfigPath))
@@ -578,6 +591,10 @@ Public Class PageLinkMain
             '清理
             FileUtils.Delete(PathEasyTier & "EasyTier.zip")
             Settings.Set("LinkEasyTierVersion", ServerVersion)
+            '解压后必须拿到可执行文件，否则给出可读的错误
+            If Not (FileUtils.Exists(PathEasyTier & "联机模块.exe") AndAlso FileUtils.Exists(PathEasyTier & "联机模块 CLI.exe")) Then
+                Throw New Exception($"$联机模块解压失败：{PathEasyTier} 中没有找到可执行文件。{vbCrLf}请检查网络能否访问 GitHub，或手动下载 EasyTier 2.6.4 并将 easytier-core.exe / easytier-cli.exe 重命名后放入该目录。")
+            End If
         End If
         Task.Progress = 0.07
         '获取节点列表

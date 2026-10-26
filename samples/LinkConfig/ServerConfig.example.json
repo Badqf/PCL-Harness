@@ -2,6 +2,8 @@
   "Link": {
     "EasyTierVersion": 264,
     "Downloads": [
+      "https://ghfast.top/https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip",
+      "https://gh-proxy.com/https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip",
       "https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip"
     ],
     "Argument": "--no-tun --relay-all-peer-rpc",
