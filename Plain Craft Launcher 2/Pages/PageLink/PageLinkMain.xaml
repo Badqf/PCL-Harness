@@ -200,12 +200,9 @@
                 </local:MyCard>
             </Grid>
         </Grid>
-        <Grid x:Name="PanAlways" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="15">
-            <StackPanel HorizontalAlignment="Center">
-                <TextBlock Text="目前为实验性功能，具体可用性待测试！" FontSize="12.5" HorizontalAlignment="Center" Margin="0,0,0,6"
-                           Foreground="{DynamicResource ColorBrushRedLight}" Opacity="0.85" />
-                <local:MyTextButton Text="示例文本 www.meloong.com" Opacity="0.15" HorizontalAlignment="Center" />
-            </StackPanel>
+        <Grid x:Name="PanAlways" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="15" Opacity="0.8">
+            <TextBlock Text="目前为实验性功能，具体可用性待测试！" FontSize="12.5" HorizontalAlignment="Center"
+                       Foreground="{DynamicResource ColorBrushRedLight}" />
         </Grid>
     </Grid>
 </local:MyPageRight>
