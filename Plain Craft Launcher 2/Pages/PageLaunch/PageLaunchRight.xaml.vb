@@ -1,4 +1,4 @@
-Imports System.Windows.Threading
+﻿Imports System.Windows.Threading
 
 Public Class PageLaunchRight
     Implements IRefreshable, IDispatcherUnhandledException
@@ -35,7 +35,7 @@ Public Class PageLaunchRight
             Case 1
                 '加载本地文件
                 Logger.Info("主页自定义数据来源：本地文件")
-                Content = FileUtils.TryReadAsString(Paths.Base & "PCL\Custom.xaml")
+                Content = FileUtils.TryReadAsString(Paths.BaseThenName & "Custom.xaml")
             Case 2
                 '联网下载
                 Url = Settings.Get(Of String)("UiCustomNet")

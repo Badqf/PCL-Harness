@@ -1,4 +1,4 @@
-Public Module ModWatcher
+﻿Public Module ModWatcher
 
     '对全体的监视
     Public McWatcherList As New List(Of Watcher)
@@ -366,7 +366,7 @@ Public Module ModWatcher
                     Analyzer.Prepare()
                     Analyzer.Analyze()
                     Analyzer.Output(False, New List(Of String) From
-                        {Instance.PathVersion & Instance.Name & ".json", Paths.Base & "PCL\Log1.txt", Paths.Base & "PCL\LatestLaunch.bat"})
+                        {Instance.PathVersion & Instance.Name & ".json", Paths.BaseThenName & "Log1.txt", Paths.BaseThenName & "LatestLaunch.bat"})
                 Catch ex As Exception
                     Logger.Error(ex, "崩溃分析失败")
                 End Try

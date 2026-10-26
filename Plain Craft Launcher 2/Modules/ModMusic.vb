@@ -1,4 +1,4 @@
-Imports NAudio.Wave
+﻿Imports NAudio.Wave
 
 Public Module ModMusic
 
@@ -23,8 +23,8 @@ Public Module ModMusic
             '初始化全部可用音乐列表
             If MusicAllList Is Nothing Then
                 MusicAllList = New List(Of String)
-                DirectoryUtils.Create(Paths.Base & "PCL\Musics\")
-                For Each File In DirectoryUtils.EnumerateFiles(Paths.Base & "PCL\Musics\", True)
+                DirectoryUtils.Create(Paths.BaseThenName & "Musics\")
+                For Each File In DirectoryUtils.EnumerateFiles(Paths.BaseThenName & "Musics\", True)
                     '文件夹可能会被加入 .ini 文件夹配置文件、一些乱七八糟的 .jpg 文件啥的
                     If {"ini", "jpg", "txt", "cfg", "lrc", "db", "png"}.Contains(PathUtils.GetExtension(File)) Then Continue For
                     MusicAllList.Add(File)

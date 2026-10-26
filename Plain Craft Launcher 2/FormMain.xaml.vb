@@ -391,6 +391,14 @@ Public Class FormMain
         'Timer 启动
         AniStart()
         TimerMainStart()
+        '首次启动指引（PCLHarness 独立配置目录 + 旧 PCL 数据迁移）
+        If ModFirstRun.IsFirstRun() Then
+            RunInNewThread(
+                Sub()
+                    Threading.Thread.Sleep(900)
+                    RunInUi(Sub() ModFirstRun.ShowWizardIfNeeded())
+                End Sub, "FirstRun Wizard", ThreadPriority.BelowNormal)
+        End If
         '加载池
         RunInNewThread(
         Sub()
@@ -422,7 +430,7 @@ Public Class FormMain
             End Try
             '清理自动更新文件
             Try
-                FileUtils.Delete(Paths.Base & "PCL\Plain Craft Launcher 2.exe")
+                FileUtils.Delete(Paths.BaseThenName & "Plain Craft Launcher 2.exe")
             Catch ex As Exception
                 Logger.Warn(ex, "清理自动更新文件失败")
             End Try
@@ -440,7 +448,7 @@ Public Class FormMain
                 End Sub, "PluginLoad", ThreadPriority.BelowNormal)
             '开源版本提示（可在 设置 → 启动 中重新打开）
             If VersionBranchMain = "OpenSource" AndAlso Settings.Get(Of Boolean)("HarnessOpenSourceTip") Then
-                Dim Msg As String = $"该版本中无法使用以下特性：{vbCrLf}- CurseForge API 调用：需要自行申请 API Key，然后添加到 ModSecret.vb 的开头{vbCrLf}- 正版登录：需要自行向微软申请 Client ID，然后添加到 ModSecret.vb 的开头{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……"
+                Dim Msg As String = $"该版本中无法使用以下特性：{vbCrLf}- CurseForge API：未配置 Key 时自动走镜像源，可在 PCLHarness\Secrets.json 里填 CurseForgeApiKey 直连官方{vbCrLf}- 正版登录：需要微软 Client ID，填到 PCLHarness\Secrets.json 的 MsClientId（或环境变量 PCL_MS_CLIENT_ID）{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……"
                 If MyMsgBox(Msg, "开源版本说明", "我知道了", "不再显示") = 2 Then
                     Settings.Set("HarnessOpenSourceTip", False)
                     Hint("已关闭启动时的开源版本说明，可在 设置 → 启动 中重新打开")
@@ -516,8 +524,8 @@ Public Class FormMain
                      "多谢各位的理解啦！", "重新解锁提醒")
         End If
         '移动自定义皮肤
-        If LastVersionCode <= 161 AndAlso FileUtils.Exists(Paths.Base & "PCL\CustomSkin.png") AndAlso Not FileUtils.Exists(Paths.AppDataThenName & "CustomSkin.png") Then
-            FileUtils.Copy(Paths.Base & "PCL\CustomSkin.png", Paths.AppDataThenName & "CustomSkin.png")
+        If LastVersionCode <= 161 AndAlso FileUtils.Exists(Paths.BaseThenName & "CustomSkin.png") AndAlso Not FileUtils.Exists(Paths.AppDataThenName & "CustomSkin.png") Then
+            FileUtils.Copy(Paths.BaseThenName & "CustomSkin.png", Paths.AppDataThenName & "CustomSkin.png")
             Logger.Info("已移动离线自定义皮肤 (162)")
         End If
         If LastVersionCode <= 263 AndAlso FileUtils.Exists(PathTemp & "CustomSkin.png") AndAlso Not FileUtils.Exists(Paths.AppDataThenName & "CustomSkin.png") Then
@@ -630,7 +638,7 @@ Public Class FormMain
                 FeedbackInfo()
                 Logger.Info("请在 https://github.com/Meloong-Git/PCL/issues 提交错误报告，以便于作者解决此问题！")
                 IsLogShown = True
-                StartProcess(Paths.Base & "PCL\Log1.txt")
+                StartProcess(Paths.BaseThenName & "Log1.txt")
             End If
             Thread.Sleep(500) '防止 PCL 在记事本打开前就被掐掉
         End If
@@ -802,7 +810,7 @@ Public Class FormMain
                     FrmSetupUI.PanLogoChange.Visibility = Visibility.Visible
                 End If
                 Try
-                    ImageTitleLogo.Source = Paths.Base & "PCL\Logo.png"
+                    ImageTitleLogo.Source = Paths.BaseThenName & "Logo.png"
                 Catch ex As Exception
                     ImageTitleLogo.Source = Nothing
                     Logger.Error(ex, "显示标题栏图片失败", LogBehavior.Alert)
@@ -1090,12 +1098,12 @@ Public Class FormMain
             Dim Extension As String = FilePath.AfterLast(".").Lower
             If Extension = "xaml" Then
                 Logger.Info("文件后缀为 XAML，作为主页加载")
-                If FileUtils.Exists(Paths.Base & "PCL\Custom.xaml") Then
+                If FileUtils.Exists(Paths.BaseThenName & "Custom.xaml") Then
                     If MyMsgBox("已存在一个主页文件，是否要将它覆盖？", "覆盖确认", "覆盖", "取消") = 2 Then
                         Return
                     End If
                 End If
-                FileUtils.Copy(FilePath, Paths.Base & "PCL\Custom.xaml")
+                FileUtils.Copy(FilePath, Paths.BaseThenName & "Custom.xaml")
                 RunInUi(
                 Sub()
                     Settings.Set("UiCustomType", 1)

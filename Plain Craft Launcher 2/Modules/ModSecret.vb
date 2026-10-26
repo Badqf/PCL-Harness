@@ -1,4 +1,4 @@
-'由于包含加解密等安全信息，本文件中的部分代码已被删除
+﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -40,7 +40,7 @@ Friend Module ModSecret
     Private Sub LoadSecrets()
         _SecretsLoaded = True
         Try
-            Dim SecretsPath As String = Paths.Base & "PCL\Secrets.json"
+            Dim SecretsPath As String = Paths.BaseThenName & "Secrets.json"
             If Not IO.File.Exists(SecretsPath) Then Return
             _Secrets = Newtonsoft.Json.Linq.JObject.Parse(IO.File.ReadAllText(SecretsPath))
             Logger.Info($"已读取可选凭据：{SecretsPath}")

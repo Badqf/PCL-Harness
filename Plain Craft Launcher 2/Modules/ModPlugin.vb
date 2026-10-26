@@ -14,9 +14,9 @@ Public Module ModPlugin
     Public Const ManifestFileName As String = "plugin.json"
 
     ''' <summary>
-    ''' 插件根目录（%启动器目录%\PCL\Plugins）。
+    ''' 插件根目录（%启动器目录%\PCLHarness\Plugins）。
     ''' </summary>
-    Public ReadOnly Property PathPluginRoot As String = Path.Combine(Paths.Base.TrimEnd("\"c), "PCL", "Plugins")
+    Public ReadOnly Property PathPluginRoot As String = Path.Combine(Paths.BaseThenName.TrimEnd("\"c), "Plugins")
     Private ReadOnly Property PathEnabledFile As String = Path.Combine(PathPluginRoot, "plugins.json")
     Public ReadOnly Property PathSettingsFile As String = Path.Combine(PathPluginRoot, "plugins.settings.json")
 

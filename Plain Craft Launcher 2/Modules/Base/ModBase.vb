@@ -473,7 +473,7 @@ Public Module ModBase
     ''' </summary>
     ''' <param name="FileName">文件完整路径或简写文件名。简写将会使用“ApplicationName\文件名.ini”作为路径。</param>
     Public Sub IniClearCache(FileName As String)
-        If Not FileName.Contains(":\") Then FileName = $"{Paths.Base}PCL\{FileName}.ini"
+        If Not FileName.Contains(":\") Then FileName = $"{Paths.BaseThenName}{FileName}.ini"
         IniCache.Remove(FileName)
     End Sub
     ''' <summary>
@@ -484,7 +484,7 @@ Public Module ModBase
     Private Function IniGetContent(FileName As String) As ConcurrentDictionary(Of String, String)
         Try
             '还原文件路径
-            If Not FileName.Contains(":\") Then FileName = $"{Paths.Base}PCL\{FileName}.ini"
+            If Not FileName.Contains(":\") Then FileName = $"{Paths.BaseThenName}{FileName}.ini"
             '检索缓存
             Dim Cache As ConcurrentDictionary(Of String, String) = Nothing
             If IniCache.TryGetValue(FileName, Cache) Then Return Cache
@@ -558,7 +558,7 @@ Public Module ModBase
                 FileContent.Append(Pair.Value)
                 FileContent.Append(vbCrLf)
             Next
-            If Not FileName.Contains(":\") Then FileName = $"{Paths.Base}PCL\{FileName}.ini"
+            If Not FileName.Contains(":\") Then FileName = $"{Paths.BaseThenName}{FileName}.ini"
             '处理相对路径
             FileName = If(FileName.Contains(":\"), FileName, Paths.Base & FileName)
             FileUtils.Write(FileName, FileContent.ToString)
@@ -791,7 +791,7 @@ Public Module ModBase
     Public PathPure As Lazy(Of String) = New Lazy(Of String)(
     Function()
         If Paths.Base.IsAsciiOnly() Then
-            Return Paths.Base & "PCL\"
+            Return Paths.BaseThenName
         ElseIf Paths.AppDataThenName.IsAsciiOnly() Then
             Return Paths.AppDataThenName
         ElseIf PathTemp.IsAsciiOnly() Then

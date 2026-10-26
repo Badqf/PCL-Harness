@@ -1,4 +1,4 @@
-Public Class PageSetupUI
+﻿Public Class PageSetupUI
 
     Private Sub PageSetupUI_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         '重复加载部分
@@ -73,7 +73,7 @@ Public Class PageSetupUI
 
     '背景图片
     Private Sub BtnUIBgOpen_Click(sender As Object, e As EventArgs) Handles BtnBackgroundOpen.Click
-        OpenExplorer(Paths.Base & "PCL\Pictures\")
+        OpenExplorer(Paths.BaseThenName & "Pictures\")
     End Sub
     Private Sub BtnBackgroundRefresh_Click(sender As Object, e As EventArgs) Handles BtnBackgroundRefresh.Click
         BackgroundRefresh(True, True)
@@ -97,7 +97,7 @@ Public Class PageSetupUI
     End Sub
     Private Sub BtnBackgroundClear_Click(sender As Object, e As EventArgs) Handles BtnBackgroundClear.Click
         If MyMsgBox("即将删除背景图片文件夹中的所有文件。" & vbCrLf & "此操作不可撤销，是否确定？", "警告",, "取消", IsWarn:=True) = 1 Then
-            DirectoryUtils.Delete(Paths.Base & "PCL\Pictures")
+            DirectoryUtils.Delete(Paths.BaseThenName & "Pictures")
             BackgroundRefresh(False, True)
             Hint("背景图片已清空！", HintType.Green)
         End If
@@ -111,9 +111,9 @@ Public Class PageSetupUI
         Try
 
             '获取可用的图片文件
-            DirectoryUtils.Create(Paths.Base & "PCL\Pictures\")
+            DirectoryUtils.Create(Paths.BaseThenName & "Pictures\")
             Dim Pic As New List(Of String)
-            For Each File In DirectoryUtils.EnumerateFiles(Paths.Base & "PCL\Pictures\", True)
+            For Each File In DirectoryUtils.EnumerateFiles(Paths.BaseThenName & "Pictures\", True)
                 Dim Extension As String = PathUtils.GetExtension(File)
                 If Extension <> "ini" AndAlso Extension <> "db" Then Pic.Add(File) '文件夹可能会被加入 .ini 和 thumbs.db
             Next
@@ -157,7 +157,7 @@ Public Class PageSetupUI
     Private Sub BtnLogoChange_Click(sender As Object, e As EventArgs) Handles BtnLogoChange.Click
         Dim FileName As String = Dialogs.SelectFile("选择图片", False, filter:={({"png", "jpg", "jpeg", "gif", "webp"}, "常用图片文件")}).FirstOrDefault()
         If String.IsNullOrEmpty(FileName) Then Return
-        Dim TargetPath As String = Paths.Base & "PCL\Logo.png"
+        Dim TargetPath As String = Paths.BaseThenName & "Logo.png"
         Try
             '复制文件
             FileUtils.Copy(FileName, TargetPath)
@@ -177,7 +177,7 @@ Public Class PageSetupUI
         If Not (AniControlEnabled = 0 AndAlso e.RaiseByMouse) Then Return
 Refresh:
         '已有图片则不再选择
-        Dim TargetPath As String = Paths.Base & "PCL\Logo.png"
+        Dim TargetPath As String = Paths.BaseThenName & "Logo.png"
         If FileUtils.Exists(TargetPath) Then
             Try
                 FrmMain.ImageTitleLogo.Source = Nothing '防止因为 Source 属性前后的值相同而不更新 (#5628)
@@ -214,7 +214,7 @@ Refresh:
     End Sub
     Private Sub BtnLogoDelete_Click(sender As Object, e As EventArgs) Handles BtnLogoDelete.Click
         Try
-            FileUtils.Delete(Paths.Base & "PCL\Logo.png")
+            FileUtils.Delete(Paths.BaseThenName & "Logo.png")
             RadioLogoType1.SetChecked(True, True)
             Hint("标题栏图片已清空！", HintType.Green)
         Catch ex As Exception
@@ -224,7 +224,7 @@ Refresh:
 
     '背景音乐
     Private Sub BtnMusicOpen_Click(sender As Object, e As EventArgs) Handles BtnMusicOpen.Click
-        OpenExplorer(Paths.Base & "PCL\Musics\")
+        OpenExplorer(Paths.BaseThenName & "Musics\")
     End Sub
     Private Sub BtnMusicRefresh_Click(sender As Object, e As EventArgs) Handles BtnMusicRefresh.Click
         MusicRefreshPlay(True)
@@ -236,7 +236,7 @@ Refresh:
             PanMusicDetail.Visibility = Visibility.Visible
             BtnMusicClear.Visibility = Visibility.Visible
             CardMusic.Title = "背景音乐（" &
-                DirectoryUtils.EnumerateFiles(Paths.Base & "PCL\Musics\", True).Count(Function(f) Not {"ini", "jpg", "txt", "cfg", "lrc", "db", "png"}.Contains(PathUtils.GetExtension(f))) &
+                DirectoryUtils.EnumerateFiles(Paths.BaseThenName & "Musics\", True).Count(Function(f) Not {"ini", "jpg", "txt", "cfg", "lrc", "db", "png"}.Contains(PathUtils.GetExtension(f))) &
                 " 首）"
         Else
             PanMusicVolume.Visibility = Visibility.Collapsed
@@ -258,13 +258,13 @@ Refresh:
                 Thread.Sleep(200)
                 '删除文件
                 Try
-                    DirectoryUtils.Delete(Paths.Base & "PCL\Musics")
+                    DirectoryUtils.Delete(Paths.BaseThenName & "Musics")
                     Hint("背景音乐已删除！", HintType.Green)
                 Catch ex As Exception
                     Logger.Error(ex, "删除背景音乐失败", LogBehavior.Alert)
                 End Try
                 Try
-                    DirectoryUtils.Create(Paths.Base & "PCL\Musics\")
+                    DirectoryUtils.Create(Paths.BaseThenName & "Musics\")
                     RunInUi(Sub() MusicRefreshPlay(False))
                 Catch ex As Exception
                     Logger.Error(ex, "重建背景音乐文件夹失败", LogBehavior.Alert)
@@ -284,12 +284,12 @@ Refresh:
     '主页
     Private Sub BtnCustomFile_Click(sender As Object, e As EventArgs) Handles BtnCustomFile.Click
         Try
-            If FileUtils.Exists(Paths.Base & "PCL\Custom.xaml") Then
+            If FileUtils.Exists(Paths.BaseThenName & "Custom.xaml") Then
                 If MyMsgBox("当前已存在布局文件，继续生成教学文件将会覆盖现有布局文件！", "覆盖确认", "继续", "取消", IsWarn:=True) = 2 Then Return
             End If
-            ExtractResources(Paths.Base & "PCL\Custom.xaml", "Custom")
+            ExtractResources(Paths.BaseThenName & "Custom.xaml", "Custom")
             Hint("教学文件已生成！", HintType.Green)
-            OpenExplorer(Paths.Base & "PCL\Custom.xaml")
+            OpenExplorer(Paths.BaseThenName & "Custom.xaml")
         Catch ex As Exception
             Logger.Error(ex, "生成教学文件失败")
         End Try

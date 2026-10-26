@@ -1,4 +1,4 @@
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.ObjectModel
 Imports System.Windows.Interop
 Imports System.Windows.Threading
 
@@ -577,8 +577,8 @@ EndHint:
                 Try
                     Dim IgnoreList As New List(Of String)
                     '读取自定义文件
-                    If DirectoryUtils.Exists(Paths.Base & "PCL\Help\") Then
-                        For Each File In DirectoryUtils.EnumerateFiles(Paths.Base & "PCL\Help\", True)
+                    If DirectoryUtils.Exists(Paths.BaseThenName & "Help\") Then
+                        For Each File In DirectoryUtils.EnumerateFiles(Paths.BaseThenName & "Help\", True)
                             Select Case PathUtils.GetExtension(File)
                                 Case "helpignore"
                                     '加载忽略列表
@@ -966,7 +966,7 @@ NextFile:
         On Error Resume Next
         FeedbackInfo()
         If ForceOpenLog OrElse (ShowMsgbox AndAlso MyMsgBox("若你在汇报一个 Bug，请点击 打开文件夹 按钮，并上传 Log(1~5).txt 中包含错误信息的文件。" & vbCrLf & "游戏崩溃一般与启动器无关，请不要因为游戏崩溃而提交反馈。", "反馈提交提醒", "打开文件夹", "不需要") = 1) Then
-            OpenExplorer(Paths.Base & "PCL\Log1.txt")
+            OpenExplorer(Paths.BaseThenName & "Log1.txt")
         End If
         OpenWebsite("https://github.com/Meloong-Git/PCL/issues/")
     End Sub
