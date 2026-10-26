@@ -1,4 +1,4 @@
-<local:MyPageRight
+﻿<local:MyPageRight
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -200,8 +200,12 @@
                 </local:MyCard>
             </Grid>
         </Grid>
-        <Grid x:Name="PanAlways" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="15" Opacity="0.5">
-            <local:MyTextButton Text="示例文本 www.meloong.com" Opacity="0.4" />
+        <Grid x:Name="PanAlways" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="15">
+            <StackPanel HorizontalAlignment="Center">
+                <TextBlock Text="目前为实验性功能，具体可用性待测试！" FontSize="12.5" HorizontalAlignment="Center" Margin="0,0,0,6"
+                           Foreground="{DynamicResource ColorBrushRedLight}" Opacity="0.85" />
+                <local:MyTextButton Text="示例文本 www.meloong.com" Opacity="0.15" HorizontalAlignment="Center" />
+            </StackPanel>
         </Grid>
     </Grid>
 </local:MyPageRight>
