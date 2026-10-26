@@ -305,3 +305,27 @@ cd F:\PCL2-Source
 
 - 本仓库 `F:\PCL2-Source` 已 `git init`，基线提交为 `baseline: PCL Harness 3.0.0 …`（`bin/`、`obj/` 已在 `.gitignore` 里排除）。
 - 这两个问题的改动全部在分支 `feature/ms-login-and-curseforge` 上，可单独 cherry-pick 或整体合并。
+### 16.5 没有信用卡 / 没有学校账号时，正版登录还有哪些路
+
+**结论先说：没有「用个人微软账号 + 不绑卡」就能自建租户的官方路径。** 租户是注册应用的前提，而租户的前提是 Azure 账号（活跃订阅），Azure 免费账号的注册又要手机 + 信用卡预授权。所以下面几条是替代，不是绕开：
+
+| 路径 | 要不要卡 | 能做什么 | 代价 / 限制 |
+| --- | --- | --- | --- |
+| **A. 加入别人的租户（guest）** | 不要 | 在对方租户里注册自己的应用，拿到 Client ID，正版登录完整可用 | 需要认识一个有租户的人（Azure / M365 都行）；对方要给你 `Application Developer` 角色，或在「用户设置」里允许用户注册应用；离开租户即失效 |
+| **B. 外置登录（LittleSkin / Authlib-Injector）** | 不要 | 用皮肤站账号登录，进支持外置登录的服务器；皮肤、披风正常 | 不是 Mojang 正版身份，进不了只认正版服的服务器；**必须先装一个游戏版本才有入口**（见下） |
+| **C. 离线登录** | 不要 | 单机、局域网、离线服 | 无正版身份，部分服务器拒绝 |
+| **D. 借用公开 Client ID（灰色）** | 不要 | 技术上能跑通设备代码流 | **不推荐**：违反 Microsoft 使用条款，随时被吊销；令牌经过别人的应用，账号安全不受控。仓库不内置、不提供任何具体 ID |
+
+**已验证的事实（2026-10，本机实测）**
+- LittleSkin 的 Yggdrasil 端点 `https://littleskin.cn/api/yggdrasil` 返回 200，`meta.serverName = LittleSkin`，`implementationName = Yggdrasil Connect 0.0.8`，`signaturePublickey` 800 字符 —— 协议层可用。
+- `authlib-injector` 最新版 **1.2.8**，主源 `https://authlib-injector.yushi.moe/artifact/latest.json` 与 BMCLAPI 镜像 `https://bmclapi2.bangbang93.com/mirrors/authlib-injector/artifact/latest.json` 都返回 200，PCL 里两条都会走（`ModMinecraft.vb:2105` 起，含镜像替换）。
+
+**外置登录在 PCL 里的入口（为什么很多人找不到）**
+- 登录类型是 `McLoginType.Auth`（`PageLaunchLeft.xaml.vb:357-362`），标签取 `CacheAuthServerName` / 版本级 `VersionServerAuthName`，为空时显示「第三方登录」。
+- 它绑定在**版本**上：没选版本时点它只会提示「请先下载游戏，再设置第三方登录！」（`FormMain.xaml.vb:1005`）。所以顺序是 **先装游戏 → 再配置 authlib 服务器**。
+- 两种配置方式：① 在「版本设置 → 设置 → 服务器选项」里填 authlib 服务器地址（PCL 自带「覆盖为 LittleSkin 登录」按钮，`PageInstanceSetup.xaml.vb:378`）；② 点 `authlib-injector:yggdrasil-server:<url>` 协议链接，PCL 会自动接管（`FormMain.xaml.vb:967-1022`）。
+- 启动时会把 `authlib-injector.jar` 作为 `-javaagent` 注入，并传 `-Dauthlibinjector.yggdrasil.prefetched=<base64(服务器元数据)>`（`ModLaunch.vb:1287-1291`）。
+
+**不建议**：用虚拟信用卡凑 Azure 验证去过免费额度。涉及资金与合规风险，而且订阅到期/被风控会连累租户。
+
+**如果以后拿到 Client ID**：直接填 `PCL\Secrets.json` 的 `MsClientId`（或环境变量 `PCL_MS_CLIENT_ID`）即可，代码侧不需要再改。
