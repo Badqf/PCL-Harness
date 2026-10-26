@@ -368,3 +368,42 @@ cd F:\PCL2-Source
 **示例插件同步升级到 v1.3.0**：实现 `IPclPluginEvents`（就绪时打日志、页面切换时记一行、启动前后各记一行），设置项变成三类共 3 个（勾选 / 数字 1~5 / 下拉主题），可直接当模板抄。
 
 **文档**：`PLUGIN-DEV.md` 标题升到 API v3，文末追加「API v3 追加内容」（事件接口、设置类型表、`Host` 成员表、版本对照）。
+
+---
+
+## 19. 独立配置目录与首次启动指引
+
+**目标**：PCL Harness 不再与原版 PCL 抢同一套配置，同时让老用户一键把 PCL 的设置/插件搬过来。
+
+**目录分离（`Application.xaml.vb:10`）**
+- `MeloongCore.Main.Init("PCLHarness")` —— `Paths.BaseThenName` / `Paths.AppDataThenName` 随之变成：
+  - 配置与缓存：`<启动器目录>\PCLHarness\`（Setup.ini、Plugins、EasyTier、Pictures、Musics、Log1.txt、Secrets.json、FirstRun.done）
+  - 用户数据：`%AppData%\PCLHarness\`（config.json、ServerConfig.json、CustomSkin.png 等）
+- 启动器级路径引用全量替换为 `Paths.BaseThenName`（12 个文件、40 余处）；插件根目录改为 `PCLHarness\Plugins`。
+- 游戏目录内的版本级设置 `<version>\PCL\Setup.ini` **保持原样**，保证和官方 PCL 的版本文件夹互通。
+- 注册表仍用 `HKCU\Software\PCLDebug`，与官方的 `HKCU\Software\PCL` 本来就是分开的。
+
+**首次启动指引（`Modules\ModFirstRun.vb`）**
+- 触发：`<启动器目录>\PCLHarness\FirstRun.done` 不存在；`FormMain` 加载完成后 900ms 弹出（`FormMain.xaml.vb` 的 `FormMain_Loaded`）。
+- 窗口尺寸按屏幕工作区自适应：`Width = Min(500, WorkArea.Width * 0.9)`、`Height = Min(420, WorkArea.Height * 0.8)`——固定 640×540 在小屏笔记本上占比过大（早期版本被用户指出「窗口太大」）。无边框圆角卡片、跟随主题；顶部说明两个新目录，下面按「旧目录里确实存在」逐项列出（项目多时中间列表可滚动，按钮行固定在底部 `Auto` 行）：
+  1. 启动器设置（`PCL\Setup.ini`，覆盖写入——新目录里的 Setup.ini 只是启动时刚生成的默认值）
+  2. 插件（`PCL\Plugins`，递归合并、只补缺失文件）
+  3. 联机模块（`PCL\EasyTier`，同上）
+  4. 自定义图片与音乐（`PCL\Pictures`）
+  5. 启动器数据（`%AppData%\PCL`，递归合并）
+  6. 凭据文件 `Secrets.json`、`Custom.xaml` / `Logo.png` / `hints.txt` / `CustomSkin.png`（存在才列）
+- 交互：复选框全选默认、「打开旧目录」「跳过，直接使用」「迁移并进入」；迁移后按钮变「完成」，结果行显示 `复制 N 项，跳过 M 项`。Esc = 跳过，Enter = 迁移。
+- 布局要点：外层 `Grid` 三行 `* / Auto / Auto`（滚动列表 / 结果行 / 按钮行），`SizeToContent = Manual`——早期版本用 `SizeToContent` 会让窗口随内容变高、按钮被挤出屏幕；底部按钮行必须 `Auto` 才能始终可见。
+- 迁移完写 `FirstRun.done`，之后不再打扰；无论完成还是跳过都只提示一次。
+- 自动化验证钩子：环境变量 `PCL_FIRSTRUN_AUTORUN=1` 时静默迁移全部存在项并写标记，不弹窗。
+
+**验证**
+- 测试目录 `F:\PCL2-Build2\firstrun-test`（旧 `PCL\` 里放 Setup.ini + Plugins\demo-plugin + EasyTier）：
+  - 自动模式：日志 `旧 PCL 数据迁移完成：复制 7，跳过 0，失败 0`，`PCLHarness\` 下出现 Setup.ini（旧值 `WindowWidth=1200 / WindowHeight=760`）、`Plugins\demo-plugin\plugin.json`、`EasyTier\easytier-core.exe`、`FirstRun.done`。
+  - 交互模式：截图 `截图\47-首次启动指引.png`；点击「迁移并进入」后同样复制 5 项，Enter 关闭后生成标记。窗口实测 520×430（旧版）/ 500×420（自适应版），三按钮完整可见。
+  - 第二次启动日志无「首次启动」字样，窗口直接进入主界面（只剩 PCL 自己的「开源版本说明」首启弹窗）。
+- 启动提示文案同步改写：不再说「改 ModSecret.vb」，改为「填 `PCLHarness\Secrets.json`」。
+
+**已知取舍**
+- 注册表键名保持 `PCLDebug`，未做注册表迁移（窗口大小等会在首次迁移后被旧 Setup.ini 覆盖，其余按默认值重建）。
+- 游戏目录内 `PCL\` 下的版本级配置与 Logo 不迁移也不改名，避免破坏官方 PCL 的兼容性。

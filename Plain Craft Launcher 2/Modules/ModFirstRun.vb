@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Media
@@ -192,9 +192,10 @@ Public Class FirstRunWindow
         WindowStyle = WindowStyle.None
         AllowsTransparency = True
         Background = Brushes.Transparent
-        SizeToContent = SizeToContent.Height
-        Width = 640
-        Height = 540
+        '窗口按屏幕工作区自适应，避免小屏上占太大
+        Dim WorkArea = SystemParameters.WorkArea
+        Width = Math.Min(500, WorkArea.Width * 0.9)
+        Height = Math.Min(420, WorkArea.Height * 0.8)
         SizeToContent = SizeToContent.Manual
         WindowStartupLocation = WindowStartupLocation.CenterScreen
         ShowInTaskbar = False
@@ -203,11 +204,11 @@ Public Class FirstRunWindow
 
         Dim Root As New Border With {
             .CornerRadius = New CornerRadius(8),
-            .Padding = New Thickness(26, 22, 26, 20),
-            .Margin = New Thickness(18)
+            .Padding = New Thickness(18, 14, 18, 12),
+            .Margin = New Thickness(12)
         }
         Root.SetResourceReference(Border.BackgroundProperty, "ColorBrush7")
-        Dim Shadow As New Effects.DropShadowEffect With {.BlurRadius = 16, .ShadowDepth = 3, .RenderingBias = Effects.RenderingBias.Performance, .Opacity = 0.35}
+        Dim Shadow As New Effects.DropShadowEffect With {.BlurRadius = 14, .ShadowDepth = 3, .RenderingBias = Effects.RenderingBias.Performance, .Opacity = 0.35}
         Shadow.Color = Color.FromArgb(90, 0, 0, 0)
         Root.Effect = Shadow
 
@@ -215,14 +216,21 @@ Public Class FirstRunWindow
         Dim Scroller As New ScrollViewer With {
             .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             .HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            .Content = Main
+            .Content = Main,
+            .Margin = New Thickness(0, 0, 0, 4)
         }
-        Root.Child = Scroller
+        '内容区可滚动，按钮固定在底部，避免窗口放大
+        Dim Layout As New Grid
+        Layout.RowDefinitions.Add(New RowDefinition With {.Height = New GridLength(1, GridUnitType.Star)})
+        Layout.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+        Grid.SetRow(Scroller, 0)
+        Layout.Children.Add(Scroller)
+        Root.Child = Layout
 
         Dim TitleText As New TextBlock With {
             .Text = "欢迎使用 PCL Harness",
-            .FontSize = 23,
-            .Margin = New Thickness(3, 0, 0, 8)
+            .FontSize = 18,
+            .Margin = New Thickness(2, 0, 0, 7)
         }
         TitleText.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush2")
         Main.Children.Add(TitleText)
@@ -232,13 +240,13 @@ Public Class FirstRunWindow
 
         Dim Intro As New TextBlock With {
             .TextWrapping = TextWrapping.Wrap,
-            .FontSize = 13.5,
-            .LineHeight = 20,
-            .Margin = New Thickness(1, 12, 1, 10),
-            .Text = "这个版本使用独立的配置目录，不会和原版 PCL 互相覆盖：" & vbCrLf &
+            .FontSize = 12,
+            .LineHeight = 17,
+            .Margin = New Thickness(1, 10, 1, 8),
+            .Text = "这是 PCL Harness 的独立配置目录，不会和原版 PCL 互相覆盖：" & vbCrLf &
                     $"    配置与缓存：{ModFirstRun.PathNewBase}" & vbCrLf &
                     $"    用户数据：{ModFirstRun.PathNewAppData}" & vbCrLf &
-                    "如果本机以前用过 PCL，可以把它的设置、插件等迁移过来；没有用过就直接跳过。"
+                    "如果以前用过 PCL，可以把它的设置、插件等迁移过来；没用过就直接跳过。"
         }
         Intro.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
         Main.Children.Add(Intro)
@@ -257,15 +265,15 @@ Public Class FirstRunWindow
             If Not Item.Exists Then Continue For
             Dim Box As New MyCheckBox With {.Text = "", .VerticalAlignment = VerticalAlignment.Top, .Margin = New Thickness(0, 3, 0, 3)}
             Box.Checked = True
-            Dim Row As New Grid With {.Margin = New Thickness(0, 2, 0, 2)}
-            Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(34)})
+            Dim Row As New Grid With {.Margin = New Thickness(0, 1, 0, 1)}
+            Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(30)})
             Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
             Grid.SetColumn(Box, 0)
             Row.Children.Add(Box)
             Dim Text As New StackPanel
-            Dim T As New TextBlock With {.Text = Item.Title, .FontSize = 13.5}
+            Dim T As New TextBlock With {.Text = Item.Title, .FontSize = 12}
             T.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrush1")
-            Dim D As New TextBlock With {.Text = Item.Description, .FontSize = 11.5, .TextWrapping = TextWrapping.Wrap, .Opacity = 0.75, .Margin = New Thickness(0, 1, 0, 0)}
+            Dim D As New TextBlock With {.Text = Item.Description, .FontSize = 10.5, .TextWrapping = TextWrapping.Wrap, .Opacity = 0.72, .Margin = New Thickness(0, 0, 0, 0)}
             D.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
             Text.Children.Add(T)
             Text.Children.Add(D)
@@ -297,10 +305,10 @@ Public Class FirstRunWindow
         LabResult.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
         Main.Children.Add(LabResult)
 
-        Dim Btns As New StackPanel With {.Orientation = Orientation.Horizontal, .HorizontalAlignment = HorizontalAlignment.Right, .Margin = New Thickness(0, 16, 0, 0)}
-        Dim BtnSkip As New MyButton With {.Text = "跳过，直接使用", .Height = 32, .MinWidth = 120, .Margin = New Thickness(10, 0, 0, 0)}
-        Dim BtnOpen As New MyButton With {.Text = "打开旧目录", .Height = 32, .MinWidth = 110, .Margin = New Thickness(10, 0, 0, 0)}
-        BtnRun = New MyButton With {.Text = "迁移并进入", .Height = 32, .MinWidth = 120, .Margin = New Thickness(10, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
+        Dim Btns As New StackPanel With {.Orientation = Orientation.Horizontal, .HorizontalAlignment = HorizontalAlignment.Right, .Margin = New Thickness(0, 12, 0, 0)}
+        Dim BtnSkip As New MyButton With {.Text = "跳过", .Height = 30, .MinWidth = 84, .Margin = New Thickness(8, 0, 0, 0)}
+        Dim BtnOpen As New MyButton With {.Text = "打开旧目录", .Height = 30, .MinWidth = 96, .Margin = New Thickness(8, 0, 0, 0)}
+        BtnRun = New MyButton With {.Text = "迁移并进入", .Height = 30, .MinWidth = 104, .Margin = New Thickness(8, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
         If TargetItems.Count = 0 Then BtnRun.IsEnabled = False
         AddHandler BtnOpen.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) OpenLegacyFolder()
         AddHandler BtnRun.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) RunMigration()
@@ -308,7 +316,9 @@ Public Class FirstRunWindow
         Btns.Children.Add(BtnOpen)
         Btns.Children.Add(BtnSkip)
         Btns.Children.Add(BtnRun)
-        Main.Children.Add(Btns)
+        '按钮固定在窗口底部，不随内容滚动
+        Grid.SetRow(Btns, 1)
+        Layout.Children.Add(Btns)
 
         AddHandler MouseLeftButtonDown, Sub(sender As Object, e As Input.MouseButtonEventArgs)
                                             Try
