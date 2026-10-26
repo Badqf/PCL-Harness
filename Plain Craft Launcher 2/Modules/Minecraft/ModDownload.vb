@@ -1,4 +1,4 @@
-Public Module ModDownload
+﻿Public Module ModDownload
 
 #Region "DlClient* | Minecraft 客户端"
 
@@ -1306,6 +1306,22 @@ Public Module ModDownload
             })
     End Function
 
+    ''' <summary>
+    ''' 判断图片地址是否位于常见的图片 CDN 上（这些域名在部分网络无法直连）。
+    ''' </summary>
+    Public Function ModImageNeedProxy(Url As String) As Boolean
+        If String.IsNullOrEmpty(Url) Then Return False
+        Return Url.Contains("cdn.modrinth.com") OrElse Url.Contains("cdn-raw.modrinth.com") OrElse
+               Url.Contains("forgecdn.net") OrElse Url.Contains("curseforge.com") OrElse
+               Url.Contains("githubusercontent.com")
+    End Function
+
+    ''' <summary>
+    ''' 通过公共图片代理获取图片。镜像站只会 302 回源到被墙的 CDN，所以这里单独走能取到字节的代理。
+    ''' </summary>
+    Public Function DlSourceModImageProxy(Original As String) As String
+        Return "https://wsrv.nl/?output=png&url=" & Uri.EscapeDataString(Original)
+    End Function
     'Mod 下载源
     Public Function DlSourceModGet(Original As String) As String
         Return Original.

@@ -1,4 +1,4 @@
-''' <summary>
+﻿''' <summary>
 ''' 社区资源的项目信息。
 ''' </summary>
 Public Class ResourceProject
@@ -569,6 +569,10 @@ Public Class ResourceProject
     Public Sub ApplyLogoToMyImage(Img As MyImage)
         If String.IsNullOrEmpty(LogoUrl) Then
             Img.Source = PathImage & "Icons/NoIcon.png"
+        ElseIf ModImageNeedProxy(LogoUrl) Then
+            '部分网络无法直连 Modrinth / CurseForge 的图片 CDN，且镜像只做 302 回源，最终仍会失败
+            Img.Source = DlSourceModImageProxy(LogoUrl)
+            Img.FallbackSource = LogoUrl
         Else
             Img.Source = LogoUrl
             Img.FallbackSource = DlSourceModGet(LogoUrl)
