@@ -1,0 +1,17 @@
+{
+  "Link": {
+    "EasyTierVersion": 264,
+    "Downloads": [
+      "https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-{arch}-v2.6.4.zip"
+    ],
+    "Argument": "--no-tun --relay-all-peer-rpc",
+    "Peers": [
+      "tcp://public.easytier.cn:11010"
+    ],
+    "MandatoryPeers": [],
+    "PeersBlackList": [],
+    "RandomPeer": 0,
+    "DiscoverPeerId": 0,
+    "DiscoverPeer": "tcp://public.easytier.cn:11010"
+  }
+}

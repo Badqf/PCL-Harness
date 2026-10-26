@@ -1,0 +1,14 @@
+<local:MyPageLeft
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="d" x:Class="PagePluginLeft"
+             d:DesignWidth="152" AnimatedControl="PanItem">
+    <StackPanel Margin="0,12,0,0" x:Name="PanItem">
+        <local:MyListItem x:Name="ItemManage" IsScaleAnimationEnabled="False" Checked="True" Tag="0" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="插件管理" Type="RadioBox"
+            LogoScale="0.8" Logo="M52,164c-14,0-31-12-31-31V44c0-19,17-31,31-31h30c9,0,18,4,24,11l17,19h307c19,0,34,15,34,34v56c0,19-15,34-34,34H52z M52,44v56h372V77H121c-4,0-7-2-10-5L96,49c-2-3-5-5-8-5H52z" />
+        <local:MyListItem x:Name="ItemExtend" IsScaleAnimationEnabled="False" Tag="1" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="扩展点" Type="RadioBox"
+            LogoScale="0.9" Logo="M364,0H91C40,0,0,40,0,91v273c0,50,40,91,91,91h273c50,0,91-41,91-91V91C455,40,414,0,364,0z M341,341H113V113h227V341z M933,0H660c-51,0-91,40-91,91v273c0,50,40,91,91,91h273c50,0,90-41,90-91V91C1023,40,983,0,933,0z M910,341H683V113h227V341z M364,568H91c-51,0-91,41-91,91v273c0,50,40,91,91,91h273c50,0,91-41,91-91V659C455,609,414,568,364,568z M341,910H113V683h227V910z M933,568H660c-50,0-91,40-91,91v273c0,50,40,91,91,91h273c50,0,90-41,90-91V659C1023,608,983,568,933,568z M910,910H683V683h227V910z" />
+        <local:MyListItem x:Name="ItemDoc" IsScaleAnimationEnabled="False" Tag="2" MinPaddingRight="35" Height="36" VerticalAlignment="Top" Title="开发说明" Type="RadioBox"
+            LogoScale="0.85" Logo="M128,0C57,0,0,57,0,128v768c0,71,57,128,128,128h768c71,0,128-57,128-128V128C1024,57,967,0,896,0H128z M256,256h512v86H256V256z M256,470h512v86H256V470z M256,683h341v86H256V683z" />
+    </StackPanel>
+</local:MyPageLeft>

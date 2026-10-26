@@ -1,0 +1,61 @@
+3471	/.agents/Shared/架构分析.md
+1677	/.agents/Tests/架构分析.md
+1931	/.agents/Wpf/架构分析.md
+2146	/.agents/仓库指示.md
+9922	/.editorconfig
+2518	/.gitattributes
+6223	/.gitignore
+661	/AGENTS.md
+63	/global.json
+11357	/LICENSE.txt
+14219	/Shared/Extensions/EnumerableExtensions.cs
+7275	/Shared/Extensions/ExceptionExtensions.cs
+18661	/Shared/Extensions/StringExtensions.cs
+440	/Shared/Extensions/TaskExtensions.cs
+2159	/Shared/Extensions/WebExtensions.cs
+2942	/Shared/General/ConcurrentList.cs
+8854	/Shared/General/Config.cs
+17025	/Shared/General/Logger.cs
+3433	/Shared/General/MsDelta.cs
+5171	/Shared/General/OneOf.cs
+9094	/Shared/General/Progress.cs
+9642	/Shared/General/ValueRange.cs
+1471	/Shared/General/Worker/RateLimitedWorker.cs
+9922	/Shared/General/Worker/RedoableWorker.cs
+276	/Shared/Main.cs
+1987	/Shared/MeloongCore.csproj
+11344	/Shared/Utils/CryptographyUtils.cs
+9572	/Shared/Utils/DirectoryUtils.cs
+2150	/Shared/Utils/EnumUtils.cs
+28423	/Shared/Utils/FileUtils.cs
+527	/Shared/Utils/GeneralUtils.cs
+6575	/Shared/Utils/MathUtils.cs
+13963	/Shared/Utils/PathUtils.cs
+3162	/Shared/Utils/RegistryUtils.cs
+8371	/Shared/Utils/StringUtils.cs
+5969	/Shared/Utils/TaskUtils.cs
+516	/Shared/Utils/WebUtils.cs
+4377	/Tests/General/ConfigTest.cs
+2244	/Tests/General/ProgressTest.cs
+1888	/Tests/General/WorkerTest.cs
+2968	/Tests/MeloongCore.Tests.csproj
+136	/Tests/TestFiles/FileUtils/AbsPath ZipSlip.zip
+767	/Tests/TestFiles/FileUtils/Corrupted.zip
+149	/Tests/TestFiles/FileUtils/DotDot ZipSlip.zip
+1041	/Tests/TestFiles/FileUtils/GB Encoding.zip
+1460	/Tests/TestFiles/FileUtils/GZ.gz
+313	/Tests/TestFiles/FileUtils/Not zip.zip
+1221	/Tests/TestFiles/FileUtils/UTF8 Encoding.zip
+1723	/Tests/TestUtils.cs
+1951	/Tests/Utils/CryptographyUtilsTest.cs
+4131	/Tests/Utils/DirectoryUtilsTest.cs
+1816	/Tests/Utils/FileUtilsTest.cs
+6506	/Tests/Utils/PathUtilsTest.cs
+1112	/Tests/Utils/TaskUtilsTest.cs
+21362	/Wpf/Controls/ModernTooltipService.cs
+196	/Wpf/Extensions/WpfExtensions.cs
+4591	/Wpf/General/Dialogs.cs
+3342	/Wpf/General/ValueConverters.cs
+133	/Wpf/Main.cs
+2191	/Wpf/MeloongCore.Wpf.csproj
+367	/Wpf/Utils/WindowsUtils.cs
