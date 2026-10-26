@@ -7,11 +7,48 @@ Friend Module ModSecret
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLDebug"
     '用于微软登录的 ClientId
-    Public OAuthClientId As String = If(Environment.GetEnvironmentVariable("PCL_MS_CLIENT_ID"), "")
+    '优先级：环境变量 PCL_MS_CLIENT_ID > PCL\Secrets.json 的 MsClientId
+    Public ReadOnly Property OAuthClientId As String
+        Get
+            Return SecretValue("MsClientId", "PCL_MS_CLIENT_ID")
+        End Get
+    End Property
     'CurseForge API Key
-    Public CurseForgeAPIKey As String = If(Environment.GetEnvironmentVariable("PCL_CURSEFORGE_API_KEY"), "")
+    '优先级：环境变量 PCL_CURSEFORGE_API_KEY > PCL\Secrets.json 的 CurseForgeApiKey
+    Public ReadOnly Property CurseForgeAPIKey As String
+        Get
+            Return SecretValue("CurseForgeApiKey", "PCL_CURSEFORGE_API_KEY")
+        End Get
+    End Property
     '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
     Public Const ClsBaseUrl As String = ""
+
+    ''' <summary>
+    ''' 读取可选凭据：优先环境变量，其次 exe 同级 PCL\Secrets.json。
+    ''' 文件不存在或解析失败时返回空字符串，只在日志里留一条警告，不影响启动。
+    ''' </summary>
+    Private Function SecretValue(JsonKey As String, EnvironmentKey As String) As String
+        Dim FromEnvironment As String = Environment.GetEnvironmentVariable(EnvironmentKey)
+        If Not String.IsNullOrWhiteSpace(FromEnvironment) Then Return FromEnvironment.Trim()
+        If Not _SecretsLoaded Then LoadSecrets()
+        If _Secrets Is Nothing Then Return ""
+        Dim Token As Object = _Secrets(JsonKey)
+        Return If(Token Is Nothing, "", Token.ToString().Trim())
+    End Function
+    Private _SecretsLoaded As Boolean = False
+    Private _Secrets As Newtonsoft.Json.Linq.JObject = Nothing
+    Private Sub LoadSecrets()
+        _SecretsLoaded = True
+        Try
+            Dim SecretsPath As String = Paths.Base & "PCL\Secrets.json"
+            If Not IO.File.Exists(SecretsPath) Then Return
+            _Secrets = Newtonsoft.Json.Linq.JObject.Parse(IO.File.ReadAllText(SecretsPath))
+            Logger.Info($"已读取可选凭据：{SecretsPath}")
+        Catch ex As Exception
+            Logger.Warn(ex, "读取 PCL\Secrets.json 失败，将忽略其中的凭据")
+        End Try
+    End Sub
+
 
 #Region "网络鉴权"
 

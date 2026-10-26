@@ -1180,7 +1180,10 @@ Public Module ModDownload
         Dim Urls As New List(Of (Url As String, Timeout As Integer))
         Dim McimUrl As String = DlSourceModGet(Url)
         If McimUrl <> Url Then
-            Select Case Settings.Get(Of Integer)("ToolDownloadMod")
+            '开源版没有 CurseForge 官方 Key，直接打官方 API 只会拿到 403，所以这时强制优先镜像
+            Dim SourceMode As Integer = Settings.Get(Of Integer)("ToolDownloadMod")
+            If String.IsNullOrWhiteSpace(CurseForgeAPIKey) AndAlso Url.Contains("api.curseforge.com") Then SourceMode = 0
+            Select Case SourceMode
                 Case 0
                     Urls.Add((McimUrl, 10))
                     Urls.Add((McimUrl, 10))

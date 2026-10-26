@@ -870,11 +870,24 @@ LoginFinish:
     End Function
 
     '微软登录步骤 1，原始登录：获取 DeviceCode 并开启登录网页
+    ''' <summary>
+    ''' 检查微软登录用的 Client ID 是否已配置；没配置时给出可以直接照做的提示。
+    ''' </summary>
+    Private Sub EnsureOAuthClientId()
+        If Not String.IsNullOrWhiteSpace(OAuthClientId) Then Return
+        Throw New Exception(
+            $"$尚未配置微软登录的客户端 ID（Client ID），正版登录无法进行。{vbCrLf}" &
+            $"把 Azure 应用的客户端 ID 填进 {vbLQ}PCL\Secrets.json{vbRQ} 的 {vbLQ}MsClientId{vbRQ} 字段，" &
+            $"或设置环境变量 PCL_MS_CLIENT_ID，重启启动器后生效。{vbCrLf}" &
+            $"注册步骤见 MODS-ROUND2.md 第 16 节。")
+    End Sub
+
     Private Function MsLoginStep1New(Data As LoaderTask(Of McLoginMs, McLoginResult)) As (OAuthAccessToken As String, OAuthRefreshToken As String)
         '参考：https://learn.microsoft.com/zh-cn/entra/identity-platform/v2-oauth2-device-code
 
         '初始请求
 Retry:
+        EnsureOAuthClientId()
         McLaunchLog("开始微软登录步骤 1/6（原始登录）")
         Dim PrepareJson As JObject = NetRequestByClientRetry("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode", HttpMethod.Post,
             Content:=$"client_id={OAuthClientId}&tenant=/consumers&scope=XboxLive.signin%20offline_access",
@@ -903,6 +916,7 @@ Retry:
     End Function
     '微软登录步骤 1，刷新登录：从 OAuth Code 或 OAuth RefreshToken 获取 {OAuth AccessToken, OAuth RefreshToken}
     Private Function MsLoginStep1Refresh(Code As String) As (OAuthAccessToken As String, OAuthRefreshToken As String)
+        EnsureOAuthClientId()
         McLaunchLog("开始微软登录步骤 1/6（刷新登录）")
 
         Dim Result As String

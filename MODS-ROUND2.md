@@ -244,3 +244,58 @@ cd F:\PCL2-Source
 - 自建两节点互连对照实验：`--no-tun` 下 core 会尝试绑定虚拟 IP，报 `10049 AddrNotAvailable`（与 PCL 无关，属 EasyTier 在无 tun 模式下的行为）。真实使用需要管理员权限创建虚拟网卡，或把 `Peers` 换成可达的自建中继。
 
 **结论**：PCL 侧的联机链路（入口 → 配置 → 下载/解压 → 启动 → CLI 解析）已经全部打通，剩下的只是「能连上的节点」这一外部条件。把可达的中继写进 `ServerConfig.json` 的 `Peers`（或在设置 → 联机 → 自定义节点里填）即可继续。
+---
+
+## 16. 正版登录与 CurseForge：凭据从哪来、怎么配
+
+两个问题都**不是代码缺失**，而是开源版把两把「钥匙」删掉了。登录的 6 步流程、CF 的搜索/文件接口在代码里都是完整的，只是没有 Client ID / API Key。
+
+### 16.1 凭据统一放在 PCL\Secrets.json
+
+支持两种注入方式，环境变量优先：
+
+1. 环境变量：`PCL_MS_CLIENT_ID`、`PCL_CURSEFORGE_API_KEY`
+2. 文件 `PCL\Secrets.json`（exe 同级的 PCL 目录下，和 `Setup.ini` 放一起）：
+   ```json
+   { "MsClientId": "你的客户端 ID", "CurseForgeApiKey": "你的 API Key" }
+   ```
+   模板：`samples\Secrets.example.json`。改完**重启** PCL Harness 生效。
+
+实现：`Modules\ModSecret.vb` 的 `SecretValue(JsonKey, EnvironmentKey)`，惰性读取并缓存，解析失败只写一条警告，不影响启动。
+
+### 16.2 正版登录（微软账号）
+
+需要自己注册一个 Azure 应用，**免费**，个人微软账号即可：
+
+1. 打开 <https://entra.microsoft.com> → 「应用」→「应用注册」→「新注册」。
+2. 名称随便（如 `PCL Harness Login`）。
+3. 「受支持的账户类型」选 **仅此组织目录中的账户** 或 **任何组织目录中的账户和个人 Microsoft 账户** 都可以，但要让个人号能登就必须包含「个人 Microsoft 账户」。
+4. 重定向 URI 留空即可（设备代码流不需要）。
+5. 注册完成后记下「应用程序(客户端) ID」。
+6. 进「身份验证」→ 拉到底部「高级设置」→「允许公共客户端流」选 **是**（`Enable the following mobile and desktop flows` / `Allow public client flows`）。**这一步不做，设备代码流会直接失败。**
+7. 不需要生成客户端密码。
+
+然后把客户端 ID 填进 `Secrets.json` 的 `MsClientId`（或环境变量 `PCL_MS_CLIENT_ID`），重启 → 启动页「正版」→「登录」，会出现设备代码弹窗（一串代码 + 一个网址），浏览器打开输入即可。
+
+- 未配置时的表现：会直接弹红字提示「尚未配置微软登录的客户端 ID…」，而不是抛微软返回的 400 原始 JSON（`EnsureOAuthClientId()`，在 `MsLoginStep1New` / `MsLoginStep1Refresh` 开头调用）。
+- 刷新登录走 `login.live.com/oauth20_token.srf`，与首次登录的 v2.0 设备代码端点共用同一个 Client ID，这是原版行为，保持不变。
+
+### 16.3 CurseForge
+
+两条路，推荐第一条：
+
+**路线 1：不申请 Key，走镜像（已实现并验证）**
+- `DlModRequest` 里新增判断：没有配置 `CurseForgeAPIKey` 时，只要目标 URL 是 `api.curseforge.com`，就强制按「优先镜像」的顺序请求（`ModDownload.vb:1183` 附近）。
+- 镜像由 `DlSourceModGet` 改写：`api.curseforge.com` → `mod.mcimirror.top/curseforge`，`edge.forgecdn.net` / `media.forgecdn.net` → `mod.mcimirror.top`。
+- 实测：下载页 Mod 搜索同时发起 Modrinth 与 CurseForge 两个搜索，CurseForge 那条走 `https://mod.mcimirror.top/curseforge/v1/mods/search...`，日志 `从 CurseForge 搜索到了 40 个工程`，列表正常渲染（截图 `42-Mod搜索-CurseForge走镜像.png`）。
+- 注意：镜像的 `POST /v1/mods/files`（整合包缺失文件批量补全）返回 404，正在写镜像的这部分可能失败；纯搜索/详情/文件列表都是 200。
+
+**路线 2：申请官方 Key**
+1. 打开 <https://console.curseforge.com>，用 CurseForge 账号登录（需要先在网站上创建一个作者/项目，审核通过率更高）。
+2. 「API Keys」→ 创建 Key，说明用途（个人启动器、非商业）。
+3. 审批通过后复制 Key，填进 `Secrets.json` 的 `CurseForgeApiKey`（或环境变量）。有 Key 后会恢复「优先官方」的下载源顺序，也能少走一层镜像。
+
+### 16.4 分支
+
+- 本仓库 `F:\PCL2-Source` 已 `git init`，基线提交为 `baseline: PCL Harness 3.0.0 …`（`bin/`、`obj/` 已在 `.gitignore` 里排除）。
+- 这两个问题的改动全部在分支 `feature/ms-login-and-curseforge` 上，可单独 cherry-pick 或整体合并。
