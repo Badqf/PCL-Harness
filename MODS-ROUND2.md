@@ -407,3 +407,36 @@ cd F:\PCL2-Source
 **已知取舍**
 - 注册表键名保持 `PCLDebug`，未做注册表迁移（窗口大小等会在首次迁移后被旧 Setup.ini 覆盖，其余按默认值重建）。
 - 游戏目录内 `PCL\` 下的版本级配置与 Logo 不迁移也不改名，避免破坏官方 PCL 的兼容性。
+
+## 20. 联机直连模式（P2P-only）
+
+### 20.1 需求与结论
+
+用户希望联机"只利用 P2P 直连，直接本地化"。结论：**可行，但只在特定网络条件下成立**。
+
+- 可行：同局域网直连；房主公网可达（有公网 IP / 已做端口映射 / 路由器支持 UPnP）。
+- 不可行：任意 NAT 后两端零服务器互通。NAT 穿透必须有第三方交换地址（STUN、发现节点、信令服务器皆属此类），这是协议层限制，无法靠改代码消除。
+- 另一个与服务器无关的硬依赖：EasyTier 需要 TUN 虚拟网卡（管理员权限 + wintun 驱动）。本机实测未装驱动时 `-i` 直接报 `Failed to create adapter`；`--no-tun` 时无可用本地地址，连接报 `10049 AddrNotAvailable`（smoltcp 亦未成功）。
+
+### 20.2 实现内容
+
+- 新增 `Modules\ModUpnp.vb`：极简 UPnP IGD 客户端（SSDP 发现 → 取设备描述 → `AddPortMapping` TCP/UDP → `GetExternalIPAddress`）。本机路由器（Huawei-ATP-IGD，192.168.2.1）可被 SSDP 发现。
+- `Pages\PageSetup\PageSetupLink.xaml` 新增「直连模式」卡片与 `LinkDirectMode` 开关。
+- `Pages\PageLink\PageLinkMain.xaml.vb`：
+  - `IsDirectMode`、`DirectPeerAddress`、`DirectListenPort`、`DirectPublicEndpoint` 四个状态；
+  - 直连模式下完全跳过 `GetTargetPeers()`（不再访问 `uptime.easytier.cn`、`easytier.meloong.com`、发现节点与中继）；
+  - 启动参数追加 `--listeners tcp://0.0.0.0:{DirectListenPort} udp://0.0.0.0:{DirectListenPort}`、`--p2p-only true`、`--stun-servers ""`（禁用内置 STUN）；
+  - 房主启动后尝试 UPnP 映射该端口，成功则邀请里附带外网地址；
+  - 邀请格式变为 `房主IP:端口|邀请码`，`JoinInternal` 会先剥离【】再按 `|` 拆出地址与邀请码；
+  - 直连房主不再等任何节点，启动 1.2s 后直接进入完成页；
+  - `ProcessStart` 增加管理员检查，无权限时用 `Verb = "runas"` 提权启动联机模块（此时无法重定向输出，不影响功能）。
+- `ModUpnp.vb` 需加入 `.vbproj` 的 `<Compile Include>`，否则报 `BC30451 未声明 ModUpnp`。
+
+### 20.3 使用方法与限制
+
+1. 设置 → 联机 → 勾选「只使用 P2P 直连」。
+2. 房主：联机 → 创建房间 → 输入 MC 对局域网开放的端口；页面显示 `IP:端口|邀请码`，并自动复制。
+3. 加入者：联机 → 加入 → 粘贴整串。
+4. 首次启动联机模块会弹 UAC（创建虚拟网卡需要管理员），选「是」。
+
+限制：同一局域网最稳；公网需要 UPnP 或手动端口映射；若双方都在对称 NAT 后且路由器无 UPnP，则仍然连不上——这种情况必须有中继或公网端点，这是无法绕过的。

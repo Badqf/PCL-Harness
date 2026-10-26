@@ -131,6 +131,19 @@ Public Class PageLinkMain
     End Sub
     Public Sub JoinInternal(Code As String)
         If Code Is Nothing Then Return
+        Code = Code.Between("【", "】").Trim() '从完整消息中提取
+        '直连邀请：房主地址|邀请码
+        DirectPeerAddress = Nothing
+        If Code.Contains("|") Then
+            Dim Parts = Code.Split("|"c)
+            If Parts.Length <> 2 OrElse Not Parts(0).Contains(":") Then
+                Hint("直连邀请格式不对，应为「房主IP:端口|邀请码」", HintType.Red)
+                Return
+            End If
+            DirectPeerAddress = Parts(0).Trim
+            Code = Parts(1).Trim
+            Logger.Info($"使用直连模式，房主地址：{DirectPeerAddress}")
+        End If
         '基础格式校验
         Dim ValidateResult = ValidateCodeFormat(Code)
         If ValidateResult IsNot Nothing Then
@@ -303,7 +316,14 @@ Public Class PageLinkMain
         'UI 更新
         If IsServerSide Then
             LabFinishTitle.Text = "已创建房间"
-            LabFinishDesc.Text = $"把邀请码发给朋友，让大家加入房间吧！{vbCrLf}邀请码：{GetInviteCode()}"
+            If IsDirectMode Then
+                Dim Tip As String = If(String.IsNullOrEmpty(DirectPublicEndpoint),
+                    "同一局域网的电脑可以直接连；公网需要路由器开启 UPnP 或手动端口映射。",
+                    $"外网地址（UPnP 已自动映射）：{DirectPublicEndpoint}")
+                LabFinishDesc.Text = $"直连模式已开启，把下面这串发给朋友：{vbCrLf}{GetDirectInvite()}{vbCrLf}{Tip}"
+            Else
+                LabFinishDesc.Text = $"把邀请码发给朋友，让大家加入房间吧！{vbCrLf}邀请码：{GetInviteCode()}"
+            End If
             BtnFinishExit.Text = "关闭"
             BtnFinishPing.ToolTip = "网络延迟"
             BtnFinishCopy.Visibility = Visibility.Visible
@@ -357,15 +377,27 @@ Public Class PageLinkMain
 
     '复制邀请码
     Private Sub Copy() Handles BtnFinishCopy.Click
-        Dim CodeText As String = $"在 PCL 启动器中输入邀请码【{GetInviteCode()}】，即可加入联机房间！"
+        Dim CodeText As String = $"在 PCL 启动器中输入邀请【{If(IsDirectMode, GetDirectInvite(), GetInviteCode())}】，即可加入联机房间！"
         ClipboardSet(CodeText, False)
         Settings.Set("LinkLastAutoJoinInviteCode", CodeText)
-        Hint("已复制邀请码！", HintType.Green)
+        Hint("已复制邀请！", HintType.Green)
     End Sub
     Private Function GetInviteCode() As String
         Return $"{NetworkName}-{NetworkSecret}-{INVITE_CODE_VERSION.ToString.PadLeft(2, "0"c)}{ _
             If(DiscoverNodeID = -1, 0, DiscoverNodeID).ConvertRadix(16).PadLeft(3, "0"c)}"
     End Function
+
+    ''' <summary>
+    ''' 直连模式下发给朋友的完整内容：房主地址|邀请码。
+    ''' 非直连模式或加入者返回普通邀请码。
+    ''' </summary>
+    Private Function GetDirectInvite() As String
+        If Not IsDirectMode OrElse Not IsServerSide Then Return GetInviteCode()
+        Dim LanIp As String = ModUpnp.GetLanIPv4()
+        If String.IsNullOrEmpty(LanIp) Then LanIp = "127.0.0.1"
+        Return $"{LanIp}:{DirectListenPort}|{GetInviteCode()}"
+    End Function
+
 
     '复制 IP
     Private Sub BtnFinishIp_MouseLeftButtonUp(sender As Object, e As MouseButtonEventArgs) Handles BtnFinishIp.MouseLeftButtonUp
@@ -413,6 +445,27 @@ Public Class PageLinkMain
     ''' 网络信息。
     ''' </summary>
     Private NetworkName As String, NetworkSecret As String
+
+    ''' <summary>
+    ''' 是否启用直连模式（不经过任何公共服务器）。
+    ''' </summary>
+    Public ReadOnly Property IsDirectMode As Boolean
+        Get
+            Return Settings.Get(Of Boolean)("LinkDirectMode")
+        End Get
+    End Property
+    ''' <summary>
+    ''' 直连模式下加入者填写的房主地址（IP:端口）。
+    ''' </summary>
+    Private DirectPeerAddress As String = Nothing
+    ''' <summary>
+    ''' 直连模式下房主的监听端口（TCP + UDP）。
+    ''' </summary>
+    Private DirectListenPort As Integer
+    ''' <summary>
+    ''' 直连模式下 UPnP 映射出的公网端点；没有则为空。
+    ''' </summary>
+    Private DirectPublicEndpoint As String = Nothing
 
 #Region "加载"
 
@@ -523,17 +576,31 @@ Public Class PageLinkMain
         '获取节点列表
         UpdateLoadingPage("正在获取节点列表……", "获取节点列表")
         Dim RawPeers As List(Of String)
-        Dim CustomPeers As String = Settings.Get(Of String)("LinkCustomPeer")
-        If String.IsNullOrWhiteSpace(CustomPeers) Then
-            If DiscoverNodeID = -2 AndAlso Not IsServerSide Then
-                Panic("未填写自定义节点设置", $"$你必须在 {vbLQ}自定义节点{vbRQ} 设置中填写与房主相同的内容，{vbCrLf}才能进入该房间！")
-                Return
+        If IsDirectMode Then
+            '直连模式：不查询任何服务器，只连接邀请里给出的房主地址
+            RawPeers = New List(Of String)
+            If Not IsServerSide Then
+                If String.IsNullOrEmpty(DirectPeerAddress) Then
+                    Panic("缺少房主地址", "直连模式需要「房主地址|邀请码」格式的邀请，请向房主重新索要。")
+                    Return
+                End If
+                RawPeers.Add($"tcp://{DirectPeerAddress}")
+                RawPeers.Add($"udp://{DirectPeerAddress}")
             End If
-            RawPeers = GetTargetPeers()
+            Logger.Info($"直连模式：{(If(IsServerSide, "房主仅监听", "连接 " & String.Join("、", RawPeers)))}")
         Else
-            If DiscoverNodeID <> -2 AndAlso Not IsServerSide Then Hint("房主可能没有使用自定义节点设置，请确认你们的自定义节点设置是否一致！")
-            RawPeers = CustomPeers.Split("，,".ToCharArray).Select(Function(p) p.Trim).Where(Function(p) Not String.IsNullOrEmpty(p)).ToList()
-            Logger.Info($"使用自定义节点：{CustomPeers}")
+            Dim CustomPeers As String = Settings.Get(Of String)("LinkCustomPeer")
+            If String.IsNullOrWhiteSpace(CustomPeers) Then
+                If DiscoverNodeID = -2 AndAlso Not IsServerSide Then
+                    Panic("未填写自定义节点设置", $"$你必须在 {vbLQ}自定义节点{vbRQ} 设置中填写与房主相同的内容，{vbCrLf}才能进入该房间！")
+                    Return
+                End If
+                RawPeers = GetTargetPeers()
+            Else
+                If DiscoverNodeID <> -2 AndAlso Not IsServerSide Then Hint("房主可能没有使用自定义节点设置，请确认你们的自定义节点设置是否一致！")
+                RawPeers = CustomPeers.Split("，,".ToCharArray).Select(Function(p) p.Trim).Where(Function(p) Not String.IsNullOrEmpty(p)).ToList()
+                Logger.Info($"使用自定义节点：{CustomPeers}")
+            End If
         End If
         Task.Progress = 0.13
         '获取空闲端口
@@ -544,7 +611,16 @@ Public Class PageLinkMain
         Dim ListenersPort As Integer = FreePorts(2) '它会占用【当前、当前 +1、当前 +2】共三个端口
         '获取启动参数
         Dim Arguments As String = ServerConfig("Link")("Argument")
-        Arguments += $" --network-name={NetworkName} --network-secret={NetworkSecret} --listeners {ListenersPort} --rpc-portal {RPCPort} --private-mode true"
+        Arguments += $" --network-name={NetworkName} --network-secret={NetworkSecret} --rpc-portal {RPCPort} --private-mode true"
+        If IsDirectMode Then
+            '直连模式：只用 TCP + UDP 监听，且禁止 STUN 与中继
+            DirectListenPort = FindFreePorts(1, 11010)(0)
+            Arguments += $" --listeners tcp://0.0.0.0:{DirectListenPort} udp://0.0.0.0:{DirectListenPort}"
+            Arguments += " --p2p-only true --stun-servers """""
+            Logger.Info($"直连模式监听端口：{DirectListenPort}")
+        Else
+            Arguments += $" --listeners {ListenersPort}"
+        End If
         Dim HostName = If(IsServerSide, "Server-", "Client-") & Identify.GetStableHashCode().ConvertRadix(36).TrimStart("-"c).EnsureLength("0", 6)
         If IsServerSide Then
             Arguments += $" -i 10.114.114.114 --hostname={HostName} --tcp-whitelist={ServerPort} --udp-whitelist={ServerPort}"
@@ -561,10 +637,25 @@ Public Class PageLinkMain
             Arguments += $" -p=""{Peer}"""
         Next
         If Settings.Get(Of Integer)("LinkLatencyMode") = 1 Then Arguments += " --latency-first"
+        '直连模式且是房主：尝试在路由器上开洞
+        If IsDirectMode AndAlso IsServerSide Then
+            Dim ExtEndpoint As String = Nothing, Reason As String = ""
+            If ModUpnp.TryMapPort(DirectListenPort, ExtEndpoint, Reason) Then
+                DirectPublicEndpoint = ExtEndpoint
+            Else
+                Logger.Info($"UPnP 不可用：{Reason}，仅同一局域网可直连")
+            End If
+        End If
         '启动进程
         ProcessStart(Arguments)
+
         Task.Progress = 0.15
-        '等待连接
+        '等待连接（直连模式的房主只负责监听，不需要等任何人）
+        If IsDirectMode AndAlso IsServerSide Then
+            Thread.Sleep(1200)
+            Task.Progress = 1
+            Exit Sub
+        End If
         Dim TimeoutCounter As Integer = 0
         Do
             Thread.Sleep(500) '为避免还没启动好先跑 CLI 了，先等半秒
@@ -808,6 +899,18 @@ ForcedPass:
     End Function
 
     ''' <summary>
+    ''' 当前进程是否具有管理员权限。
+    ''' </summary>
+    Private Function IsAdmin() As Boolean
+        Try
+            Dim Id = Security.Principal.WindowsIdentity.GetCurrent()
+            Return New Security.Principal.WindowsPrincipal(Id).IsInRole(Security.Principal.WindowsBuiltInRole.Administrator)
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
     ''' 启动进程。
     ''' </summary>
     Private Sub ProcessStart(Arguments As String)
@@ -822,6 +925,21 @@ ForcedPass:
             .StandardErrorEncoding = Encoding.UTF8
         }
         Logger.Info($"正在启动 EasyTier：{Arguments}")
+        '创建虚拟网卡需要管理员权限，没有就提权（无法重定向输出，但不影响功能）
+        If Not IsAdmin() Then
+            Logger.Info("联机模块需要管理员权限才能创建虚拟网卡，正在请求提权……")
+            Info.UseShellExecute = True
+            Info.Verb = "runas"
+            Info.CreateNoWindow = False
+            Info.RedirectStandardError = False
+            Info.RedirectStandardOutput = False
+            Try
+                ProcessCore = Process.Start(Info)
+            Catch ex As Exception
+                Throw New Exception($"$联机模块需要管理员权限才能创建虚拟网卡。{vbCrLf}请在弹出的提示里选择「是」；如果点了取消，可以右键用管理员身份运行 PCL 再试。{vbCrLf}{ex.Message}")
+            End Try
+            Return
+        End If
         ProcessCore = New Process With {.StartInfo = Info}
         Dim LogLineHandler =
         Sub(sender As Object, e As DataReceivedEventArgs, Handle As AutoResetEvent)

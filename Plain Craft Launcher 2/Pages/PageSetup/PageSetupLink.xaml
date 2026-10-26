@@ -25,6 +25,15 @@
                     </Grid>
                 </StackPanel>
             </local:MyCard>
+            <local:MyCard x:Name="CardDirect" Margin="0,0,0,15" Title="直连模式">
+                <StackPanel Margin="25,40,25,20">
+                    <local:MyCheckBox local:SettingService.Key="LinkDirectMode" Height="22"
+                        Text="只使用 P2P 直连，不经过任何公共服务器"
+                        ToolTip="开启后不再访问 easytier.cn 的节点列表与公共中继，房主直接在本机监听端口并尝试用 UPnP 在路由器上开洞。&#xa;&#xa;能连上的情况：&#xa;- 两台电脑在同一个局域网（最稳）&#xa;- 房主公网可达，或路由器支持并开启了 UPnP&#xa;&#xa;连不上的情况：&#xa;- 双方都在 NAT 后面且路由器不支持 UPnP/无法端口映射（此时必须有一方做端口映射）&#xa;&#xa;首次使用需要管理员权限创建虚拟网卡。" />
+                    <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.65" FontSize="12"
+                        Text="直连模式下，邀请内容会变成「房主地址|邀请码」，把整串发给朋友即可。同一局域网内可以直接连；公网连接依赖路由器 UPnP 或手动端口映射。" />
+                </StackPanel>
+            </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="高级设置" IsSwapped="True" CanSwap="True">
                 <Grid Margin="25,40,25,22">
                     <Grid.ColumnDefinitions>
