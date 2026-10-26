@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -291,6 +291,12 @@ Public Class FormMain
         End If
         '刷新主题
         ThemeCheckAll(False)
+        '应用外观模式与自定义配色
+        ModSecret.IsDarkMode = Settings.Get(Of Integer)("UiColorMode") <> 1
+        ModSecret.ColorHue = Settings.Get(Of Integer)("UiLauncherHue")
+        ModSecret.ColorSat = Settings.Get(Of Integer)("UiLauncherSat")
+        ModSecret.ColorLightAdjust = Settings.Get(Of Integer)("UiLauncherLight")
+        ModSecret.ColorHueTopbarDelta = Settings.Get(Of Integer)("UiLauncherDelta")
         ThemeRefresh(Settings.Get(Of Integer)("UiLauncherTheme"))
         '注册拖拽事件（不能直接加 Handles，否则没用；#6340）
         [AddHandler](DragDrop.DragEnterEvent, New DragEventHandler(AddressOf HandleDrag), handledEventsToo:=True)
@@ -446,14 +452,8 @@ Public Class FormMain
                         Logger.Error(ex, "加载插件失败", LogBehavior.None)
                     End Try
                 End Sub, "PluginLoad", ThreadPriority.BelowNormal)
-            '开源版本提示（可在 设置 → 启动 中重新打开）
-            If VersionBranchMain = "OpenSource" AndAlso Settings.Get(Of Boolean)("HarnessOpenSourceTip") Then
-                Dim Msg As String = $"该版本中无法使用以下特性：{vbCrLf}- CurseForge API：未配置 Key 时自动走镜像源，可在 PCLHarness\Secrets.json 里填 CurseForgeApiKey 直连官方{vbCrLf}- 正版登录：需要微软 Client ID，填到 PCLHarness\Secrets.json 的 MsClientId（或环境变量 PCL_MS_CLIENT_ID）{vbCrLf}- 更新与联网通知：避免滥用隐患{vbCrLf}- 主题切换：这是需要赞助解锁的纪念性质的功能，别让赞助者太伤心啦……{vbCrLf}- 百宝箱：开发早期往里面塞了些开发工具，整理起来太麻烦了……"
-                If MyMsgBox(Msg, "开源版本说明", "我知道了", "不再显示") = 2 Then
-                    Settings.Set("HarnessOpenSourceTip", False)
-                    Hint("已关闭启动时的开源版本说明，可在 设置 → 启动 中重新打开")
-                End If
-            End If
+            'PCL Harness 介绍页（可在 设置 → 启动 中重新打开）
+            ModIntro.ShowIfNeeded()
             '插件加载失败时才提示（等插件线程扫完再报，避免被弹窗挡住）
             For i = 1 To 50
                 If ModPlugin.LoadDone Then Exit For

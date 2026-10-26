@@ -1,4 +1,4 @@
-Imports System.Security.Cryptography
+﻿Imports System.Security.Cryptography
 
 Public Class Settings
 
@@ -22,7 +22,7 @@ Public Class Settings
         New Setting("HintIndieSetup", False, Source:=Sources.Registry),
         New Setting("HintExportConfig", False, Source:=Sources.Registry),
         New Setting("HintSnapshot", False, Source:=Sources.Registry),
-        New Setting("HarnessOpenSourceTip", True),
+        New Setting("HarnessShowIntro", True),
         New Setting("SystemEulaVersion", 0, Source:=Sources.Registry),
         New Setting("SystemCount", 0, Source:=Sources.Registry, Encrypted:=True),
         New Setting("SystemLaunchCount", 0, Source:=Sources.Registry, Encrypted:=True),
@@ -130,10 +130,11 @@ Public Class Settings
         New Setting("ToolUpdateReleaseLast", "", Source:=Sources.Registry),
         New Setting("ToolUpdateSnapshotLast", "", Source:=Sources.Registry),
         New Setting("UiLauncherTransparent", 600, OnChanged:=Sub(Value As Integer) If FrmMain IsNot Nothing Then FrmMain.Opacity = Value / 1000 + 0.4), '避免与 PCL1 设置冲突（UiLauncherOpacity）
-        New Setting("UiLauncherHue", 180),
-        New Setting("UiLauncherSat", 80),
-        New Setting("UiLauncherDelta", 90),
-        New Setting("UiLauncherLight", 20),
+        New Setting("UiLauncherHue", 220),
+        New Setting("UiLauncherSat", 85),
+        New Setting("UiLauncherDelta", 0),
+        New Setting("UiLauncherLight", 0),
+        New Setting("UiColorMode", 0),
         New Setting("UiLauncherTheme", 0, OnChanged:=AddressOf ThemeRefresh),
         New Setting("UiLauncherThemeHide", "0|1|2|3|4", Source:=Sources.Registry, Encrypted:=True),
         New Setting("UiLauncherThemeHide2", "0|1|2|3|4", Source:=Sources.Registry, Encrypted:=True),

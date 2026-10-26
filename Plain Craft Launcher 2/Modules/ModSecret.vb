@@ -101,7 +101,7 @@ Friend Module ModSecret
     ''' <summary>
     ''' PCL Harness：启用蓝黑深色主题。
     ''' </summary>
-    Public Const IsDarkMode As Boolean = True
+    Public Property IsDarkMode As Boolean = True
     Public ColorHue As Integer = 220, ColorSat As Integer = 85, ColorLightAdjust As Integer = 0, ColorHueTopbarDelta As OneOf(Of Integer, Integer()) = 0
     Public ThemeDontClick As Integer = 0
 
@@ -137,6 +137,14 @@ Friend Module ModSecret
                 Color6 = New MyColor().FromHSL2(ColorHue, ColorSat, 91 + ColorLightAdjust * 0.1)
                 Color7 = New MyColor().FromHSL2(ColorHue, ColorSat, 95)
                 Color8 = New MyColor().FromHSL2(ColorHue, ColorSat, 97)
+                ColorGray1 = New MyColor().FromHSL2(210, 14, 16)
+                ColorGray2 = New MyColor().FromHSL2(210, 12, 28)
+                ColorGray3 = New MyColor().FromHSL2(210, 10, 42)
+                ColorGray4 = New MyColor().FromHSL2(210, 9, 56)
+                ColorGray5 = New MyColor().FromHSL2(210, 9, 70)
+                ColorGray6 = New MyColor().FromHSL2(210, 10, 82)
+                ColorGray7 = New MyColor().FromHSL2(210, 12, 90)
+                ColorGray8 = New MyColor().FromHSL2(210, 14, 96)
             End If
             ColorBg0 = If(IsDarkMode, Color4, Color4 * 0.4 + Color5 * 0.4 + ColorGray4 * 0.2)
             ColorBg1 = New MyColor(If(IsDarkMode, 200, 190), Color7)
@@ -151,22 +159,19 @@ Friend Module ModSecret
             Application.Current.Resources("ColorBrush8") = New SolidColorBrush(Color8)
             Application.Current.Resources("ColorBrushBg0") = New SolidColorBrush(ColorBg0)
             Application.Current.Resources("ColorBrushBg1") = New SolidColorBrush(ColorBg1)
-            If IsDarkMode Then
-                '深色主题：灰色阶与半透明底色一并转深，避免浅色文字与背景混在一起
-                Application.Current.Resources("ColorBrushGray1") = New SolidColorBrush(ColorGray1)
-                Application.Current.Resources("ColorBrushGray2") = New SolidColorBrush(ColorGray2)
-                Application.Current.Resources("ColorBrushGray3") = New SolidColorBrush(ColorGray3)
-                Application.Current.Resources("ColorBrushGray4") = New SolidColorBrush(ColorGray4)
-                Application.Current.Resources("ColorBrushGray5") = New SolidColorBrush(ColorGray5)
-                Application.Current.Resources("ColorBrushGray6") = New SolidColorBrush(ColorGray6)
-                Application.Current.Resources("ColorBrushGray7") = New SolidColorBrush(ColorGray7)
-                Application.Current.Resources("ColorBrushGray8") = New SolidColorBrush(ColorGray8)
-                Application.Current.Resources("ColorBrushHalfWhite") = New SolidColorBrush(New MyColor(13, 255, 255, 255))
-                '深色主题下悬浮面要比卡片底更亮，浅色主题沿用原来的 Color7
-                Application.Current.Resources("ColorBrushHover") = New SolidColorBrush(If(IsDarkMode, New MyColor().FromHSL2(ColorHue, ColorSat * 0.4, 34), Color7))
-                Application.Current.Resources("ColorBrushBackgroundTransparentSidebar") = New SolidColorBrush(New MyColor(241, Color8))
-        Application.Current.Resources("ColorBrushTitleBarIcon") = New SolidColorBrush(New MyColor(232, 236, 244))
-            End If
+            '灰色阶与半透明底色：深色/浅色分别计算
+            Application.Current.Resources("ColorBrushGray1") = New SolidColorBrush(ColorGray1)
+            Application.Current.Resources("ColorBrushGray2") = New SolidColorBrush(ColorGray2)
+            Application.Current.Resources("ColorBrushGray3") = New SolidColorBrush(ColorGray3)
+            Application.Current.Resources("ColorBrushGray4") = New SolidColorBrush(ColorGray4)
+            Application.Current.Resources("ColorBrushGray5") = New SolidColorBrush(ColorGray5)
+            Application.Current.Resources("ColorBrushGray6") = New SolidColorBrush(ColorGray6)
+            Application.Current.Resources("ColorBrushGray7") = New SolidColorBrush(ColorGray7)
+            Application.Current.Resources("ColorBrushGray8") = New SolidColorBrush(ColorGray8)
+            Application.Current.Resources("ColorBrushHalfWhite") = New SolidColorBrush(If(IsDarkMode, New MyColor(13, 255, 255, 255), New MyColor(20, 0, 0, 0)))
+            Application.Current.Resources("ColorBrushHover") = New SolidColorBrush(If(IsDarkMode, New MyColor().FromHSL2(ColorHue, ColorSat * 0.4, 34), New MyColor().FromHSL2(ColorHue, 18, 90)))
+            Application.Current.Resources("ColorBrushBackgroundTransparentSidebar") = New SolidColorBrush(New MyColor(If(IsDarkMode, 241, 226), Color8))
+            Application.Current.Resources("ColorBrushTitleBarIcon") = New SolidColorBrush(If(IsDarkMode, New MyColor(232, 236, 244), New MyColor(52, 62, 78)))
             '深色主题下阴影色必须用近黑，否则用浅色文字色会变成白色发光
             Application.Current.Resources("ColorObject1") = CType(If(IsDarkMode, New MyColor(6, 9, 14), Color1), Color)
             Application.Current.Resources("ColorObject2") = CType(Color2, Color)
