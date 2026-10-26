@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Diagnostics
 Imports System.Runtime.InteropServices
 
@@ -121,17 +121,17 @@ Public Class PageOtherTest
         Dim Comment As String
         Select Case Value
             Case 90 To 100
-                Comment = "宜开新档、宜下整合包，忌手滑删存档。"
+                Comment = "运气爆棚！"
             Case 70 To 89
-                Comment = "状态不错，适合折腾 Mod，记得先备份。"
+                Comment = "不错不错～"
             Case 40 To 69
-                Comment = "普普通通的一天，不如去把整合包更新一下。"
+                Comment = "还行吧。"
             Case 15 To 39
-                Comment = "建议今天只玩原版，装 Mod 容易出事。"
+                Comment = "呜......"
             Case Else
-                Comment = "今天不宜启动游戏，宜整理文件夹。"
+                Comment = "呜...... 还是去睡觉吧。"
         End Select
-        Hint($"今日人品 {Value}%：{Comment}", If(Value >= 70, HintType.Green, HintType.Blue))
+        MyMsgBox($"你今天的人品值是： {Value}！ {Comment}", $"今日人品 - {Date.Now:yyyy/MM/dd}", "我知道了")
     End Sub
 
     ' ==== 随机文本 ====
