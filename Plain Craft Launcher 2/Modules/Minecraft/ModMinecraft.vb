@@ -1,4 +1,4 @@
-Public Module ModMinecraft
+﻿Public Module ModMinecraft
 
 #Region "文件夹"
 
@@ -184,6 +184,7 @@ Public Module ModMinecraft
             If ReferenceEquals(_McInstanceSelectedLast, value) Then Return
             _McInstanceSelected = value '由于有可能是 Nothing，导致无法初始化，才得这样弄一圈
             _McInstanceSelectedLast = value
+            ModPlugin.RaiseInstanceChanged(If(value?.Name, ""))
             '更新 MC 文件夹所选取的 Minecraft 版本
             Logger.Info($"当前选择的 Minecraft 版本：{If(value?.PathVersion, "无")}")
             WriteIni(McFolderSelected & "PCL.ini", "Version", If(value?.Name, ""))

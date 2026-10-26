@@ -1,4 +1,4 @@
-Public Class PageSetupUI
+﻿Public Class PageSetupUI
 
     Private Sub PageSetupUI_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         '重复加载部分
@@ -13,6 +13,8 @@ Public Class PageSetupUI
         Static Reloaded As Boolean = False
         If Reloaded Then Return
         Reloaded = True
+
+        ModPlugin.RenderSettingsCards(PanPluginSettings)
 
         SliderLoad()
         BuildColorPresets()
@@ -347,6 +349,7 @@ Refresh:
         Settings.Set("UiColorMode", If(IsLight, 1, 0))
         If ModSecret.IsDarkMode = Not IsLight Then Return
         ModSecret.IsDarkMode = Not IsLight
+        ModPlugin.RaiseThemeChanged(Not IsLight)
         ModSecret.ThemeRefresh()
         Hint($"已切换为{If(IsLight, "浅色", "深色")}外观，重启启动器后全部界面生效")
     End Sub

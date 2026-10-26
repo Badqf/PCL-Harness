@@ -1,4 +1,4 @@
-Imports System.Net.Sockets
+﻿Imports System.Net.Sockets
 
 Public Module ModNet
 
@@ -1402,6 +1402,7 @@ FinishExCatch:
                 FileRemain += Files.Where(Function(f) f.State <> NetState.Finished).Count
             End SyncLock
             State = LoadState.Loading
+            If ModPlugin.IsDownloadLoader(Name) Then ModPlugin.RaiseDownloadStarted(Name)
             '开始执行
             RunInNewThread(
             Sub()
@@ -1577,6 +1578,7 @@ FinishExCatch:
                 If State > LoadState.Loading Then Return
                 State = LoadState.Finished
             End SyncLock
+            If ModPlugin.IsDownloadLoader(Name) Then ModPlugin.RaiseDownloadFinished(Name, True)
         End Sub
         Public Sub OnFileFail(File As NetFile)
             '将下载源的错误加入主错误列表
@@ -1589,6 +1591,7 @@ FinishExCatch:
             OnFail(New List(Of Exception) From {Ex})
         End Sub
         Public Sub OnFail(ExList As List(Of Exception))
+            If ModPlugin.IsDownloadLoader(Name) Then ModPlugin.RaiseDownloadFinished(Name, False)
             SyncLock LockState
                 If State >= LoadState.Finished Then Return
                 If ExList Is Nothing OrElse Not ExList.Any() Then ExList = New List(Of Exception) From {New Exception("未知错误！")}
@@ -1931,3 +1934,4 @@ FinishExCatch:
     End Sub
 
 End Module
+

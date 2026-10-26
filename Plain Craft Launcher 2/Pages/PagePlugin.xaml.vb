@@ -1,4 +1,4 @@
-Imports System.Linq
+﻿Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -193,6 +193,13 @@ Public Class PagePlugin
 
         If Not String.IsNullOrWhiteSpace(Info.Description) Then
             Left.Children.Add(New TextBlock With {.Text = Info.Description, .FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
+        End If
+
+        Dim MetaExtra As New List(Of String)
+        If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
+        If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
+        If MetaExtra.Count > 0 Then
+            Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
         End If
         Table.SetRow(Left, RowIndex)
         Table.SetColumn(Left, 0)

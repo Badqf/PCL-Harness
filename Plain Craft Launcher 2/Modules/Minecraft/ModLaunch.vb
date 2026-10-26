@@ -1,4 +1,4 @@
-Public Module ModLaunch
+﻿Public Module ModLaunch
 
 #Region "开始"
 
@@ -1221,12 +1221,30 @@ Retry:
             Arguments.Add(Extra)
             McLaunchLog("[插件] 追加 JVM 参数：" & Extra)
         Next
+        '插件宿主（v4）：插件通过 Host.AppendJvmArgs 追加的参数
+        For Each Info In ModPlugin.Plugins
+            If Info.Host Is Nothing Then Continue For
+            For Each Extra In Info.Host.ExtraJvmArgs
+                If String.IsNullOrWhiteSpace(Extra) Then Continue For
+                Arguments.Add(Extra)
+                McLaunchLog("[插件] 追加 JVM 参数：" & Extra)
+            Next
+        Next
         Arguments.Add(McInstanceSelected.JsonObject("mainClass")) 'mainClass
         Arguments.AddRange(McLaunchArgumentsGame()) '游戏参数
         For Each Extra In PluginInfo.ExtraGameArgs
             If String.IsNullOrWhiteSpace(Extra) Then Continue For
             Arguments.Add(Extra)
             McLaunchLog("[插件] 追加游戏参数：" & Extra)
+        Next
+        '插件宿主（v4）：插件通过 Host.AppendGameArgs 追加的参数
+        For Each Info In ModPlugin.Plugins
+            If Info.Host Is Nothing Then Continue For
+            For Each Extra In Info.Host.ExtraGameArgs
+                If String.IsNullOrWhiteSpace(Extra) Then Continue For
+                Arguments.Add(Extra)
+                McLaunchLog("[插件] 追加游戏参数：" & Extra)
+            Next
         Next
         McLaunchPluginInfo = PluginInfo
         '替换
@@ -2221,6 +2239,13 @@ IgnoreCustomSkin:
         If Watcher.State = Watcher.MinecraftState.Crashed Then
             Throw New OperationCanceledException
         End If
+        '插件事件（v4）：游戏进程结束
+        Dim PluginExitCode As Integer = -1
+        Try
+            If McLaunchProcess IsNot Nothing AndAlso McLaunchProcess.HasExited Then PluginExitCode = McLaunchProcess.ExitCode
+        Catch
+        End Try
+        ModPlugin.RaiseGameExited(McLaunchPluginInfo, PluginExitCode)
 
     End Sub
     Private Sub McLaunchEnd()

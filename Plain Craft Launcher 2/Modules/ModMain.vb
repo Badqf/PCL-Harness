@@ -1,4 +1,4 @@
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.ObjectModel
 Imports System.Windows.Interop
 Imports System.Windows.Threading
 
@@ -1008,6 +1008,7 @@ NextFile:
 
     Public DragControl = Nothing
     Private Timer4Count As Integer = 0
+    Private PluginStatusTick As Integer = 0
     Private Timer150Count As Integer = 0
     Private Sub TimerMain()
         Try
@@ -1027,6 +1028,11 @@ NextFile:
             Try
 #Region "每 250ms 执行一次的代码"
                 If ThemeNow = 12 Then ThemeRefresh()
+                PluginStatusTick += 1
+                If PluginStatusTick >= 4 Then
+                    PluginStatusTick = 0
+                    ModPlugin.RefreshStatusWidgets()
+                End If
 #End Region
             Catch ex As Exception
                 Logger.Warn(ex, "中程主时钟执行异常")

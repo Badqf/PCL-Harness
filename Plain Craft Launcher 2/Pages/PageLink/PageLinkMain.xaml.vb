@@ -1,4 +1,4 @@
-Imports System.Collections.ObjectModel
+﻿Imports System.Collections.ObjectModel
 Imports System.Globalization
 Imports System.Net.Sockets
 Imports System.Reflection
@@ -312,6 +312,12 @@ Public Class PageLinkMain
     Private Sub SwitchToFinished(OldState As LinkStates)
         '由于只可能从加载器的完成事件触发，不需要管加载器
         UpdatePanelVisibility() '页面的实际切换会由 Loader 调用 MyPageRight 来触发
+        '插件事件（v4）：房间创建/加入
+        If IsServerSide Then
+            ModPlugin.RaiseLinkRoomCreated(If(IsDirectMode, GetDirectInvite(), GetInviteCode()))
+        Else
+            ModPlugin.RaiseLinkRoomJoined()
+        End If
 
         'UI 更新
         If IsServerSide Then
@@ -356,6 +362,7 @@ Public Class PageLinkMain
 
     '退出
     Private Sub BtnFinishExit_Click() Handles BtnFinishExit.Click
+        ModPlugin.RaiseLinkRoomClosed()
         TryExit(False, False)
     End Sub
     ''' <summary>
@@ -852,6 +859,7 @@ ForcedPass:
     ''' 出现意外错误，给出错误信息并结束联机。
     ''' </summary>
     Private Sub Panic(Brief As String, Detail As String)
+        ModPlugin.RaiseLinkRoomClosed()
         '常见原因分析
         If Detail.Contains("failed to listen on ") Then
             Detail = $"监听端口失败。{vbCrLf}请点击重试，如果还是出现此错误，可以重启电脑解决。{vbCrLf}{vbCrLf}{Detail}"

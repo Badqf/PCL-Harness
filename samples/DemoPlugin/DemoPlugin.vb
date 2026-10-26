@@ -1,7 +1,7 @@
-Imports System.Collections.Generic
+﻿Imports System.Collections.Generic
 
 ''' <summary>
-''' PCL Harness 示例插件：演示 v3 的能力——事件钩子（IPclPluginEvents）、
+''' PCL Harness 示例插件：演示 v4 的能力——内嵌 UI（IPclPluginUi2）、生命周期/下载/联机事件、文件 API，以及 v3 的事件钩子（IPclPluginEvents）、
 ''' 三种设置项（勾选 / 数字 / 下拉），以及 v2 的三个 UI 扩展点（页面 / 标题栏入口 / 设置项）。
 ''' 编译见同目录 build.ps1，产物 Demo.Plugin.dll 放到 PCL\Plugins\demo-harness\ 下。
 ''' </summary>
@@ -9,6 +9,10 @@ Public Class DemoPlugin
     Implements PCL.IPclPlugin
     Implements PCL.IPclPluginUi
     Implements PCL.IPclPluginEvents
+    Implements PCL.IPclPluginUi2
+    Implements PCL.IPclPluginLifecycle
+    Implements PCL.IPclPluginDownload
+    Implements PCL.IPclPluginLink
 
     '演示页面和标题栏入口默认关闭：启用后会往顶栏塞一个「示例」按钮、并在插件页多出页面卡片，
     '想恢复整套演示时把下面的 False 改成 True 重新编译即可。
@@ -22,6 +26,13 @@ Public Class DemoPlugin
         Me.Host = Host
         LoadCount += 1
         Host.Log("示例插件已加载（第 " & LoadCount & " 次），数据目录：" & Host.DataFolder)
+        If Host.HasPermission("file") Then
+            Dim DataFile As String = System.IO.Path.Combine(Host.DataFolder, "demo-state.txt")
+            Host.WriteTextFile(DataFile, $"last load = {Date.Now:yyyy-MM-dd HH:mm:ss}")
+            Host.Log("file 权限演示，文件内容：" & Host.ReadTextFile(DataFile))
+        Else
+            Host.Log("未声明 file 权限，跳过文件读写演示")
+        End If
         If GetBool("showHintOnLoad", False) Then
             Host.Hint("示例插件已启用：插件页的「扩展点」里能看到它注册的设置项。")
         End If
@@ -142,6 +153,107 @@ Public Class DemoPlugin
 #End If
         Return Items
     End Function
+
+    ' ==== v4：内嵌 UI（主页卡片 / 设置卡片 / 状态栏小组件） ====
+
+    ''' <summary>注册「启动」页卡片。</summary>
+    Public Function GetHomeCards() As IEnumerable(Of PCL.PluginCardInfo) Implements PCL.IPclPluginUi2.GetHomeCards
+        Dim Card As New PCL.PluginCardInfo With {
+            .Id = "demo.home.card",
+            .Title = "示例插件卡片",
+            .Description = "由示例插件在「启动」页渲染的自定义卡片。",
+            .Factory = Function()
+                           Dim Root As New System.Windows.Controls.StackPanel
+                           Dim Txt As New System.Windows.Controls.TextBlock With {
+                               .Text = "这段内容是插件直接构建的 WPF 控件，颜色会跟随启动器主题。",
+                               .FontSize = 13,
+                               .TextWrapping = System.Windows.TextWrapping.Wrap
+                           }
+                           Txt.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "ColorBrushGray2")
+                           Root.Children.Add(Txt)
+                           Dim Btn As New PCL.MyButton With {
+                               .Text = "点我",
+                               .MinWidth = 90,
+                               .Height = 28,
+                               .HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+                               .Margin = New System.Windows.Thickness(0, 10, 0, 0)
+                           }
+                           AddHandler Btn.Click, Sub() Host.ShowNotification("示例卡片按钮被点击")
+                           Root.Children.Add(Btn)
+                           Return Root
+                       End Function
+        }
+        Return New List(Of PCL.PluginCardInfo) From {Card}
+    End Function
+
+    ''' <summary>注册「设置」页卡片。</summary>
+    Public Function GetSettingsCards() As IEnumerable(Of PCL.PluginCardInfo) Implements PCL.IPclPluginUi2.GetSettingsCards
+        Dim Card As New PCL.PluginCardInfo With {
+            .Id = "demo.settings.card",
+            .Title = "示例插件设置说明",
+            .Factory = Function()
+                           Dim Txt As New System.Windows.Controls.TextBlock With {
+                               .Text = "插件可以把自己的配置界面直接嵌进设置页，而不必只靠通用设置项。",
+                               .FontSize = 13,
+                               .TextWrapping = System.Windows.TextWrapping.Wrap
+                           }
+                           Txt.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "ColorBrushGray2")
+                           Return Txt
+                       End Function
+        }
+        Return New List(Of PCL.PluginCardInfo) From {Card}
+    End Function
+
+    ''' <summary>注册状态栏小组件，约每秒刷新一次。</summary>
+    Public Function GetStatusWidgets() As IEnumerable(Of PCL.PluginStatusWidget) Implements PCL.IPclPluginUi2.GetStatusWidgets
+        Dim Widget As New PCL.PluginStatusWidget With {
+            .Id = "demo.status",
+            .TextProvider = Function() "示例插件 · " & If(Host Is Nothing, "未加载", Host.InstanceName)
+        }
+        Return New List(Of PCL.PluginStatusWidget) From {Widget}
+    End Function
+
+    ' ==== v4：生命周期、下载与联机事件 ====
+
+    Public Sub OnGameExited(Info As PCL.PluginLaunchInfo, ExitCode As Integer) Implements PCL.IPclPluginLifecycle.OnGameExited
+        If Host Is Nothing Then Return
+        Host.Log($"收到事件：游戏退出，{Info.InstanceName} 退出码 {ExitCode}")
+    End Sub
+
+    Public Sub OnInstanceChanged(InstanceName As String) Implements PCL.IPclPluginLifecycle.OnInstanceChanged
+        If Host Is Nothing Then Return
+        Host.Log($"收到事件：当前版本切换为 {InstanceName}")
+    End Sub
+
+    Public Sub OnThemeChanged(IsDark As Boolean) Implements PCL.IPclPluginLifecycle.OnThemeChanged
+        If Host Is Nothing Then Return
+        Host.Log("收到事件：主题切换为 " & If(IsDark, "深色", "浅色"))
+    End Sub
+
+    Public Sub OnDownloadStarted(Target As String) Implements PCL.IPclPluginDownload.OnDownloadStarted
+        If Host Is Nothing Then Return
+        Host.Log($"收到事件：开始下载 {Target}")
+    End Sub
+
+    Public Sub OnDownloadFinished(Target As String, Success As Boolean) Implements PCL.IPclPluginDownload.OnDownloadFinished
+        If Host Is Nothing Then Return
+        Host.Log($"收到事件：下载结束 {Target}，成功 = {Success}")
+    End Sub
+
+    Public Sub OnLinkRoomCreated(Invite As String) Implements PCL.IPclPluginLink.OnLinkRoomCreated
+        If Host Is Nothing Then Return
+        Host.Log("收到事件：房间已创建，邀请码 " & Invite)
+    End Sub
+
+    Public Sub OnLinkRoomJoined() Implements PCL.IPclPluginLink.OnLinkRoomJoined
+        If Host Is Nothing Then Return
+        Host.Log("收到事件：已加入房间")
+    End Sub
+
+    Public Sub OnLinkRoomClosed() Implements PCL.IPclPluginLink.OnLinkRoomClosed
+        If Host Is Nothing Then Return
+        Host.Log("收到事件：房间已关闭")
+    End Sub
 
     ''' <summary>读设置（带默认值）。</summary>
     Friend Function GetBool(Key As String, DefaultValue As Boolean) As Boolean

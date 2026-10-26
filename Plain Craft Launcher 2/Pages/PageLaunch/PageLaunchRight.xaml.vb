@@ -1,4 +1,4 @@
-Imports System.Windows.Threading
+﻿Imports System.Windows.Threading
 
 Public Class PageLaunchRight
     Implements IRefreshable, IDispatcherUnhandledException
@@ -10,6 +10,12 @@ Public Class PageLaunchRight
         PanHint.Visibility =
             (BuildType <> BuildTypes.Release AndAlso VersionBranchMain = "Official" AndAlso
              CurrentRank < DonationRank.Rank23 AndAlso Not Settings.Get(Of Boolean)("HintSnapshot")).ToVisibility
+        ' 插件主页卡片
+        ModPlugin.RenderHomeCards(PanPluginCards)
+    End Sub
+    ''' <summary>插件加载完成后重新渲染主页卡片。</summary>
+    Public Sub RefreshPluginCards()
+        ModPlugin.RenderHomeCards(PanPluginCards)
     End Sub
 
 #Region "主页"
