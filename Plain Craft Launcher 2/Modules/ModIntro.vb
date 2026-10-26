@@ -17,6 +17,7 @@ Public Module ModIntro
             Sub()
                 Try
                     Dim Win As New IntroWindow
+                    If FrmMain IsNot Nothing AndAlso FrmMain.IsLoaded Then Win.Owner = FrmMain
                     Win.ShowDialog()
                 Catch ex As Exception
                     Logger.Error(ex, "显示介绍页失败", LogBehavior.None)

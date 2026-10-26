@@ -15,6 +15,7 @@
         Reloaded = True
 
         SliderLoad()
+        BuildColorPresets()
 
 
 
@@ -557,6 +558,35 @@ Refresh:
         End Function
         SliderBackgroundOpacity.GetHintText = Function(v) Math.Round(v * 0.1) & "%"
         SliderBackgroundBlur.GetHintText = Function(v) v & " 像素"
+    End Sub
+
+    '配色预设
+    Private Shared ReadOnly ColorPresets As (Name As String, Hue As Integer, Sat As Integer)() = {
+        ("蓝", 220, 85), ("青", 185, 80), ("绿", 145, 75), ("紫", 265, 80),
+        ("粉", 320, 70), ("橙", 30, 85), ("红", 355, 75), ("灰", 210, 10)
+    }
+    Private Sub BuildColorPresets()
+        If PanColorPresets Is Nothing OrElse PanColorPresets.Children.Count > 0 Then Return
+        For Each Item In ColorPresets
+            Dim Btn As New MyButton With {
+                .Text = Item.Name,
+                .Height = 26,
+                .MinWidth = 56,
+                .Margin = New Thickness(0, 0, 8, 6)
+            }
+            Dim Preset = Item
+            AddHandler Btn.Click, Sub()
+                                      AniControlEnabled += 1
+                                      SliderLauncherHue.Value = Preset.Hue
+                                      SliderLauncherSat.Value = Preset.Sat
+                                      SliderLauncherLight.Value = 0
+                                      SliderLauncherDelta.Value = 0
+                                      AniControlEnabled -= 1
+                                      HSL_Change()
+                                      Hint($"已套用「{Preset.Name}」配色，重启启动器后全部界面生效")
+                                  End Sub
+            PanColorPresets.Children.Add(Btn)
+        Next
     End Sub
 
 End Class
