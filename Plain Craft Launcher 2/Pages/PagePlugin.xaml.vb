@@ -1,4 +1,4 @@
-﻿Imports System.Linq
+Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -95,7 +95,18 @@ Public Class PagePlugin
 
     ' ================= 分区一：插件管理 =================
 
+    Private ManageSearch As String = ""
+    Private ManageListBody As StackPanel
+
     Private Sub BuildManage()
+        '搜索栏（与扩展点一致）
+        Dim Search As New MySearchBox With {.HintText = "搜索插件名称 / 作者 / 说明", .Margin = New Thickness(0, 4, 0, 12)}
+        AddHandler Search.TextChanged, Sub(sender As Object, e As EventArgs)
+                                           ManageSearch = If(Search.Text, "").Trim()
+                                           RefreshManageRows()
+                                       End Sub
+        PanContent.Children.Add(Search)
+
         ' ---- 插件目录 ----
         Dim CardPath = NewCard("插件目录")
         Dim Body As New StackPanel
@@ -129,21 +140,40 @@ Public Class PagePlugin
         ' ---- 已发现的插件 ----
         Dim CardList = NewCard("已发现的插件")
         Dim BodyList As New StackPanel
-        If ModPlugin.Plugins.Count = 0 Then
-            BodyList.Children.Add(MkHint(If(String.IsNullOrEmpty(ModPlugin.ScanError), "还没有发现任何插件。把插件文件夹放进上面的目录后点「重新扫描」。", "扫描失败：" & ModPlugin.ScanError)))
-        Else
-            Dim GridList As New Grid
-            GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(300)})
-            GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
-            For i = 0 To ModPlugin.Plugins.Count - 1
-                GridList.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
-                BuildPluginRow(GridList, i, ModPlugin.Plugins(i))
-            Next
-            BodyList.Children.Add(GridList)
-        End If
+        ManageListBody = BodyList
         BodyList.Margin = New Thickness(25, 40, 25, 20)
         CardList.Children.Add(BodyList)
         PanContent.Children.Add(CardList)
+        RefreshManageRows()
+    End Sub
+
+    ''' <summary>
+    ''' 按搜索关键词重建插件列表。
+    ''' </summary>
+    Private Sub RefreshManageRows()
+        If ManageListBody Is Nothing Then Return
+        ManageListBody.Children.Clear()
+        Dim Key As String = If(ManageSearch, "").Trim().ToLowerInvariant()
+        Dim Shown = If(Key = "", ModPlugin.Plugins.ToList(),
+                       ModPlugin.Plugins.Where(Function(p)
+                                                   Return (p.DisplayName & " " & If(p.Author, "") & " " & If(p.Description, "") & " " & p.StatusText).ToLowerInvariant().Contains(Key)
+                                               End Function).ToList())
+        If ModPlugin.Plugins.Count = 0 Then
+            ManageListBody.Children.Add(MkHint(If(String.IsNullOrEmpty(ModPlugin.ScanError), "还没有发现任何插件。把插件文件夹放进上面的目录后点「重新扫描」。", "扫描失败：" & ModPlugin.ScanError)))
+            Return
+        End If
+        If Shown.Count = 0 Then
+            ManageListBody.Children.Add(MkHint($"没有匹配「{ManageSearch}」的插件，换个关键词试试。"))
+            Return
+        End If
+        Dim GridList As New Grid
+        GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(300)})
+        GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        For i = 0 To Shown.Count - 1
+            GridList.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+            BuildPluginRow(GridList, i, Shown(i))
+        Next
+        ManageListBody.Children.Add(GridList)
     End Sub
 
     Private Sub BuildPluginRow(Table As Grid, RowIndex As Integer, Info As ModPlugin.PluginInfo)

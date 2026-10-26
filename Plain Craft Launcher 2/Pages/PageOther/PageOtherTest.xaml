@@ -7,6 +7,57 @@
     xmlns:sys="clr-namespace:System;assembly=mscorlib"
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
-        <TextBlock Text="为便于维护，开源内容中不包含百宝箱功能……" HorizontalAlignment="Center" FontSize="15" Height="30" VerticalAlignment="Center" />
+        <StackPanel Margin="25,25,25,12">
+
+            <local:MyCard Title="内存优化">
+                <StackPanel Margin="25,42,25,20">
+                    <TextBlock Text="把启动器占用的物理内存交还给系统。只处理启动器自身，不会影响游戏进程，也不会关闭任何东西。"
+                               TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource ColorBrushGray2}" LineHeight="19" />
+                    <local:MyButton x:Name="BtnMemory" Text="立即优化" MinWidth="110" Height="30" Margin="0,12,0,0"
+                                    HorizontalAlignment="Left" ColorType="Highlight" Click="BtnMemory_Click" />
+                </StackPanel>
+            </local:MyCard>
+
+            <local:MyCard Title="清理日志与临时文件">
+                <StackPanel Margin="25,42,25,20">
+                    <TextBlock x:Name="LabCleanPath" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource ColorBrushGray2}" LineHeight="19" />
+                    <local:MyButton x:Name="BtnClean" Text="立即清理" MinWidth="110" Height="30" Margin="0,12,0,0"
+                                    HorizontalAlignment="Left" Click="BtnClean_Click" />
+                </StackPanel>
+            </local:MyCard>
+
+            <local:MyCard Title="自定义下载">
+                <Grid Margin="25,42,25,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="32" />
+                        <RowDefinition Height="32" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="链接" VerticalAlignment="Center" FontSize="13" />
+                    <local:MyTextBox x:Name="TxtUrl" Grid.Column="1" HintText="http:// 或 https:// 开头的文件地址" />
+                    <TextBlock Text="文件名" Grid.Row="1" VerticalAlignment="Center" FontSize="13" />
+                    <local:MyTextBox x:Name="TxtName" Grid.Row="1" Grid.Column="1" HintText="留空则从链接末尾自动取名" />
+                    <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,10,0,0">
+                        <local:MyButton x:Name="BtnDownload" Text="开始下载" MinWidth="110" Height="30" ColorType="Highlight" Click="BtnDownload_Click" />
+                        <TextBlock Text="下载到 PCLHarness\Download 文件夹" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="11.5" Foreground="{DynamicResource ColorBrushGray2}" />
+                    </StackPanel>
+                </Grid>
+            </local:MyCard>
+
+            <local:MyCard Title="随便看看">
+                <StackPanel Margin="25,42,25,20">
+                    <TextBlock x:Name="LabTip" TextWrapping="Wrap" FontSize="12.5" LineHeight="21" />
+                    <local:MyButton x:Name="BtnTip" Text="换一条" MinWidth="110" Height="30" Margin="0,12,0,0"
+                                    HorizontalAlignment="Left" Click="BtnTip_Click" />
+                </StackPanel>
+            </local:MyCard>
+
+        </StackPanel>
     </local:MyScrollViewer>
 </local:MyPageRight>
