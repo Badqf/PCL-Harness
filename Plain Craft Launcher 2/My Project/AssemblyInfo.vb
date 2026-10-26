@@ -1,4 +1,4 @@
-Imports System.Reflection
+﻿Imports System.Reflection
 Imports System.Resources
 Imports System.Runtime.InteropServices
 
@@ -52,5 +52,5 @@ Imports System.Runtime.InteropServices
 ' 方法是按如下所示使用“*”
 
 <Assembly: AssemblyVersion("3.1.2.0")>
-<Assembly: AssemblyFileVersion("3.1.7.0")>
+<Assembly: AssemblyFileVersion("3.1.8.0")>
 <Assembly: NeutralResourcesLanguage("")>
