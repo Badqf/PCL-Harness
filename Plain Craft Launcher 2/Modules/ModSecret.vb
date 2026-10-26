@@ -277,7 +277,7 @@ Friend Module ModSecret
                 Dim download As String = json("url")?.ToString()
                 Dim changelog As String = json("changelog")?.ToString()
                 If String.IsNullOrWhiteSpace(latest) Then Throw New Exception("更新源 JSON 缺少 version 字段")
-                If CompareVersion(latest, VersionBaseName) <= 0 Then
+                If McUtils.CompareVersion(latest, VersionBaseName) <= 0 Then
                     Hint($"已是最新自编版（{VersionBaseName}）")
                     Return
                 End If
