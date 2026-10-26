@@ -1,4 +1,4 @@
-Imports System.Linq
+﻿Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -168,7 +168,7 @@ Public Class PagePlugin
         Table.SetColumn(Left, 0)
         Table.Children.Add(Left)
 
-        '右：启停复选框 + 打开目录
+        '右：启停复选框
         Dim Right As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 8, 0, 8)}
         Dim Chk As New MyCheckBox With {.VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 0, 12, 0)}
         Chk.Text = If(Info.Enabled, "已启用", "已禁用")
@@ -190,10 +190,6 @@ Public Class PagePlugin
                                End Sub
         Right.Children.Add(Chk)
 
-        Dim BtnFolder = MkButton("打开目录", Nothing)
-        BtnFolder.Margin = New Thickness(0)
-        AddHandler BtnFolder.Click, Sub(sender As Object, e As RoutedEventArgs) StartProcess("explorer", """" & Info.Folder & """")
-        Right.Children.Add(BtnFolder)
 
         Table.SetRow(Right, RowIndex)
         Table.SetColumn(Right, 1)
@@ -225,6 +221,13 @@ Public Class PagePlugin
             Return
         End If
 
+        Dim OkCount As Integer = ModPlugin.Plugins.Where(Function(p) String.IsNullOrEmpty(p.Error)).Count()
+        Dim FailCount As Integer = ModPlugin.Plugins.Count - OkCount
+        PanContent.Children.Add(New TextBlock With {
+            .Text = $"加载状态：成功 {OkCount} 个，失败 {FailCount} 个，总计 {ModPlugin.Plugins.Count} 个",
+            .FontSize = 13,
+            .Margin = New Thickness(25, 18, 25, 0)
+        })
         For Each Owner In Owners
             Dim Pages = ModPlugin.PluginPages.Where(Function(p) p.Owner Is Owner).ToList()
             Dim Navs = ModPlugin.PluginNavItems.Where(Function(n) n.Owner Is Owner).ToList()
@@ -270,7 +273,7 @@ Public Class PagePlugin
             Body.Margin = New Thickness(25, 46, 25, 20)
             Card.Children.Add(Body)
             Card.SwapControl = Body
-            Card.IsSwapped = False 'False = 展开
+            Card.IsSwapped = True 'True = 折叠，默认收起每张插件卡片
             PanContent.Children.Add(Card)
         Next
     End Sub

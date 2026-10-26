@@ -213,7 +213,7 @@ Public Class FirstRunWindow
         Root.Effect = Shadow
 
         Dim Main As New StackPanel
-        Dim Scroller As New ScrollViewer With {
+        Dim Scroller As New MyScrollViewer With {
             .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             .HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             .Content = Main,

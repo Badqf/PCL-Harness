@@ -38,8 +38,8 @@ Public Module ModIntro
             ShowInTaskbar = False
             SizeToContent = SizeToContent.Manual
             Dim WorkArea = SystemParameters.WorkArea
-            Width = Math.Min(620, WorkArea.Width * 0.85)
-            Height = Math.Min(600, WorkArea.Height * 0.85)
+            Width = Math.Min(860, WorkArea.Width * 0.9)
+            Height = Math.Min(540, WorkArea.Height * 0.85)
             '背板
             Dim Root As New Border With {
                 .CornerRadius = New CornerRadius(9),
@@ -53,7 +53,7 @@ Public Module ModIntro
             Root.Effect = Shadow
 
             Dim Main As New StackPanel
-            Dim Scroller As New ScrollViewer With {
+            Dim Scroller As New MyScrollViewer With {
                 .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 .HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 .Content = Main,
@@ -67,23 +67,35 @@ Public Module ModIntro
             Root.Child = Layout
 
             AddTitle(Main, "欢迎使用 PCL Harness")
-            AddPara(Main, "基于 Plain Craft Launcher 2 源码二次开发的自用启动器。保留原版全部功能，同时做了面向本地的改造，并把界面与行为开放给插件。", 12, 18, New Thickness(1, 10, 1, 10))
+            AddPara(Main, "基于 Plain Craft Launcher 2 源码二次开发的自用启动器。保留原版全部功能，同时做了面向本地的改造，并把界面与行为开放给插件。", 12, 18, New Thickness(1, 8, 1, 6))
 
-            AddHead(Main, "和原版 PCL2 的区别")
-            AddItem(Main, "独立配置目录", "数据统一放在 PCLHarness 文件夹，和原版的 PCL 文件夹互不覆盖；首次启动可以把旧设置、插件一键迁移过来。")
-            AddItem(Main, "外观可切换", "支持深色 / 浅色外观与自定义主色调，改完会提示重启以完整生效。")
-            AddItem(Main, "不依赖官方服务", "移除了在线更新与联网通知；下载与联机都有本地 / 镜像路线。")
-            AddItem(Main, "插件框架（API v3）", "插件可以添加页面、顶栏入口、设置项（勾选 / 文本 / 数字 / 下拉），并监听启动器就绪、页面切换、游戏启动前后等事件。")
-            AddItem(Main, "联机可完全直连", "内置 P2P 直连模式：房主只需要把「地址|邀请码」发给朋友，不需要经过公共发现节点；公网连接可用 UPnP 自动映射端口。")
-            AddItem(Main, "凭据留在本地", "微软登录与官方 CurseForge 源所需的 Client ID / API Key 放在 PCLHarness\Secrets.json，不内置在程序里。")
+            Dim Cols As New Grid With {.Margin = New Thickness(0, 2, 0, 0)}
+            Cols.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+            Cols.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+            Dim ColLeft As New StackPanel With {.Margin = New Thickness(0, 0, 14, 0)}
+            Dim ColRight As New StackPanel With {.Margin = New Thickness(14, 0, 0, 0)}
 
-            AddHead(Main, "能做什么")
-            AddItem(Main, "下载与整理游戏", "下载游戏版本、Mod、整合包、资源包、光影，支持镜像源优先与自动安装。")
-            AddItem(Main, "联机开房", "创建房间并复制邀请，或输入朋友发来的邀请码加入；同一局域网可直接连。")
-            AddItem(Main, "用插件扩展", "把插件 dll 放进 PCLHarness\Plugins 即可加载，示例插件演示了事件、设置项与参数注入。")
-            AddItem(Main, "原版能力照旧", "版本隔离、内存分配、Java 管理、自定义主页、音乐与图片等设置全部保留。")
+            AddHead(ColLeft, "和原版 PCL2 的区别")
+            AddItem(ColLeft, "独立配置目录", "数据统一放在 PCLHarness 文件夹，与原版 PCL 互不覆盖；首次启动可一键迁移旧设置与插件。")
+            AddItem(ColLeft, "外观可切换", "深色 / 浅色外观，支持自定义主色调与配色预设。")
+            AddItem(ColLeft, "不依赖官方服务", "移除在线更新与联网通知；下载与联机都有本地 / 镜像路线。")
+            AddItem(ColLeft, "插件框架（API v3）", "插件可添加页面、顶栏入口、设置项，并监听启动器就绪、页面切换、游戏启动等事件。")
+            AddItem(ColLeft, "联机可完全直连", "P2P 直连：房主把「地址|邀请码」发给朋友即可，公网可用 UPnP 自动映射。")
+            AddItem(ColLeft, "凭据留在本地", "微软登录与 CurseForge 的 Client ID / API Key 放在 PCLHarness\Secrets.json。")
 
-            AddPara(Main, "需要正版登录或官方 CurseForge 源时：在 PCLHarness\Secrets.json 里填 MsClientId 与 CurseForgeApiKey，然后重启启动器。", 11, 16, New Thickness(1, 8, 1, 4), 0.72)
+            AddHead(ColRight, "能做什么")
+            AddItem(ColRight, "下载与整理游戏", "游戏版本、Mod、整合包、资源包、光影，支持镜像优先与自动安装。")
+            AddItem(ColRight, "联机开房", "建房并复制邀请，或输入邀请码加入；局域网可直接连。")
+            AddItem(ColRight, "用插件扩展", "插件 dll 放进 PCLHarness\Plugins 即可加载。")
+            AddItem(ColRight, "原版能力照旧", "版本隔离、内存分配、Java 管理、自定义主页等全部保留。")
+
+            Grid.SetColumn(ColLeft, 0)
+            Grid.SetColumn(ColRight, 1)
+            Cols.Children.Add(ColLeft)
+            Cols.Children.Add(ColRight)
+            Main.Children.Add(Cols)
+
+            AddPara(Main, "需要正版登录或官方 CurseForge 源时：在 PCLHarness\Secrets.json 里填 MsClientId 与 CurseForgeApiKey，然后重启启动器。", 11, 16, New Thickness(1, 10, 1, 2), 0.72)
 
             '按钮
             Dim Bars As New StackPanel With {
