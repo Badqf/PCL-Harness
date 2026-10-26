@@ -1,4 +1,4 @@
-﻿Imports System.Runtime.CompilerServices
+Imports System.Runtime.CompilerServices
 Imports System.Xaml
 
 Public Module ModBase
@@ -6,7 +6,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "3.1.6" '显示用版本名'
+    Public Const VersionBaseName As String = "3.1.7" '显示用版本名'
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版
@@ -807,7 +807,7 @@ Public Module ModBase
     ''' <summary>
     ''' 反馈地址：改成你自己的 GitHub 仓库 Issues 即可。
     ''' </summary>
-    Public Const FeedbackUrl As String = "https://github.com/your-name/PCL-Harness/issues"
+    Public Const FeedbackUrl As String = "https://github.com/Badqf/PCL-Harness/issues"
 
     ''' <summary>
     ''' 重启启动器：先带 --wait 启动新实例，再正常退出当前实例。
