@@ -198,7 +198,61 @@ Public Class PagePlugin
 
     ' ================= 分区二：扩展点（每个插件一张可展开卡片） =================
 
+    Private ExtendSearch As String = ""
+    Private ExtendFilter As Integer = 0 '0 全部 / 1 已启用 / 2 已禁用
+    Private ExtendList As StackPanel
+    Private LabExtendStat As TextBlock
+
     Private Sub BuildExtend()
+        '搜索栏（照抄「版本设置 → Mod 管理」）
+        Dim Search As New MySearchBox With {.HintText = "搜索插件名称 / 设置项", .Margin = New Thickness(0, 4, 0, 12)}
+        AddHandler Search.TextChanged, Sub(sender As Object, e As EventArgs)
+                                           ExtendSearch = If(Search.Text, "").Trim()
+                                           RebuildExtendList()
+                                       End Sub
+        PanContent.Children.Add(Search)
+
+        '过滤单选 + 加载统计
+        Dim FilterCard As New MyCard With {.Margin = New Thickness(0, 0, 0, 12)}
+        Dim FilterBody As New Grid With {.Margin = New Thickness(15, 12, 15, 12)}
+        FilterBody.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+        FilterBody.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        Dim Radios As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center}
+        Dim Names = {"全部", "已启用", "已禁用"}
+        AniControlEnabled += 1
+        For i = 0 To Names.Length - 1
+            Dim R As New MyRadioButton With {.Text = Names(i), .Tag = i, .Margin = New Thickness(0, 0, 14, 0), .Checked = (i = ExtendFilter)}
+            AddHandler R.Check, Sub(sender As Object, raiseByMouse As Boolean)
+                                    If AniControlEnabled > 0 Then Return
+                                    Dim Tag = CType(sender, MyRadioButton).Tag
+                                    If Tag Is Nothing Then Return
+                                    ExtendFilter = CInt(Tag)
+                                    RebuildExtendList()
+                                End Sub
+            Radios.Children.Add(R)
+        Next
+        AniControlEnabled -= 1
+        Grid.SetColumn(Radios, 0)
+        FilterBody.Children.Add(Radios)
+        LabExtendStat = New TextBlock With {.FontSize = 12.5, .Foreground = Res("ColorBrushGray2"), .VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right, .TextTrimming = TextTrimming.CharacterEllipsis}
+        Grid.SetColumn(LabExtendStat, 1)
+        FilterBody.Children.Add(LabExtendStat)
+        FilterCard.Children.Add(FilterBody)
+        PanContent.Children.Add(FilterCard)
+
+        ExtendList = New StackPanel
+        PanContent.Children.Add(ExtendList)
+        RebuildExtendList()
+    End Sub
+
+    Private Sub RebuildExtendList()
+        If ExtendList Is Nothing Then Return
+        ExtendList.Children.Clear()
+
+        Dim OkCount As Integer = ModPlugin.Plugins.Where(Function(p) String.IsNullOrEmpty(p.Error)).Count()
+        Dim FailCount As Integer = ModPlugin.Plugins.Count - OkCount
+        If LabExtendStat IsNot Nothing Then LabExtendStat.Text = $"加载状态：成功 {OkCount} 个，失败 {FailCount} 个，总计 {ModPlugin.Plugins.Count} 个"
+
         Dim Owners As New List(Of ModPlugin.PluginInfo)
         For Each P In ModPlugin.PluginPages
             If P.Owner IsNot Nothing AndAlso Not Owners.Contains(P.Owner) Then Owners.Add(P.Owner)
@@ -210,72 +264,91 @@ Public Class PagePlugin
             If N.Owner IsNot Nothing AndAlso Not Owners.Contains(N.Owner) Then Owners.Add(N.Owner)
         Next
 
-        If Owners.Count = 0 Then
+        Dim Shown = Owners.Where(Function(o) ExtendMatches(o)).ToList()
+        If Shown.Count = 0 Then
             Dim CardEmpty = NewCard("插件扩展点")
-            Dim Body As New StackPanel
-            Body.Children.Add(MkHint("当前没有任何插件注册扩展点。"))
-            Body.Children.Add(New TextBlock With {.Text = "插件实现 PCL.IPclPluginUi 后，可以注册自定义页面、标题栏入口与设置项，它们会分别出现在这里（每个插件一张卡片）。", .FontSize = 12, .Foreground = Res("ColorBrushGray2"), .TextWrapping = TextWrapping.Wrap, .Margin = New Thickness(0, 6, 0, 0)})
-            Body.Margin = New Thickness(25, 40, 25, 20)
+            Dim Body As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
+            If Owners.Count = 0 Then
+                Body.Children.Add(MkHint("当前没有任何插件注册扩展点。"))
+                Body.Children.Add(New TextBlock With {.Text = "插件实现 PCL.IPclPluginUi 后，可以注册自定义页面、标题栏入口与设置项，它们会分别出现在这里（每个插件一张卡片）。", .FontSize = 12, .Foreground = Res("ColorBrushGray2"), .TextWrapping = TextWrapping.Wrap, .Margin = New Thickness(0, 6, 0, 0)})
+            Else
+                Body.Children.Add(MkHint("没有匹配「" & ExtendSearch & "」的插件，换个关键词或切换过滤条件试试。"))
+            End If
             CardEmpty.Children.Add(Body)
-            PanContent.Children.Add(CardEmpty)
+            ExtendList.Children.Add(CardEmpty)
             Return
         End If
 
-        Dim OkCount As Integer = ModPlugin.Plugins.Where(Function(p) String.IsNullOrEmpty(p.Error)).Count()
-        Dim FailCount As Integer = ModPlugin.Plugins.Count - OkCount
-        PanContent.Children.Add(New TextBlock With {
-            .Text = $"加载状态：成功 {OkCount} 个，失败 {FailCount} 个，总计 {ModPlugin.Plugins.Count} 个",
-            .FontSize = 13,
-            .Margin = New Thickness(25, 18, 25, 0)
-        })
-        For Each Owner In Owners
-            Dim Pages = ModPlugin.PluginPages.Where(Function(p) p.Owner Is Owner).ToList()
-            Dim Navs = ModPlugin.PluginNavItems.Where(Function(n) n.Owner Is Owner).ToList()
-            Dim Sets = ModPlugin.PluginSettings.Where(Function(s) s.Owner Is Owner).ToList()
-
-            Dim Card = NewCard($"{Owner.DisplayName}  v{Owner.Version}")
-            Card.CanSwap = True
-
-            Dim Body As New StackPanel
-            Dim Sum As New TextBlock With {.Text = $"页面 {Pages.Count} 个 · 标题栏入口 {Navs.Count} 个 · 设置项 {Sets.Count} 个", .FontSize = 12, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 0, 0, 6)}
-            Body.Children.Add(Sum)
-
-            If Pages.Count + Navs.Count + Sets.Count = 0 Then
-                Body.Children.Add(MkHint("这个插件启用了，但没有注册任何扩展点。"))
-            Else
-                Dim G As New Grid
-                G.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(300)})
-                G.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
-                Dim RowIndex As Integer = 0
-
-                For Each Page In Pages
-                    G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
-                    AddExtendRow(G, RowIndex, Page.Title, $"自定义页面（ID：{Page.Id}）", BuildOpenPageButton(Owner, Page))
-                    RowIndex += 1
-                Next
-
-                For Each NavItem In Navs
-                    If NavItem.Page IsNot Nothing Then Continue For '入口指向页面时，页面行已经覆盖
-                    G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
-                    AddExtendRow(G, RowIndex, NavItem.Text, "标题栏入口：点击执行插件代码", Nothing)
-                    RowIndex += 1
-                Next
-
-                For Each Setting In Sets
-                    G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
-                    AddExtendRow(G, RowIndex, Setting.Title, Setting.Description, BuildSettingControl(Owner, Setting))
-                    RowIndex += 1
-                Next
-
-                Body.Children.Add(G)
-            End If
-
-            Body.Margin = New Thickness(25, 46, 25, 20)
-            Card.Children.Add(Body)
-            Card.SwapControl = Body
-            Card.IsSwapped = True 'True = 折叠，默认收起每张插件卡片
-            PanContent.Children.Add(Card)
+        For Each Owner In Shown
+            AddExtendCard(Owner)
         Next
+    End Sub
+
+    Private Function ExtendMatches(Owner As ModPlugin.PluginInfo) As Boolean
+        If ExtendFilter = 1 AndAlso Not Owner.Enabled Then Return False
+        If ExtendFilter = 2 AndAlso Owner.Enabled Then Return False
+        If String.IsNullOrEmpty(ExtendSearch) Then Return True
+        Dim Q = ExtendSearch.ToLowerInvariant()
+        If (Owner.DisplayName & "").ToLowerInvariant().Contains(Q) Then Return True
+        For Each P In ModPlugin.PluginPages.Where(Function(x) x.Owner Is Owner)
+            If (P.Title & "").ToLowerInvariant().Contains(Q) Then Return True
+        Next
+        For Each S In ModPlugin.PluginSettings.Where(Function(x) x.Owner Is Owner)
+            If ((S.Title & " ") & " " & (S.Description & "")).ToLowerInvariant().Contains(Q) Then Return True
+        Next
+        For Each N In ModPlugin.PluginNavItems.Where(Function(x) x.Owner Is Owner)
+            If (N.Text & "").ToLowerInvariant().Contains(Q) Then Return True
+        Next
+        Return False
+    End Function
+
+    Private Sub AddExtendCard(Owner As ModPlugin.PluginInfo)
+        Dim Pages = ModPlugin.PluginPages.Where(Function(p) p.Owner Is Owner).ToList()
+        Dim Navs = ModPlugin.PluginNavItems.Where(Function(n) n.Owner Is Owner).ToList()
+        Dim Sets = ModPlugin.PluginSettings.Where(Function(s) s.Owner Is Owner).ToList()
+
+        Dim Card = NewCard($"{Owner.DisplayName}  v{Owner.Version}")
+        Card.CanSwap = True
+
+        Dim Body As New StackPanel
+        Dim Sum As New TextBlock With {.Text = $"页面 {Pages.Count} 个 · 标题栏入口 {Navs.Count} 个 · 设置项 {Sets.Count} 个", .FontSize = 12, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 0, 0, 6)}
+        Body.Children.Add(Sum)
+
+        If Pages.Count + Navs.Count + Sets.Count = 0 Then
+            Body.Children.Add(MkHint("这个插件启用了，但没有注册任何扩展点。"))
+        Else
+            Dim G As New Grid
+            G.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(300)})
+            G.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+            Dim RowIndex As Integer = 0
+
+            For Each Page In Pages
+                G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+                AddExtendRow(G, RowIndex, Page.Title, $"自定义页面（ID：{Page.Id}）", BuildOpenPageButton(Owner, Page))
+                RowIndex += 1
+            Next
+
+            For Each NavItem In Navs
+                If NavItem.Page IsNot Nothing Then Continue For '入口指向页面时，页面行已经覆盖
+                G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+                AddExtendRow(G, RowIndex, NavItem.Text, "标题栏入口：点击执行插件代码", Nothing)
+                RowIndex += 1
+            Next
+
+            For Each Setting In Sets
+                G.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
+                AddExtendRow(G, RowIndex, Setting.Title, Setting.Description, BuildSettingControl(Owner, Setting))
+                RowIndex += 1
+            Next
+
+            Body.Children.Add(G)
+        End If
+
+        Body.Margin = New Thickness(25, 46, 25, 20)
+        Card.Children.Add(Body)
+        Card.SwapControl = Body
+        Card.IsSwapped = True 'True = 折叠，默认收起每张插件卡片
+        ExtendList.Children.Add(Card)
     End Sub
 
     ''' <summary>
