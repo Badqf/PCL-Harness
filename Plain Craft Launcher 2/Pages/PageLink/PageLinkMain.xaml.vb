@@ -225,7 +225,7 @@ Public Class PageLinkMain
     '由 Waiting 或 Failed 状态切换到 Loading
     Private Sub SwitchToLoading(OldState As LinkStates)
         '清理变量
-        Peers = Nothing
+        Peers = If(IsDirectMode, New List(Of Peer), Nothing)
         FailCount = 0
         '加载器与进程状态
         LinkLoader.Start(IsForceRestart:=True)
@@ -925,21 +925,8 @@ ForcedPass:
             .StandardErrorEncoding = Encoding.UTF8
         }
         Logger.Info($"正在启动 EasyTier：{Arguments}")
-        '创建虚拟网卡需要管理员权限，没有就提权（无法重定向输出，但不影响功能）
-        If Not IsAdmin() Then
-            Logger.Info("联机模块需要管理员权限才能创建虚拟网卡，正在请求提权……")
-            Info.UseShellExecute = True
-            Info.Verb = "runas"
-            Info.CreateNoWindow = False
-            Info.RedirectStandardError = False
-            Info.RedirectStandardOutput = False
-            Try
-                ProcessCore = Process.Start(Info)
-            Catch ex As Exception
-                Throw New Exception($"$联机模块需要管理员权限才能创建虚拟网卡。{vbCrLf}请在弹出的提示里选择「是」；如果点了取消，可以右键用管理员身份运行 PCL 再试。{vbCrLf}{ex.Message}")
-            End Try
-            Return
-        End If
+        '先按普通权限启动；若因为缺少虚拟网卡驱动而退出，再提示提权
+        If Not IsAdmin() Then Logger.Info("当前没有管理员权限；联机模块若因虚拟网卡失败，将提示提权")
         ProcessCore = New Process With {.StartInfo = Info}
         Dim LogLineHandler =
         Sub(sender As Object, e As DataReceivedEventArgs, Handle As AutoResetEvent)
@@ -1083,6 +1070,7 @@ ForcedPass:
     ''' </summary>
     Private RefreshPeerLoader As New LoaderTask(Of Integer, List(Of Peer))("EasyTier CLI", AddressOf RefreshPeer)
     Private Sub RefreshPeer()
+        If IsDirectMode Then Exit Sub '直连模式不是自己启动的联机模块，不需要轮询节点列表
         Try
             Dim CliResult = RunCliAndGetOutput(PathEasyTier & "联机模块 CLI.exe", $"-o json -p 127.0.0.1:{RPCPort} peer", 2000)
             '解析
