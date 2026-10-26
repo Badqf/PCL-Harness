@@ -278,22 +278,44 @@ Public Class PagePlugin
         Next
     End Sub
 
+    ''' <summary>
+    ''' 参照「版本设置 → Mod 管理」的列表样式画一行：左标题/说明、右控件、悬停高亮、底部分隔线。
+    ''' </summary>
     Private Sub AddExtendRow(Table As Grid, RowIndex As Integer, Title As String, Description As String, RightControl As FrameworkElement)
-        Dim Left As New StackPanel With {.Margin = New Thickness(0, 8, 24, 8), .VerticalAlignment = VerticalAlignment.Center}
-        Left.Children.Add(New TextBlock With {.Text = Title, .FontSize = 13, .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
+        Dim Row As New Border With {
+            .CornerRadius = New CornerRadius(5),
+            .Padding = New Thickness(10, 7, 10, 7),
+            .Margin = New Thickness(0, 1, 0, 1),
+            .Background = Brushes.Transparent,
+            .BorderThickness = New Thickness(0, 0, 0, 1)
+        }
+        Row.SetResourceReference(Border.BorderBrushProperty, "ColorBrush6")
+        AddHandler Row.MouseEnter, Sub() Row.SetResourceReference(Border.BackgroundProperty, "ColorBrush5")
+        AddHandler Row.MouseLeave, Sub() Row.Background = Brushes.Transparent
+
+        Dim Inner As New Grid
+        Inner.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        Inner.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+
+        Dim Left As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 0, 24, 0)}
+        Left.Children.Add(New TextBlock With {.Text = Title, .FontSize = 13, .TextWrapping = TextWrapping.Wrap})
         If Not String.IsNullOrWhiteSpace(Description) Then
-            Left.Children.Add(New TextBlock With {.Text = Description, .FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 2, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
+            Left.Children.Add(New TextBlock With {.Text = Description, .FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 2, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
-        Table.SetRow(Left, RowIndex)
-        Table.SetColumn(Left, 0)
-        Table.Children.Add(Left)
+        Grid.SetColumn(Left, 0)
+        Inner.Children.Add(Left)
+
         If RightControl IsNot Nothing Then
-            Dim Host As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 8, 0, 8)}
+            Dim Host As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center, .MinWidth = 150, .HorizontalAlignment = HorizontalAlignment.Right}
             Host.Children.Add(RightControl)
-            Table.SetRow(Host, RowIndex)
-            Table.SetColumn(Host, 1)
-            Table.Children.Add(Host)
+            Grid.SetColumn(Host, 1)
+            Inner.Children.Add(Host)
         End If
+
+        Row.Child = Inner
+        Table.SetRow(Row, RowIndex)
+        Table.SetColumnSpan(Row, 2)
+        Table.Children.Add(Row)
     End Sub
 
     Private Function BuildOpenPageButton(Owner As ModPlugin.PluginInfo, Page As ModPlugin.PluginPageInfo) As FrameworkElement
