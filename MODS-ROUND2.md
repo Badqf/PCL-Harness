@@ -265,7 +265,13 @@ cd F:\PCL2-Source
 
 ### 16.2 正版登录（微软账号）
 
-需要自己注册一个 Azure 应用，**免费**，个人微软账号即可：
+> **前提（2026-10 核对官方文档）**：个人微软账号（@outlook.com / @hotmail.com / @live.com）**不能**直接登录 <https://entra.microsoft.com> 注册应用。这类账号默认被路由到 "Microsoft Services" 租户、其中没有可管理的目录，打开后报 `AADSTS50020` / `AADSTS50058`。
+>
+> 官方两条硬限制：注册应用所在租户的前提是「An Azure account that has an active subscription」；且「Only paid customers can create a new Workforce tenant…Customers using a free tenant, or a trial subscription won't be able to create additional tenants from the Microsoft Entra admin center」。所以**必须先注册 Azure 账号**——注册流程会自动创建租户，注册者成为该租户的全局管理员，之后才能在 Entra 里注册应用。
+
+步骤（Azure 免费账号 → 注册应用）：
+
+0. 用 InPrivate 窗口打开 <https://azure.microsoft.com/pricing/purchase-options/azure-account> → 「免费开始使用」，用个人微软账号注册 Azure（需手机验证 + 信用卡预授权，试用额度内不扣费）。注册完成后账号下会自动出现一个 Entra 租户，右上角能看到租户名。
 
 1. 打开 <https://entra.microsoft.com> → 「应用」→「应用注册」→「新注册」。
 2. 名称随便（如 `PCL Harness Login`）。
