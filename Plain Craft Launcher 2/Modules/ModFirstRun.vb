@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Media
@@ -311,8 +311,14 @@ Public Class FirstRunWindow
         BtnRun = New MyButton With {.Text = "迁移并进入", .Height = 30, .MinWidth = 104, .Margin = New Thickness(8, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
         If TargetItems.Count = 0 Then BtnRun.IsEnabled = False
         AddHandler BtnOpen.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) OpenLegacyFolder()
-        AddHandler BtnRun.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) RunMigration()
-        AddHandler BtnSkip.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) Close()
+        AddHandler BtnRun.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs)
+                                            Logger.Info("[首次启动] 点击迁移/完成")
+                                            RunMigration()
+                                        End Sub
+        AddHandler BtnSkip.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs)
+                                            Logger.Info("[首次启动] 点击跳过")
+                                            Close()
+                                        End Sub
         Btns.Children.Add(BtnOpen)
         Btns.Children.Add(BtnSkip)
         Btns.Children.Add(BtnRun)
@@ -321,6 +327,7 @@ Public Class FirstRunWindow
         Layout.Children.Add(Btns)
 
         AddHandler MouseLeftButtonDown, Sub(sender As Object, e As Input.MouseButtonEventArgs)
+                                            If IsInteractiveSource(e.OriginalSource) Then Return
                                             Try
                                                 DragMove()
                                             Catch
@@ -330,6 +337,7 @@ Public Class FirstRunWindow
         AddHandler PreviewKeyDown, Sub(sender As Object, e As Input.KeyEventArgs)
                                        Select Case e.Key
                                            Case Input.Key.Escape
+                                               Logger.Info("[首次启动] 按下 Esc")
                                                e.Handled = True
                                                Close()
                                            Case Input.Key.Enter
@@ -340,6 +348,18 @@ Public Class FirstRunWindow
         Content = Root
     End Sub
 
+    ''' <summary>判断点击落点是否属于需要自己处理鼠标的控件。</summary>
+    Private Function IsInteractiveSource(Source As Object) As Boolean
+        Dim Node = TryCast(Source, DependencyObject)
+        While Node IsNot Nothing
+            '滚动容器不算：在内容区按下仍然可以拖动窗口，滚动条自己会处理点击
+            If TypeOf Node Is MyButton OrElse TypeOf Node Is MyCheckBox OrElse TypeOf Node Is MyTextBox OrElse TypeOf Node Is MyComboBox Then
+                Return True
+            End If
+            Node = VisualTreeHelper.GetParent(Node)
+        End While
+        Return False
+    End Function
     Private Sub OpenLegacyFolder()
         Dim OldBase As String = Paths.Base & "PCL\"
         If Directory.Exists(OldBase) Then
