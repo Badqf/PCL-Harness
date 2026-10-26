@@ -39,42 +39,48 @@ Public Class PageOtherTest
         MemoryOptimize(ShowHint)
     End Sub
 
-    ' ==== 清理日志与临时文件 ====
+    ' ==== 清理游戏垃圾 ====
 
     ''' <summary>
-    ''' 清理启动器日志与缓存目录中的旧临时文件。
+    ''' 清理 Minecraft 目录下的日志与崩溃报告，不动存档与 Mod。
     ''' </summary>
     Public Shared Sub RubbishClear()
-        Dim DeletedCount As Integer = 0
-        Dim DeletedSize As Long = 0
         Try
-            '启动器日志
-            For Each FilePath In Directory.GetFiles(Paths.BaseThenName, "Log*.txt")
-                Try
-                    DeletedSize += New FileInfo(FilePath).Length
-                    File.Delete(FilePath)
-                    DeletedCount += 1
-                Catch
-                    '正在写入的日志跳过
-                End Try
-            Next
-            '缓存目录中超过 1 小时的临时文件
-            If Directory.Exists(PathTemp) Then
-                For Each FilePath In Directory.GetFiles(PathTemp, "*", SearchOption.AllDirectories)
+            Dim Folder As String = If(McInstanceSelected?.PathIndie, "")
+            If String.IsNullOrWhiteSpace(Folder) OrElse Not Directory.Exists(Folder) Then
+                Hint("请先在主页选择一个游戏版本，再清理游戏垃圾", HintType.Red)
+                Return
+            End If
+            Dim Count As Integer = 0
+            Dim Total As Long = 0
+            For Each SubFolder In {"logs", "crash-reports"}
+                Dim PathFull As String = Path.Combine(Folder, SubFolder)
+                If Not Directory.Exists(PathFull) Then Continue For
+                For Each FilePath In Directory.GetFiles(PathFull, "*", SearchOption.AllDirectories)
                     Try
-                        Dim Info As New FileInfo(FilePath)
-                        If Info.LastWriteTime > Date.Now.AddHours(-1) Then Continue For
-                        DeletedSize += Info.Length
+                        Total += New FileInfo(FilePath).Length
                         File.Delete(FilePath)
-                        DeletedCount += 1
+                        Count += 1
                     Catch
-                        '被占用的文件跳过
+                        '被游戏占用的文件跳过
+                    End Try
+                Next
+            Next
+            '版本文件夹里的日志
+            Dim VersionsFolder As String = Path.Combine(Folder, "versions")
+            If Directory.Exists(VersionsFolder) Then
+                For Each FilePath In Directory.GetFiles(VersionsFolder, "*.log", SearchOption.AllDirectories)
+                    Try
+                        Total += New FileInfo(FilePath).Length
+                        File.Delete(FilePath)
+                        Count += 1
+                    Catch
                     End Try
                 Next
             End If
-            Hint($"已清理 {DeletedCount} 个文件，释放 {DeletedSize / 1024 / 1024:0.0} MB 空间", HintType.Green)
+            Hint($"已清理 {Count} 个文件，释放 {Total / 1024 / 1024:0.0} MB 空间", HintType.Green)
         Catch ex As Exception
-            Logger.Error(ex, "清理日志失败")
+            Logger.Error(ex, "清理游戏垃圾失败")
             Hint("清理失败：" & ex.Message, HintType.Red)
         End Try
     End Sub
@@ -139,8 +145,8 @@ Public Class PageOtherTest
         "联机直连模式下，房主把「地址|邀请码」整段发给朋友就行。",
         "启动器数据都在 PCLHarness 文件夹里，备份就是复制这个文件夹。",
         "第一次使用可以从别的 PCL 一键迁移旧设置，不用重新配。",
-        "更多 → 百宝箱 里的自定义下载支持任意 http 直链。",
-        "日志太大占地方时，可以在百宝箱里一键清理。"
+        "日志太大占地方时，可以在百宝箱里清理游戏垃圾。",
+        "自定义下载支持任意 http 直链，下完可以直接在文件夹里找到。"
     }
 
     Private Shared ReadOnly Caves As String() = {
@@ -173,20 +179,40 @@ Public Class PageOtherTest
     ' ==== 页面事件 ====
 
     Private Sub PageOtherTest_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
-        LabCleanPath.Text = $"清理范围：{Paths.BaseThenName} 下的日志文件，以及缓存目录中使用超过 1 小时的临时文件。"
-        LabTip.Text = GetRandomHint()
+        If String.IsNullOrWhiteSpace(TxtSaveTo.Text) Then TxtSaveTo.Text = Paths.BaseThenName & "Download"
+    End Sub
+
+    Private Sub BtnJrrp_Click(sender As Object, e As MouseButtonEventArgs)
+        Jrrp()
     End Sub
 
     Private Sub BtnMemory_Click(sender As Object, e As MouseButtonEventArgs)
         RunInThread(Sub() MemoryOptimize(True))
     End Sub
 
-    Private Sub BtnClean_Click(sender As Object, e As MouseButtonEventArgs)
+    Private Sub BtnCleanGame_Click(sender As Object, e As MouseButtonEventArgs)
         RunInThread(Sub() RubbishClear())
     End Sub
 
-    Private Sub BtnTip_Click(sender As Object, e As MouseButtonEventArgs)
-        LabTip.Text = GetRandomHint()
+    Private Sub BtnSelectFolder_Click(sender As Object, e As MouseButtonEventArgs)
+        Try
+            Dim Folder As String = Dialogs.SelectFolder("选择保存文件夹", False).FirstOrDefault()
+            If Not String.IsNullOrWhiteSpace(Folder) Then TxtSaveTo.Text = Folder
+        Catch ex As Exception
+            Logger.Error(ex, "选择文件夹失败")
+        End Try
+    End Sub
+
+    Private Sub BtnOpenFolder_Click(sender As Object, e As MouseButtonEventArgs)
+        Try
+            Dim Folder As String = TxtSaveTo.Text.Trim()
+            If String.IsNullOrWhiteSpace(Folder) Then Folder = Paths.BaseThenName & "Download"
+            Directory.CreateDirectory(Folder)
+            Process.Start("explorer.exe", Folder)
+        Catch ex As Exception
+            Logger.Error(ex, "打开文件夹失败")
+            Hint("打开文件夹失败：" & ex.Message, HintType.Red)
+        End Try
     End Sub
 
     Private Sub BtnDownload_Click(sender As Object, e As MouseButtonEventArgs)
@@ -195,7 +221,7 @@ Public Class PageOtherTest
             Hint("下载地址需要以 http:// 或 https:// 开头", HintType.Red)
             Return
         End If
-        StartCustomDownload(Url, TxtName.Text.Trim())
+        StartCustomDownload(Url, TxtName.Text.Trim(), TxtSaveTo.Text.Trim())
     End Sub
 
 End Class
