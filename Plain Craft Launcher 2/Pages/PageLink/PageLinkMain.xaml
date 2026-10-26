@@ -145,6 +145,7 @@
                             <RowDefinition Height="21" />
                             <RowDefinition Height="Auto" /> <!--标题栏-->
                             <RowDefinition Height="Auto" /> <!--文本区-->
+                            <RowDefinition Height="Auto" /> <!--地址区-->
                             <RowDefinition Height="Auto" /> <!--按钮-->
                             <RowDefinition Height="21" />
                         </Grid.RowDefinitions>
@@ -156,8 +157,36 @@
                         <TextBlock x:Name="LabFinishDesc" Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="2" Margin="1,9,10,10" 
                                    Text="描述文本。"
                                    FontSize="14" LineHeight="19" MaxWidth="400" TextWrapping="Wrap" Foreground="{StaticResource ColorBrushGray2}" />
-                        <local:MyButton x:Name="BtnFinishCopy" Grid.Column="4" Grid.Row="3" Margin="0,0,15,0" Text="复制邀请码" Padding="13,8" ColorType="Highlight" />
-                        <local:MyButton x:Name="BtnFinishExit" Grid.Column="5" Grid.Row="3" Text="退出" Padding="13,8" />
+                        <StackPanel x:Name="PanAddress" Grid.Column="3" Grid.ColumnSpan="3" Grid.Row="3" Margin="1,2,10,6" Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86" />
+                                    <ColumnDefinition Width="1*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="本机地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LabAddrLan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                <local:MyButton Grid.Row="0" Grid.Column="2" x:Name="BtnAddrLanCopy" Text="复制" Padding="8,3" Margin="8,0,0,0" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="外网地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" x:Name="LabAddrWan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
+                                <local:MyButton Grid.Row="1" Grid.Column="2" x:Name="BtnAddrWanCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="公网 IP" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" x:Name="LabAddrPublic" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
+                                <local:MyButton Grid.Row="2" Grid.Column="2" x:Name="BtnAddrPublicCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
+                                <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,0">
+                                    <local:MyButton x:Name="BtnDetectIp" Text="检测公网 IP" Padding="10,4" />
+                                    <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11.5" Opacity="0.62" TextWrapping="Wrap" MaxWidth="330"
+                                               Text="公网 IP 只在本机显示与写入本机文件，不会上传；截图分享前请先打码。" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>                        <local:MyButton x:Name="BtnFinishCopy" Grid.Column="4" Grid.Row="4" Margin="0,0,15,0" Text="复制邀请码" Padding="13,8" ColorType="Highlight" />
+                        <local:MyButton x:Name="BtnFinishExit" Grid.Column="5" Grid.Row="4" Text="退出" Padding="13,8" />
                     </Grid>
                 </local:MyCard>
                 <local:MyCard Grid.Row="4" HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="8">

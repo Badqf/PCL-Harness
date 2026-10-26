@@ -114,6 +114,8 @@ Public Class Settings
         New Setting("LinkLatencyMode", 0, Source:=Sources.Registry),
         New Setting("LinkCustomPeer", ""),
         New Setting("LinkDirectMode", True),
+    New Setting("LinkAutoPublicIp", False),
+    New Setting("LinkWriteAddressFile", True),
         New Setting("LinkEasyTierVersion", -1, Source:=Sources.Registry),
         New Setting("ToolHelpChinese", True, Source:=Sources.Registry),
         New Setting("ToolDownloadThread", 63, Source:=Sources.Registry),

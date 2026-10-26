@@ -1,4 +1,4 @@
-<local:MyPageRight
+﻿<local:MyPageRight
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -32,6 +32,14 @@
                         ToolTip="开启后不再访问 easytier.cn 的节点列表与公共中继，房主直接在本机监听端口并尝试用 UPnP 在路由器上开洞。&#xa;&#xa;能连上的情况：&#xa;- 两台电脑在同一个局域网（最稳）&#xa;- 房主公网可达，或路由器支持并开启了 UPnP&#xa;&#xa;连不上的情况：&#xa;- 双方都在 NAT 后面且路由器不支持 UPnP/无法端口映射（此时必须有一方做端口映射）&#xa;&#xa;首次使用需要管理员权限创建虚拟网卡。" />
                     <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Opacity="0.65" FontSize="12"
                         Text="直连模式下，邀请内容会变成「房主地址|邀请码」，把整串发给朋友即可。同一局域网内可以直接连；公网连接依赖路由器 UPnP 或手动端口映射。" />
+                    <local:MyCheckBox local:SettingService.Key="LinkAutoPublicIp" Height="22" Margin="0,15,0,0"
+                        Text="创建房间后自动检测公网 IP（会向 ipify 等接口发起一次请求）"
+                        ToolTip="关闭时只有你手动点「检测公网 IP」才会联网查询。&#xa;公网 IP 只在本机显示并写入本机地址文件，不会上传到任何服务器。" />
+                    <local:MyCheckBox local:SettingService.Key="LinkWriteAddressFile" Height="22" Margin="0,10,0,0"
+                        Text="把联机地址写入本机文件（供 Radmin 等外部工具读取）"
+                        ToolTip="文件位置：PCLHarness\LinkAddress.json&#xa;内容：本机地址、外网地址、公网 IP、邀请码，不含任何密钥或令牌。&#xa;文件权限收紧为仅当前用户可读，退出联机或关闭启动器时自动删除。" />
+                    <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Opacity="0.6" FontSize="12"
+                        Text="隐私说明：公网 IP 属于敏感信息。本程序只在你主动点击「检测公网 IP」或勾选上方自动检测时才会获取，不写日志、不上传、不参与任何统计；截图分享前请先把地址打码。" />
                 </StackPanel>
             </local:MyCard>
             <local:MyCard Margin="0,0,0,15" Title="高级设置" IsSwapped="True" CanSwap="True">

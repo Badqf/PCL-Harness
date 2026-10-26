@@ -3,6 +3,8 @@ Imports System.Globalization
 Imports System.Net.Sockets
 Imports System.Reflection
 Imports PCL
+Imports System.Security.AccessControl
+Imports System.Security.Principal
 
 Public Class PageLinkMain
     Private Const INVITE_CODE_VERSION As Integer = 2
@@ -327,6 +329,9 @@ Public Class PageLinkMain
                     "同一局域网的电脑可以直接连；公网需要路由器开启 UPnP 或手动端口映射。",
                     $"外网地址（UPnP 已自动映射）：{DirectPublicEndpoint}")
                 LabFinishDesc.Text = $"直连模式已开启，把下面这串发给朋友：{vbCrLf}{GetDirectInvite()}{vbCrLf}{Tip}"
+                RefreshAddressPanel()
+                If Settings.Get(Of Boolean)("LinkAutoPublicIp") AndAlso String.IsNullOrEmpty(DirectPublicIp) Then DetectPublicIpCore()
+                WriteAddressFileIfEnabled()
             Else
                 LabFinishDesc.Text = $"把邀请码发给朋友，让大家加入房间吧！{vbCrLf}邀请码：{GetInviteCode()}"
             End If
@@ -343,6 +348,7 @@ Public Class PageLinkMain
         Else
             LabFinishTitle.Text = "已加入房间"
             LabFinishDesc.Text = $"在多人游戏页面的最下方就能找到联机房间！{vbCrLf}注意：使用离线登录时不要手动输入 IP！"
+            PanAddress.Visibility = Visibility.Collapsed
             BtnFinishExit.Text = "离开"
             BtnFinishPing.ToolTip = "与房主的延迟"
             BtnFinishCopy.Visibility = Visibility.Collapsed
@@ -378,6 +384,7 @@ Public Class PageLinkMain
                 If MyMsgBox(If(IsServerSide, "你确定要关闭联机房间吗？", "你确定要离开联机房间吗？"), "退出联机", "确定", "取消") = 2 Then Return True
             End If
         End If
+        DeleteAddressFile()
         ChangeState(LinkStates.Waiting)
         Return False
     End Function
@@ -473,6 +480,10 @@ Public Class PageLinkMain
     ''' 直连模式下 UPnP 映射出的公网端点；没有则为空。
     ''' </summary>
     Private DirectPublicEndpoint As String = Nothing
+    ''' <summary>本机公网 IP。仅在用户点击「检测公网 IP」或开启自动检测后才有值，不写入日志。</summary>
+    Private DirectPublicIp As String = Nothing
+    ''' <summary>公网 IP 的来源描述（路由器 UPnP 或 HTTPS 查询）。</summary>
+    Private DirectPublicIpSource As String = Nothing
 
 #Region "加载"
 
@@ -881,6 +892,7 @@ ForcedPass:
     ''' </summary>
     Private Sub Panic(Brief As String, Detail As String)
         ModPlugin.RaiseLinkRoomClosed()
+        DeleteAddressFile()
         '常见原因分析
         If Detail.Contains("failed to listen on ") Then
             Detail = $"监听端口失败。{vbCrLf}请点击重试，如果还是出现此错误，可以重启电脑解决。{vbCrLf}{vbCrLf}{Detail}"
@@ -1301,4 +1313,135 @@ ForcedPass:
 
 #End Region
 
+
+    '===============================
+    '  联机地址（本机 / 外网 / 公网 IP）
+    '===============================
+
+    Private Const LinkAddressFileName As String = "LinkAddress.json"
+
+    ''' <summary>刷新完成页的地址面板。只有直连模式的房主才显示。</summary>
+    Private Sub RefreshAddressPanel()
+        If Not (IsDirectMode AndAlso IsServerSide) Then
+            PanAddress.Visibility = Visibility.Collapsed
+            Return
+        End If
+        PanAddress.Visibility = Visibility.Visible
+        Dim LanIp As String = ModUpnp.GetLanIPv4()
+        If String.IsNullOrEmpty(LanIp) Then LanIp = "127.0.0.1"
+        LabAddrLan.Text = $"{LanIp}:{DirectListenPort}"
+        LabAddrWan.Text = If(String.IsNullOrEmpty(DirectPublicEndpoint), "未映射（需要路由器 UPnP 或手动端口映射）", DirectPublicEndpoint)
+        BtnAddrWanCopy.IsEnabled = Not String.IsNullOrEmpty(DirectPublicEndpoint)
+        If String.IsNullOrEmpty(DirectPublicIp) Then
+            LabAddrPublic.Text = "未检测（点下方「检测公网 IP」）"
+            BtnAddrPublicCopy.IsEnabled = False
+        Else
+            LabAddrPublic.Text = $"{ModUpnp.MaskIp(DirectPublicIp)}（来源：{DirectPublicIpSource}）"
+            BtnAddrPublicCopy.IsEnabled = True
+        End If
+    End Sub
+
+    Private Sub BtnAddrLanCopy_Click() Handles BtnAddrLanCopy.Click
+        ClipboardSet(LabAddrLan.Text, False)
+        Hint("已复制本机地址")
+    End Sub
+
+    Private Sub BtnAddrWanCopy_Click() Handles BtnAddrWanCopy.Click
+        If String.IsNullOrEmpty(DirectPublicEndpoint) Then Return
+        ClipboardSet(DirectPublicEndpoint, False)
+        Hint("已复制外网地址")
+    End Sub
+
+    Private Sub BtnAddrPublicCopy_Click() Handles BtnAddrPublicCopy.Click
+        If String.IsNullOrEmpty(DirectPublicIp) Then Return
+        ClipboardSet(DirectPublicIp, False)
+        Hint("已复制公网 IP")
+    End Sub
+
+    ''' <summary>用户主动点击「检测公网 IP」。会先问路由器，再（可选）访问纯文本 IP 接口。</summary>
+    Private Sub DetectPublicIp() Handles BtnDetectIp.Click
+        DetectPublicIpCore()
+    End Sub
+
+    Private Sub DetectPublicIpCore()
+        If Not (IsDirectMode AndAlso IsServerSide) Then Return
+        RunInNewThread(
+            Sub()
+                Dim Ip As String = Nothing, Src As String = Nothing, Reason As String = Nothing
+                Dim Ok As Boolean = ModUpnp.TryGetPublicIp(Ip, Src, Reason, True)
+                RunInUi(
+                    Sub()
+                        If Ok Then
+                            DirectPublicIp = Ip
+                            DirectPublicIpSource = Src
+                            RefreshAddressPanel()
+                            WriteAddressFileIfEnabled()
+                            Hint($"已获取公网 IP（来源：{Src}）。为避免截图泄露，界面已打码，点「复制」可取得完整地址。")
+                        Else
+                            Hint($"没能获取公网 IP：{Reason}", HintType.Red)
+                        End If
+                    End Sub)
+                '日志里绝不写入 IP 本身
+                Logger.Info($"公网 IP 检测结束：{If(Ok, "成功（来源 " & Src & "，值已隐藏）", "失败（" & Reason & "）")}")
+            End Sub, "检测公网 IP")
+    End Sub
+
+    Private Function LinkAddressPath() As String
+        Return Paths.AppDataThenName & LinkAddressFileName
+    End Function
+
+    Private Function JsonStr(Value As String) As String
+        If Value Is Nothing Then Return """"""""
+        Return """" & Value.Replace("\", "\\").Replace("""", "\""") & """"
+    End Function
+
+    Private Sub WriteAddressFileIfEnabled()
+        If Settings.Get(Of Boolean)("LinkWriteAddressFile") Then WriteAddressFile()
+    End Sub
+
+    ''' <summary>
+    ''' 把当前房间地址写到本机文件，供 Radmin 等外部工具读取。
+    ''' 文件权限收紧为「仅当前用户」，不含任何密钥；退出联机时删除。
+    ''' </summary>
+    Private Sub WriteAddressFile()
+        Try
+            Dim LanIp As String = ModUpnp.GetLanIPv4()
+            If String.IsNullOrEmpty(LanIp) Then LanIp = "127.0.0.1"
+            Dim WanIp As String = ""
+            Dim WanPort As String = ""
+            If Not String.IsNullOrEmpty(DirectPublicEndpoint) Then
+                Dim Parts As String() = DirectPublicEndpoint.Split(":"c)
+                WanIp = Parts(0)
+                If Parts.Length > 1 Then WanPort = Parts(1)
+            End If
+            Dim Sb As New Text.StringBuilder()
+            Sb.AppendLine("{")
+            Sb.AppendLine("  ""lan"": { ""ip"": " & JsonStr(LanIp) & ", ""port"": " & DirectListenPort & ", ""invite"": " & JsonStr(GetDirectInvite()) & " },")
+            Sb.AppendLine("  ""wan"": { ""ip"": " & JsonStr(WanIp) & ", ""port"": " & If(WanPort = "", "null", WanPort) & ", ""mapped"": " & If(String.IsNullOrEmpty(DirectPublicEndpoint), "false", "true") & " },")
+            Sb.AppendLine("  ""public_ip"": " & JsonStr(If(DirectPublicIp, "")) & ",")
+            Sb.AppendLine("  ""updated"": " & JsonStr(Date.Now.ToString("yyyy-MM-ddTHH:mm:sszzz")))
+            Sb.AppendLine("}")
+            Dim Target As String = LinkAddressPath()
+            IO.File.WriteAllText(Target, Sb.ToString(), New Text.UTF8Encoding(False))
+            Dim Acl As New FileSecurity()
+            Acl.SetAccessRuleProtection(True, False)
+            Acl.AddAccessRule(New FileSystemAccessRule(WindowsIdentity.GetCurrent().Name, FileSystemRights.FullControl, AccessControlType.Allow))
+            IO.File.SetAccessControl(Target, Acl)
+            Logger.Info("已写入联机地址文件（含公网 IP，内容不记录到日志）")
+        Catch ex As Exception
+            Logger.Warn(ex, "写入联机地址文件失败")
+        End Try
+    End Sub
+
+    Private Sub DeleteAddressFile()
+        Try
+            Dim Target As String = LinkAddressPath()
+            If IO.File.Exists(Target) Then
+                IO.File.Delete(Target)
+                Logger.Info("已删除联机地址文件")
+            End If
+        Catch ex As Exception
+            Logger.Warn(ex, "删除联机地址文件失败")
+        End Try
+    End Sub
 End Class
