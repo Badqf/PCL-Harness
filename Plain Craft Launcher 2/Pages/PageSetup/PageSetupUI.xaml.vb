@@ -351,7 +351,16 @@ Refresh:
         ModSecret.IsDarkMode = Not IsLight
         ModPlugin.RaiseThemeChanged(Not IsLight)
         ModSecret.ThemeRefresh()
-        Hint($"已切换为{If(IsLight, "浅色", "深色")}外观，重启启动器后全部界面生效")
+        Hint($"已切换为{If(IsLight, "浅色", "深色")}外观，正在重启启动器……")
+        RestartForTheme()
+    End Sub
+
+    Private Sub RestartForTheme()
+        RunInNewThread(
+            Sub()
+                Thread.Sleep(500)
+                RunInUi(Sub() RestartLauncher())
+            End Sub, "重启启动器")
     End Sub
     '自定义配色
     Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change, SliderLauncherDelta.Change
@@ -593,7 +602,8 @@ Refresh:
                                       SliderLauncherDelta.Value = 0
                                       AniControlEnabled -= 1
                                       HSL_Change()
-                                      Hint($"已套用「{Preset.Name}」配色，重启启动器后全部界面生效")
+                                      Hint($"已套用「{Preset.Name}」配色，正在重启启动器……")
+        RestartForTheme()
                                   End Sub
             PanColorPresets.Children.Add(Btn)
         Next

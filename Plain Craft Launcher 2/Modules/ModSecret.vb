@@ -168,7 +168,7 @@ Friend Module ModSecret
             Application.Current.Resources("ColorBrushGray6") = New SolidColorBrush(ColorGray6)
             Application.Current.Resources("ColorBrushGray7") = New SolidColorBrush(ColorGray7)
             Application.Current.Resources("ColorBrushGray8") = New SolidColorBrush(ColorGray8)
-            Application.Current.Resources("ColorBrushHalfWhite") = New SolidColorBrush(If(IsDarkMode, New MyColor(13, 255, 255, 255), New MyColor(20, 0, 0, 0)))
+            Application.Current.Resources("ColorBrushHalfWhite") = New SolidColorBrush(If(IsDarkMode, New MyColor(13, 255, 255, 255), New MyColor(34, 255, 255, 255)))
             Application.Current.Resources("ColorBrushHover") = New SolidColorBrush(If(IsDarkMode, New MyColor().FromHSL2(ColorHue, ColorSat * 0.4, 34), New MyColor().FromHSL2(ColorHue, 18, 90)))
             Application.Current.Resources("ColorBrushBackgroundTransparentSidebar") = New SolidColorBrush(New MyColor(If(IsDarkMode, 241, 226), Color8))
             Application.Current.Resources("ColorBrushTitleBarIcon") = New SolidColorBrush(If(IsDarkMode, New MyColor(232, 236, 244), New MyColor(52, 62, 78)))

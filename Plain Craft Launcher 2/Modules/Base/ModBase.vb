@@ -6,7 +6,7 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "3.1.2" '显示用版本名'
+    Public Const VersionBaseName As String = "3.1.3" '显示用版本名'
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
     Public Const VersionCode As Integer = 411 '正式版
@@ -804,6 +804,25 @@ Public Module ModBase
     ''' <summary>
     ''' 指示接取到这个异常的函数进行重试。
     ''' </summary>
+    ''' <summary>
+    ''' 反馈地址：改成你自己的 GitHub 仓库 Issues 即可。
+    ''' </summary>
+    Public Const FeedbackUrl As String = "https://github.com/your-name/PCL-Harness/issues"
+
+    ''' <summary>
+    ''' 重启启动器：先带 --wait 启动新实例，再正常退出当前实例。
+    ''' </summary>
+    Public Sub RestartLauncher()
+        Try
+            StartProcess(New ProcessStartInfo(PathExe) With {.UseShellExecute = True, .Arguments = "--wait"})
+        Catch ex As Exception
+            Logger.Warn(ex, "重启启动器失败")
+            Return
+        End Try
+        Logger.Info("已请求重启启动器")
+        ModMain.FrmMain?.EndProgram(False)
+    End Sub
+
     Public Class RestartException
         Inherits Exception
     End Class

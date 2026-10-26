@@ -1,4 +1,4 @@
-<local:MyPageRight
+﻿<local:MyPageRight
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -131,7 +131,8 @@
             <local:MyCard Margin="0,0,0,15" Title="赞助者">
                 <StackPanel Margin="25,40,19,20">
                     <TextBlock HorizontalAlignment="Left" Text="以下是近期的高级赞助者们！感谢大家对 PCL 的支持！！！" Margin="0,0,25,5.5" TextTrimming="None" TextWrapping="WrapWithOverflow" />
-                    <WrapPanel Margin="0,0,0,10">                        <TextBlock Margin="0,1.5,6,0" Text="." />
+                    <WrapPanel Margin="0,0,0,10">
+                        <TextBlock Margin="0,1.5,6,0" Text="." />
                         <TextBlock Margin="0,1.5,6,0" Text="-" />
                         <TextBlock Margin="0,1.5,6,0" Text="J" />
                         <TextBlock Margin="0,1.5,6,0" Text="tt" />
@@ -768,8 +769,6 @@
                         </Grid.ColumnDefinitions>
                         <local:MyButton x:Name="BtnDonateOutput" Grid.Column="0" MinWidth="140" Text="生成土豆码" Padding="13,0" Margin="0,0,20,0" HorizontalAlignment="Left" ColorType="Highlight" Visibility="Collapsed" />
                         <local:MyButton x:Name="BtnDonateDonate" Grid.Column="0" MinWidth="140" Text="赞助作者" Padding="13,0" Margin="0,0,20,0" HorizontalAlignment="Left" ColorType="Highlight" local:CustomEventService.EventType="打开网页" local:CustomEventService.EventData="https://meloong.com/afd/a/LTCat" />
-                        <local:MyButton x:Name="BtnDonateCopy" Grid.Column="1" MinWidth="140" Text="复制识别码" Padding="13,0" Margin="0,0,20,0" HorizontalAlignment="Left" />
-                        <local:MyButton x:Name="BtnDonateInput" Grid.Column="2" MinWidth="140" Text="输入土豆码" Padding="13,0" Margin="0,0,20,0" HorizontalAlignment="Left" />
                     </Grid>
                 </StackPanel>
             </local:MyCard>
