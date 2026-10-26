@@ -8,6 +8,10 @@ Public Class DemoPlugin
     Implements PCL.IPclPlugin
     Implements PCL.IPclPluginUi
 
+    '演示页面和标题栏入口默认关闭：启用后会往顶栏塞一个「示例」按钮、并在插件页多出页面卡片，
+    '想恢复整套演示时把下面的 False 改成 True 重新编译即可。
+#Const DemoPageEnabled = False
+
     Private Host As PCL.PluginHost
     Private LoadCount As Integer
     Private PageInfo As PCL.PluginPageInfo
@@ -17,7 +21,7 @@ Public Class DemoPlugin
         LoadCount += 1
         Host.Log("示例插件已加载（第 " & LoadCount & " 次），数据目录：" & Host.DataFolder)
         If GetBool("showHintOnLoad", False) Then
-            Host.Hint("示例插件已启用：右上角新增了「示例」入口，插件页里还有它的设置项。")
+            Host.Hint("示例插件已启用：插件页的「扩展点」里能看到它注册的设置项。")
         End If
     End Sub
 
@@ -26,18 +30,23 @@ Public Class DemoPlugin
         Host = Nothing
     End Sub
 
-    ''' <summary>注册一个自定义页面。</summary>
+    ''' <summary>注册一个自定义页面（默认关闭，见文件头的 DemoPageEnabled）。</summary>
     Public Function GetPages() As IEnumerable(Of PCL.PluginPageInfo) Implements PCL.IPclPluginUi.GetPages
+#If DemoPageEnabled Then
         PageInfo = New PCL.PluginPageInfo With {
             .Id = "demo.home",
             .Title = "示例页面",
             .Factory = Function() New DemoPage(Me)
         }
         Return New List(Of PCL.PluginPageInfo) From {PageInfo}
+#Else
+        Return New List(Of PCL.PluginPageInfo)()
+#End If
     End Function
 
-    ''' <summary>注册一个标题栏入口，点击打开上面那个页面。</summary>
+    ''' <summary>注册一个标题栏入口（默认关闭）。</summary>
     Public Function GetNavItems() As IEnumerable(Of PCL.PluginNavItem) Implements PCL.IPclPluginUi.GetNavItems
+#If DemoPageEnabled Then
         Return New List(Of PCL.PluginNavItem) From {
             New PCL.PluginNavItem With {
                 .Text = "示例",
@@ -45,26 +54,32 @@ Public Class DemoPlugin
                 .Page = PageInfo
             }
         }
+#Else
+        Return New List(Of PCL.PluginNavItem)()
+#End If
     End Function
 
-    ''' <summary>注册两个设置项。</summary>
+    ''' <summary>注册设置项（页面关闭时只保留「加载时弹出提示」）。</summary>
     Public Function GetSettings() As IEnumerable(Of PCL.PluginSetting) Implements PCL.IPclPluginUi.GetSettings
-        Return New List(Of PCL.PluginSetting) From {
+        Dim Items As New List(Of PCL.PluginSetting) From {
             New PCL.PluginSetting With {
                 .Key = "showHintOnLoad",
                 .Title = "加载时弹出提示",
                 .Description = "默认关闭。开启后，本插件每次加载都会在左下角弹一条提示（仅用于演示 Host.Hint）。",
                 .SettingType = PCL.PluginSettingType.Boolean,
                 .DefaultValue = False
-            },
-            New PCL.PluginSetting With {
-                .Key = "greeting",
-                .Title = "示例页面问候语",
-                .Description = "显示在「示例页面」顶部的一句话。",
-                .SettingType = PCL.PluginSettingType.Text,
-                .DefaultValue = "你好，这里是插件注册的页面。"
             }
         }
+#If DemoPageEnabled Then
+        Items.Add(New PCL.PluginSetting With {
+            .Key = "greeting",
+            .Title = "示例页面问候语",
+            .Description = "显示在「示例页面」顶部的一句话。",
+            .SettingType = PCL.PluginSettingType.Text,
+            .DefaultValue = "你好，这里是插件注册的页面。"
+        })
+#End If
+        Return Items
     End Function
 
     ''' <summary>读设置（带默认值）。</summary>

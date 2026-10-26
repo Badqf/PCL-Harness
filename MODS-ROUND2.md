@@ -329,3 +329,16 @@ cd F:\PCL2-Source
 **不建议**：用虚拟信用卡凑 Azure 验证去过免费额度。涉及资金与合规风险，而且订阅到期/被风控会连累租户。
 
 **如果以后拿到 Client ID**：直接填 `PCL\Secrets.json` 的 `MsClientId`（或环境变量 `PCL_MS_CLIENT_ID`）即可，代码侧不需要再改。
+---
+
+## 17. 示例插件瘦身 + 插件页分区切换动效
+
+**示例插件默认不再注册页面和标题栏入口**（`samples\DemoPlugin\DemoPlugin.vb`）
+- 顶部新增条件编译开关 `#Const DemoPageEnabled = False`：`GetPages` / `GetNavItems` 在关闭时返回空集合，`GetSettings` 只保留「加载时弹出提示」。想恢复整套演示，把 `False` 改成 `True` 重新编译即可。
+- 效果：顶栏不再多出「示例」按钮，插件页扩展点显示 `页面 0 个 · 标题栏入口 0 个 · 设置项 1 个`。`plugin.json` 升到 `1.2.0` 并同步说明。
+
+**插件页左栏切换加回入场动效**
+- 触发点：`SwitchSection` 末尾，`PluginsSwitch` 由左栏 `PagePluginLeft.PageCheck` 调用时 `Animate = True`；首次加载（`PagePlugin_Loaded`）与启用/禁用后的重建（`RefreshCurrentSection`）传 `Animate:=False`，避免和页面本身的入场动画叠加。
+- 实现：新增 `AnimateContent()`，对 `PanContent.Children` 逐个做与 `MyPageRight.TriggerEnterAnimation` 同款的三段动画（`AaOpacity` 0→1 / 100ms、`AaTranslateY` 5 / 250ms、`AaTranslateY` 11 / 350ms，每项延迟 +25ms），起始 `RenderTransform = TranslateTransform(0, -16)`。
+- **踩坑**：一开始直接调 `MyPageRight.TriggerEnterAnimation(PanContent)`，会触发 `执行动画失败：在状态为 ContentStay 时触发了 PageOnEnterAnimationFinished 事件` —— 因为该动画内部的完成回调要走 MyPageRight 的状态机（`ContentEnter → ContentStay`），页面已经在 `ContentStay` 时手动调用就会状态冲突。所以改为自建等价的 AniData 列表，只做视觉、不碰状态机。
+- 验证：切换瞬间逐帧采样卡片像素，`(34,45,68) → (29,38,58) → (33,43,65) → (34,45,68)`，约 100ms 完成淡入，与原生页面节奏一致。

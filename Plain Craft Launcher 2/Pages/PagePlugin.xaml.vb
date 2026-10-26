@@ -29,13 +29,14 @@ Public Class PagePlugin
         End Try
         RefreshNav()
         ModPlugin.WarnFailed()
-        SwitchSection(SectionIndex)
+        SwitchSection(SectionIndex, Animate:=False)
     End Sub
 
     ''' <summary>
     ''' 切换分区并重建右侧内容。左栏与外部调用都走这里。
     ''' </summary>
-    Public Sub SwitchSection(Index As Integer)
+    ''' <param name="Animate">是否播放入场动画；首次加载由页面自身动画负责，这里传 False。</param>
+    Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True)
         SectionIndex = Index
         If PanContent Is Nothing Then Return
         PanContent.Children.Clear()
@@ -48,6 +49,33 @@ Public Class PagePlugin
                 BuildManage()
         End Select
         If PanBack IsNot Nothing Then PanBack.ScrollToVerticalOffset(0)
+        '和 PCL 原生页面切换一致：卡片依次淡入 + 上浮（不套 MyPageRight 的状态机，避免 PageOnEnterAnimationFinished 冲突）
+        If Animate AndAlso IsLoaded Then AnimateContent()
+
+    End Sub
+
+    ''' <summary>模仿 MyPageRight.TriggerEnterAnimation 的逐项入场动画。</summary>
+    Private Sub AnimateContent()
+        Try
+            Dim AniList As New List(Of AniData)
+            Dim Delay As Integer = 0
+            For Each Element As FrameworkElement In PanContent.Children.OfType(Of FrameworkElement)()
+                Element.Opacity = 0
+                Element.RenderTransform = New TranslateTransform(0, -16)
+                AniList.Add(AaOpacity(Element, 1, 100, Delay, New AniEaseOutFluent(AniEasePower.Weak)))
+                AniList.Add(AaTranslateY(Element, 5, 250, Delay, New AniEaseOutFluent))
+                AniList.Add(AaTranslateY(Element, 11, 350, Delay, New AniEaseOutBack))
+                Delay += 25
+            Next
+            If AniList.Count > 0 Then AniStart(AniList.ToArray())
+        Catch ex As Exception
+            '动画失败不影响内容展示
+            For Each Element As FrameworkElement In PanContent.Children.OfType(Of FrameworkElement)()
+                Element.Opacity = 1
+                Element.RenderTransform = Nothing
+            Next
+            Logger.Error(ex, "插件页切换动画失败", LogBehavior.None)
+        End Try
     End Sub
 
     ''' <summary>重建当前分区（带重入锁，供启用/禁用、重新扫描后调用）。</summary>
@@ -55,7 +83,7 @@ Public Class PagePlugin
         If IsRebuilding Then Return
         IsRebuilding = True
         Try
-            SwitchSection(SectionIndex)
+            SwitchSection(SectionIndex, Animate:=False)
         Finally
             IsRebuilding = False
         End Try
