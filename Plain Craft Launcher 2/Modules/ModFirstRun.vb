@@ -8,7 +8,7 @@ Imports Registry = Microsoft.Win32.Registry
 
 ''' <summary>
 ''' 首次启动指引：PCL Harness 使用独立的配置与缓存目录（PCLHarness / %AppData%\PCLHarness），
-''' 第一次启动时引导用户把旧 PCL 的设置、插件等迁移过来。
+''' 第一次启动时引导用户把旧 PCL 的设置等迁移过来（原版 PCL 没有插件功能，不迁移插件目录）。
 ''' </summary>
 Public Module ModFirstRun
 
@@ -153,8 +153,6 @@ Public Module ModFirstRun
         Dim Items As New List(Of MigrateItem) From {
             New MigrateItem With {.Key = "setup", .Title = "启动器设置", .Description = "Setup.ini：窗口大小、主题、下载源、启动参数等全部选项。",
                 .Source = OldBase & "Setup.ini", .Target = PathNewBase & "Setup.ini", .Overwrite = True},
-            New MigrateItem With {.Key = "plugins", .Title = "插件", .Description = "Plugins 文件夹：已安装的插件、启用列表与插件设置。",
-                .Source = OldBase & "Plugins", .Target = PathNewBase & "Plugins", .IsFolder = True},
             New MigrateItem With {.Key = "link", .Title = "联机模块", .Description = "EasyTier 文件夹：联机用的核心程序与 CLI。",
                 .Source = OldBase & "EasyTier", .Target = PathNewBase & "EasyTier", .IsFolder = True},
             New MigrateItem With {.Key = "pics", .Title = "自定义图片与音乐", .Description = "Pictures / Musics：自定义背景与启动音乐。",
@@ -375,8 +373,8 @@ Public Class FirstRunWindow
                     $"    配置与缓存：{ModFirstRun.PathNewBase}" & vbCrLf &
                     $"    用户数据：{ModFirstRun.PathNewAppData}" & vbCrLf &
                     If(SecondChance,
-                       "上次你点了「跳过」。如果现在想迁移旧 PCL 的设置与插件，可以在下面勾选后点「迁移并进入」；这次关掉后就不会再提示了。",
-                       "如果以前用过 PCL，可以把它的设置、插件等迁移过来；没用过就直接跳过。")
+                       "上次你点了「跳过」。如果现在想迁移旧 PCL 的设置，可以在下面勾选后点「迁移并进入」；这次关掉后就不会再提示了。",
+                       "如果以前用过 PCL，可以把它的设置等迁移过来；没用过就直接跳过。")
         }
         Intro.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
         Main.Children.Add(Intro)

@@ -1,4 +1,4 @@
-Public Class PageSetupUI
+﻿Public Class PageSetupUI
 
     Private Sub PageSetupUI_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         '重复加载部分
@@ -33,7 +33,6 @@ Public Class PageSetupUI
             SliderLauncherHue.Value = ModSecret.ColorHue
             SliderLauncherSat.Value = ModSecret.ColorSat
             SliderLauncherLight.Value = ModSecret.ColorLightAdjust
-            SliderLauncherDelta.Value = Settings.Get(Of Integer)("UiLauncherDelta")
             AniControlEnabled -= 1
             '标题栏
             CheckLogoLeft.Visibility = If(RadioLogoType0.Checked, Visibility.Visible, Visibility.Collapsed)
@@ -363,17 +362,17 @@ Refresh:
             End Sub, "重启启动器")
     End Sub
     '自定义配色
-    Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change, SliderLauncherDelta.Change
+    Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change
         If AniControlEnabled <> 0 OrElse SliderLauncherSat Is Nothing OrElse Not SliderLauncherSat.IsLoaded Then Return
         '色调限定蓝色区间：上游许可要求 Windows 下主要色相为蓝色，避免与赞助解锁的主题功能相似
         ModSecret.ColorHue = SliderLauncherHue.Value.Clamp(200, 230)
         ModSecret.ColorSat = SliderLauncherSat.Value
         ModSecret.ColorLightAdjust = SliderLauncherLight.Value
-        ModSecret.ColorHueTopbarDelta = SliderLauncherDelta.Value
+        ModSecret.ColorHueTopbarDelta = 0 '上游许可：不提供渐变色调整
         Settings.Set("UiLauncherHue", ModSecret.ColorHue)
         Settings.Set("UiLauncherSat", ModSecret.ColorSat)
         Settings.Set("UiLauncherLight", ModSecret.ColorLightAdjust)
-        Settings.Set("UiLauncherDelta", SliderLauncherDelta.Value)
+        Settings.Set("UiLauncherDelta", 0)
         ModSecret.ThemeRefresh()
     End Sub
 #Region "功能隐藏"
@@ -556,16 +555,6 @@ Refresh:
         SliderLauncherTransparent.GetHintText = Function(v) Math.Round(40 + v * 0.1) & "%"
         SliderLauncherHue.GetHintText = Function(v) v & "°"
         SliderLauncherSat.GetHintText = Function(v) v & "%"
-        SliderLauncherDelta.GetHintText =
-        Function(Value As Integer) As String
-            If Value > 90 Then
-                Return "+" & (Value - 90)
-            ElseIf Value = 90 Then
-                Return 0
-            Else
-                Return Value - 90
-            End If
-        End Function
         SliderLauncherLight.GetHintText =
         Function(Value As Integer) As String
             If Value > 20 Then
@@ -582,8 +571,7 @@ Refresh:
 
     '配色预设（按上游许可要求，主流色相限定在蓝色区间 200°~230°）
     Private Shared ReadOnly ColorPresets As (Name As String, Hue As Integer, Sat As Integer)() = {
-        ("标准蓝", 220, 85), ("冰蓝", 204, 70), ("海蓝", 214, 92), ("靛青", 228, 78),
-        ("天青", 200, 72), ("晴蓝", 224, 62), ("雾蓝", 216, 32), ("灰蓝", 212, 12)
+        ("标准蓝", 220, 85), ("冰蓝", 204, 70), ("海蓝", 214, 92), ("靛青", 228, 78)
     }
     Private Sub BuildColorPresets()
         If PanColorPresets Is Nothing OrElse PanColorPresets.Children.Count > 0 Then Return
@@ -600,8 +588,7 @@ Refresh:
                                       SliderLauncherHue.Value = Preset.Hue
                                       SliderLauncherSat.Value = Preset.Sat
                                       SliderLauncherLight.Value = 0
-                                      SliderLauncherDelta.Value = 0
-                                      AniControlEnabled -= 1
+                                                                    AniControlEnabled -= 1
                                       HSL_Change()
                                       Hint($"已套用「{Preset.Name}」配色，正在重启启动器……")
         RestartForTheme()

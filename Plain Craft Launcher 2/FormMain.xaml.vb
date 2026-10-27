@@ -11,7 +11,15 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
-                        If LastVersion < 419 Then 'PCL Harness 3.2.9
+                        If LastVersion < 420 Then 'PCL Harness 3.3.0
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "调整：个性化配色预设精简为 4 个（标准蓝 / 冰蓝 / 海蓝 / 靛青），按钮不再拥挤"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "移除：配色「渐变」滑条，主题固定为纯色（上游许可要求不得改变其他色相）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "调整：首次启动数据迁移不再复制 Plugins 文件夹（原版 PCL 本身没有插件功能）"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
+
+            If LastVersion < 419 Then 'PCL Harness 3.2.9
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：新版本下载改用左下角 Hint 提示，不再固定占用一行文字"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "        提示会自动消失；进度仍可在右下角「任务管理」查看与取消"))
                 FeatureCount += 1
@@ -358,7 +366,7 @@ Public Class FormMain
         ModSecret.ColorHue = FixedHue
         ModSecret.ColorSat = Settings.Get(Of Integer)("UiLauncherSat").Clamp(0, 100)
         ModSecret.ColorLightAdjust = Settings.Get(Of Integer)("UiLauncherLight")
-        ModSecret.ColorHueTopbarDelta = Settings.Get(Of Integer)("UiLauncherDelta")
+        ModSecret.ColorHueTopbarDelta = 0 '3.3.0 起移除渐变滑条，固定为纯色
         ThemeRefresh(Settings.Get(Of Integer)("UiLauncherTheme"))
         '注册拖拽事件（不能直接加 Handles，否则没用；#6340）
         [AddHandler](DragDrop.DragEnterEvent, New DragEventHandler(AddressOf HandleDrag), handledEventsToo:=True)

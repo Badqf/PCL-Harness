@@ -67,11 +67,11 @@ PLUGIN-DEV.md             插件开发指南（API v5）
 
 本项目是**第三方基于 PCL 独立进行的二次创作**，不隶属于龙腾猫跃 / PCL 官方。
 
-上游 [Meloong-Git/PCL](https://github.com/Meloong-Git/PCL) **不使用 GPL**，而是《PCL 分发有限许可》+《PCL 存储库合理使用指南》（原文见 [LICENSE](LICENSE)，与上游 `LICENCE` 一致）。本项目按「重度使用」的要求执行：
+上游 [Meloong-Git/PCL](https://github.com/Meloong-Git/PCL) **不使用 GPL**，而是《PCL 分发有限许可》+《PCL 存储库合理使用指南》（原文见 [LICENSE](LICENSE)）。本项目按「重度使用」的要求执行：
 
 - 在关于页首位给出龙腾猫跃的署名与赞助链接；
 - 公开源代码（本仓库）；
-- 继续使用上游 `LICENCE` 作为指引；
+- 继续使用上游《PCL 分发有限许可》作为指引（本仓库 [LICENSE](LICENSE)）；
 - 保留上游 `McLaunchPrecheck` 的正版购买劝导与赞助劝导；
 - Windows 下不提供与 PCL 赞助解锁功能相似的功能。
 
