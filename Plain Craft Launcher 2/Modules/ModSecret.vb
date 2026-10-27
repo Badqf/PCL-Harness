@@ -1,4 +1,4 @@
-﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
+'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -239,65 +239,253 @@ Friend Module ModSecret
 
 #Region "更新"
 
-    '=== 自编版：可选的更新检查源（开源版上游此处为占位实现，不连官方接口）===
-    'JSON 格式：{"version":"2.13.2.0","url":"https://example.com/download","changelog":"本次更新内容……"}
-    '配置方式：设置环境变量 PCL_UPDATE_JSON_URL 指向该 JSON（http/https/本地路径），或直接改下面的常量。
-    '留空时点击“检查更新”只会提示未配置，不会发起任何网络请求。
-    Private Const UpdateJsonUrlDefault As String = ""
+    '=== 自编版自动更新（3.2.6）===
+    '版本信息取自 GitHub Release；加速源优先 ghfast（release 资产），API 走 gh-proxy（ghfast 不支持 api.github.com），官方源兜底。
+    '可用环境变量 PCL_UPDATE_JSON_URL 覆盖 API 地址（需返回与 GitHub Release 相同结构的 JSON）。
+    Private Const UpdateRepo As String = "Badqf/PCL-Harness"
+    Private Const UpdateAssetName As String = "PCL-Harness.exe"
+    Private Const UpdateGhfastPrefix As String = "https://ghfast.top/"
+    Private Const UpdateGhproxyPrefix As String = "https://gh-proxy.com/"
 
-    Private Function UpdateJsonUrl() As String
-        Dim env As String = Environment.GetEnvironmentVariable("PCL_UPDATE_JSON_URL")
-        Return If(String.IsNullOrWhiteSpace(env), UpdateJsonUrlDefault, env)
+    Public Class UpdateInfo
+        Public Version As String = ""
+        Public Tag As String = ""
+        Public HtmlUrl As String = ""
+        Public Body As String = ""
+        Public ReadOnly DownloadUrls As New List(Of String)
+    End Class
+
+    ''' <summary>更新信息 API 地址（加速源优先，官方兜底）。</summary>
+    Private Function UpdateApiUrls() As List(Of String)
+        Dim Result As New List(Of String)
+        Dim EnvUrl As String = Environment.GetEnvironmentVariable("PCL_UPDATE_JSON_URL")
+        If Not String.IsNullOrWhiteSpace(EnvUrl) Then Result.Add(EnvUrl)
+        Result.Add($"{UpdateGhproxyPrefix}https://api.github.com/repos/{UpdateRepo}/releases/latest")
+        Result.Add($"https://api.github.com/repos/{UpdateRepo}/releases/latest")
+        Return Result
     End Function
 
-    ''' <summary>
-    ''' 自编版更新检查：读取自定义更新源 JSON，比较版本后提示并给出下载入口。
-    ''' </summary>
+    ''' <summary>读取最新 Release；所有源都失败时返回 Nothing。</summary>
+    Public Function FetchUpdateInfo() As UpdateInfo
+        For Each Url As String In UpdateApiUrls()
+            Try
+                Dim Raw As String = NetRequestByLoader(Url, 12000, True)
+                If String.IsNullOrWhiteSpace(Raw) Then Continue For
+                Dim Json As JObject = JObject.Parse(Raw)
+                Dim Info As New UpdateInfo With {
+                    .Tag = If(Json("tag_name")?.ToString(), ""),
+                    .Body = If(Json("body")?.ToString(), ""),
+                    .HtmlUrl = If(Json("html_url")?.ToString(), "")
+                }
+                Info.Version = Info.Tag.TrimStart("v"c, "V"c)
+                For Each Asset As JToken In If(Json("assets"), New JArray())
+                    If Asset("name")?.ToString() = UpdateAssetName Then
+                        Dim Download As String = Asset("browser_download_url")?.ToString()
+                        If Not String.IsNullOrWhiteSpace(Download) Then
+                            Info.DownloadUrls.Add(UpdateGhfastPrefix & Download)
+                            Info.DownloadUrls.Add(Download)
+                            Info.DownloadUrls.Add(UpdateGhproxyPrefix & Download)
+                        End If
+                    End If
+                Next
+                If String.IsNullOrWhiteSpace(Info.Version) Then Throw New Exception("JSON 缺少 tag_name")
+                Logger.Info($"[Update] 已从 {Url} 获取最新版本 {Info.Version}（下载源 {Info.DownloadUrls.Count} 个）")
+                Return Info
+            Catch ex As Exception
+                Logger.Warn(ex, $"[Update] 读取更新信息失败：{Url}")
+            End Try
+        Next
+        Return Nothing
+    End Function
+
+    Private Function IsDebugUpdate() As Boolean
+        Return Environment.GetEnvironmentVariable("PCL_UPDATE_DEBUG") = "1"
+    End Function
+
+    Private Function IsNewerVersion(Latest As String) As Boolean
+        If IsDebugUpdate() Then Return True
+        Return McUtils.CompareVersion(Latest, VersionBaseName) > 0
+    End Function
+
+    ''' <summary>手动点击「检查更新」。</summary>
     Friend Sub UpdateCheckByButton()
-        Dim url As String = UpdateJsonUrl()
-        If String.IsNullOrWhiteSpace(url) Then
-            Hint("未配置自编版更新源：请设置环境变量 PCL_UPDATE_JSON_URL（指向版本信息 JSON）")
-            Return
-        End If
         Hint("正在检查更新……")
         RunInNewThread(Sub()
             Try
-                Dim raw As String
-                If url.StartsWith("http", StringComparison.OrdinalIgnoreCase) Then
-                    Using client As New HttpClient()
-                        client.Timeout = TimeSpan.FromSeconds(10)
-                        client.DefaultRequestHeaders.Add("User-Agent", $"PCL2/{VersionBaseName}.{CInt(BuildType)}")
-                        raw = client.GetStringAsync(url).Result
-                    End Using
-                Else
-                    raw = IO.File.ReadAllText(url)
-                End If
-                Dim json As JObject = JObject.Parse(raw)
-                Dim latest As String = json("version")?.ToString()
-                Dim download As String = json("url")?.ToString()
-                Dim changelog As String = json("changelog")?.ToString()
-                If String.IsNullOrWhiteSpace(latest) Then Throw New Exception("更新源 JSON 缺少 version 字段")
-                If McUtils.CompareVersion(latest, VersionBaseName) <= 0 Then
-                    Hint($"已是最新自编版（{VersionBaseName}）")
+                Dim Info As UpdateInfo = FetchUpdateInfo()
+                If Info Is Nothing Then
+                    RunInUi(Sub() Hint("检查更新失败：加速源与 GitHub 都无法连接，请稍后再试"))
                     Return
                 End If
-                Dim body As String = $"发现新版本 {latest}（当前 {VersionBaseName}）。"
-                If Not String.IsNullOrWhiteSpace(changelog) Then body &= vbCrLf & changelog
-                If String.IsNullOrWhiteSpace(download) Then
-                    MyMsgBox(body, "检查更新", "我知道了")
-                ElseIf MyMsgBox(body, "检查更新", "打开下载页", "取消") = 1 Then
-                    OpenWebsite(download)
+                If Not IsNewerVersion(Info.Version) Then
+                    RunInUi(Sub() Hint($"已是最新版本（{VersionBaseName}）"))
+                    Return
                 End If
+                RunInUi(Sub() ShowUpdatePrompt(Info))
             Catch ex As Exception
-                Hint("检查更新失败：" & ex.Message)
+                RunInUi(Sub() Hint("检查更新失败：" & ex.Message))
             End Try
-        End Sub, "SelfUpdateCheck")
+        End Sub, "UpdateCheck")
     End Sub
+
+    ''' <summary>启动后自动检查更新（受 设置 → 其他 → 启动器更新 控制）。</summary>
+    Friend Sub StartAutoUpdateCheck()
+        If Not IsDebugUpdate() Then
+            Dim Mode As Integer = Settings.Get(Of Integer)("SystemSystemUpdate")
+            If Mode = 3 Then Return '关闭更新提示
+            If Mode = 2 Then Return '仅重大漏洞：自编版不区分严重级别，交给手动检查
+        End If
+        RunInNewThread(Sub()
+            Threading.Thread.Sleep(6000)
+            Try
+                Dim Info As UpdateInfo = FetchUpdateInfo()
+                If Info Is Nothing Then Return
+                If Not IsNewerVersion(Info.Version) Then Return
+                If Settings.Get(Of String)("SystemIgnoredUpdate") = Info.Version AndAlso Not IsDebugUpdate() Then Return
+                RunInUi(Sub() ShowUpdatePrompt(Info))
+            Catch ex As Exception
+                Logger.Warn(ex, "[Update] 自动检查更新失败")
+            End Try
+        End Sub, "UpdateAutoCheck", Threading.ThreadPriority.BelowNormal)
+    End Sub
+
+    ''' <summary>展示更新提示：立即下载并更新 / 打开发布页 / 稍后。</summary>
+    Private Sub ShowUpdatePrompt(Info As UpdateInfo)
+        Dim Text As String = $"发现新版本 {Info.Version}（当前 {VersionBaseName}）。"
+        Dim Notes As String = TrimMarkdown(Info.Body, 700)
+        If Notes <> "" Then Text &= vbCrLf & vbCrLf & Notes
+        If Info.DownloadUrls.Count = 0 Then
+            If MyMsgBox(Text & vbCrLf & vbCrLf & "发布页里没有找到 PCL-Harness.exe，请手动到 Release 页下载。", "检查更新", "打开发布页", "稍后") = 1 Then
+                OpenWebsite(If(Info.HtmlUrl = "", $"https://github.com/{UpdateRepo}/releases/latest", Info.HtmlUrl))
+            End If
+            Return
+        End If
+        Select Case MyMsgBox(Text, "检查更新", "立即下载并更新", "打开发布页", "稍后")
+            Case 1
+                DownloadAndApplyUpdate(Info)
+            Case 2
+                OpenWebsite(If(Info.HtmlUrl = "", $"https://github.com/{UpdateRepo}/releases/latest", Info.HtmlUrl))
+            Case Else
+                Settings.Set("SystemIgnoredUpdate", Info.Version)
+        End Select
+    End Sub
+
+    ''' <summary>下载新版本 exe，询问后重启完成替换。</summary>
+    Private Sub DownloadAndApplyUpdate(Info As UpdateInfo)
+        RunInNewThread(Sub()
+            Try
+                Dim Dir As String = PathTemp & "Update\"
+                IO.Directory.CreateDirectory(Dir)
+                Dim Target As String = Dir & "PCL-Harness-" & Info.Version & ".exe"
+                Try
+                    IO.File.Delete(Target)
+                Catch
+                End Try
+                RunInUi(Sub() Hint($"正在下载 PCL Harness {Info.Version}……"))
+                NetDownloadByLoader(Info.DownloadUrls, Target)
+                If Not IO.File.Exists(Target) Then Throw New Exception("更新文件没有下载成功")
+                Dim Size As Long = New IO.FileInfo(Target).Length
+                If Size < 512 * 1024 Then Throw New Exception($"更新文件不完整（{Size} 字节）")
+                Logger.Info($"[Update] 已下载 {Target}（{Size} 字节）")
+                RunInUi(Sub()
+                    If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
+                        ApplyDownloadedUpdate(Target)
+                    Else
+                        Hint("更新文件已保留，下次启动会自动继续提示")
+                    End If
+                End Sub)
+            Catch ex As Exception
+                Logger.Error(ex, "[Update] 下载更新失败")
+                RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
+            End Try
+        End Sub, "UpdateDownload")
+    End Sub
+
+    ''' <summary>以 --update 参数启动新版本，然后退出当前进程。</summary>
+    Private Sub ApplyDownloadedUpdate(NewExePath As String)
+        Try
+            Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{NewExePath}"" ""True"""
+            Logger.Info($"[Update] 启动更新进程：{NewExePath} {Args}")
+            StartProcess(NewExePath, Args)
+            RunInNewThread(Sub()
+                Threading.Thread.Sleep(1200)
+                RunInUi(Sub()
+                    If FrmMain IsNot Nothing Then FrmMain.EndProgram(False)
+                End Sub)
+            End Sub, "UpdateQuit")
+        Catch ex As Exception
+            Logger.Error(ex, "[Update] 启动更新进程失败")
+            Hint("启动更新进程失败：" & ex.Message)
+        End Try
+    End Sub
+
+    ''' <summary>把 Release 的 Markdown 粗略转成纯文本并截断。</summary>
+    Private Function TrimMarkdown(Text As String, MaxLength As Integer) As String
+        If String.IsNullOrWhiteSpace(Text) Then Return ""
+        Dim Lines As New List(Of String)
+        For Each Raw As String In Text.Replace(vbCrLf, vbLf).Split(vbLf)
+            Dim Line As String = Raw.Trim()
+            Do While Line.StartsWith("#")
+                Line = Line.Substring(1).TrimStart()
+            Loop
+            Line = System.Text.RegularExpressions.Regex.Replace(Line, "\[([^\]]+)\]\([^)]+\)", "$1")
+            Line = Line.Replace("**", "").Replace("`", "").Replace("- ", "· ")
+            If Line.Length = 0 Then
+                If Lines.Count > 0 AndAlso Lines(Lines.Count - 1) <> "" Then Lines.Add("")
+                Continue For
+            End If
+            Lines.Add(Line)
+        Next
+        Dim Result As String = String.Join(vbCrLf, Lines).Trim()
+        If Result.Length > MaxLength Then Result = Result.Substring(0, MaxLength).TrimEnd() & "……"
+        Return Result
+    End Function
 
     Friend IsUpdateWaitingRestart As Boolean = False
     Public Sub UpdateRestart(TriggerRestartAndByEnd As Boolean)
     End Sub
+
+    ''' <summary>
+    ''' 由新版本 exe 以 --update 参数启动时调用：等待旧进程退出、用自己的文件覆盖旧文件，可选重启。
+    ''' </summary>
     Public Sub UpdateReplace(ProcessId As Integer, OldFileName As String, NewFileName As String, TriggerRestart As Boolean)
+        Try
+            Logger.Info($"[Update] 等待旧进程 {ProcessId} 退出，然后替换 {OldFileName}")
+            For i As Integer = 1 To 600
+                Try
+                    If Process.GetProcessById(ProcessId).HasExited Then Exit For
+                Catch
+                    Exit For '进程已不存在
+                End Try
+                Threading.Thread.Sleep(100)
+            Next
+            Dim Done As Boolean = False
+            For TryCount As Integer = 1 To 30
+                Try
+                    IO.File.Copy(NewFileName, OldFileName, True)
+                    Done = True
+                    Exit For
+                Catch ex As Exception
+                    Logger.Warn(ex, $"[Update] 第 {TryCount} 次替换失败，250ms 后重试")
+                    Threading.Thread.Sleep(250)
+                End Try
+            Next
+            If Not Done Then Throw New Exception($"无法写入 {OldFileName}")
+            Logger.Info($"[Update] 已更新到 {OldFileName}")
+            If TriggerRestart Then StartProcess(OldFileName)
+        Catch ex As Exception
+            Logger.Error(ex, "[Update] 自动更新替换失败")
+            Try
+                IO.File.WriteAllText(OldFileName & ".update.log", ex.ToString())
+            Catch
+            End Try
+        Finally
+            '删除更新器自身副本（稍等本进程退出后再删）
+            Try
+                StartProcess("cmd.exe", $"/c ping -n 3 127.0.0.1 >nul & del /f /q ""{NewFileName}""")
+            Catch
+            End Try
+        End Try
     End Sub
 
     ''' <summary>
@@ -309,7 +497,6 @@ Friend Module ModSecret
     End Sub
 
 #End Region
-
 #Region "联网配置"
 
     ''' <summary>

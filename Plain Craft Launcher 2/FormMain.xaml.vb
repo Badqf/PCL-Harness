@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -11,6 +11,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 416 Then 'PCL Harness 3.2.6
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：启动器可检查 GitHub Release 并在线更新（优先加速源，官方源备用）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：更新设置里的「检查更新」按钮可手动检查并下载"))
+                FeatureCount += 2
+                BugCount += 0
+            End If
             If LastVersion < 415 Then 'PCL Harness 3.2.5
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：插件未启用或缺少清单时，日志会明确提示（扫描完成：共 N 个插件，已启用 M 个）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：插件文档与 SDK 中的路径、权限、编码说明与宿主实际行为不一致"))
@@ -498,6 +504,12 @@ Public Class FormMain
             If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.WarnFailed())
             '初始化结束后补刷一次插件入口，避免早期刷新被布局重建覆盖
             RunInUi(Sub() RefreshPluginNav())
+            '自编版自动更新检查（后台延迟执行，无新版本时不打扰）
+            Try
+                StartAutoUpdateCheck()
+            Catch ex As Exception
+                Logger.Warn(ex, "启动自动更新检查失败")
+            End Try
             '插件就绪事件（v3）：此时插件已全部加载、标题栏入口也已建好
             If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.RaiseLauncherReady())
         End Sub, "初始化", ThreadPriority.Lowest)
