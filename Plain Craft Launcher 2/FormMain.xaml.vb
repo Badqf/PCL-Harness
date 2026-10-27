@@ -11,6 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 414 Then 'PCL Harness 3.2.4
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(5, "新增：插件 API v5（事件总线、强类型设置、权限白名单、DLL 校验）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(4, "新增：微软正版登录（设备代码流）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "优化：色调限定蓝色系，内置 8 套预设"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：登录 403 被误报为 IP 异常；登录页提示与配置状态不一致"))
+                FeatureCount += 6
+                BugCount += 3
+            End If
             If LastVersion < 411 Then 'Release 2.14.0.0
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(5, "新增：允许修改、添加、移除、更新已安装版本的 MC 版本以及各个组件，可从版本设置中进入"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：启动游戏时允许按 Esc 取消"))
@@ -268,7 +276,7 @@ Public Class FormMain
         RunInNewThread(
         Sub()
             If MyMsgBox(Content, "PCL 已更新至" & VersionDisplay, "确定", "完整更新日志") = 2 Then
-                OpenWebsite("https://meloong.com/afd/a/LTCat?tab=feed")
+                OpenWebsite("https://github.com/Badqf/PCL-Harness/releases/latest")
             End If
         End Sub, "UpdateLog Output")
     End Sub

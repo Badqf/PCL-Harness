@@ -29,9 +29,9 @@
             LabMsNotWired.Text = "尚未配置微软登录客户端 ID：请在 PCLHarness\Secrets.json 中填写 MsClientId，或设置环境变量 PCL_MS_CLIENT_ID。也可以先使用「离线登录」或「第三方登录」。"
             LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
         Else
-            Dim MaskedId As String = If(OAuthClientId.Length > 8, OAuthClientId.Substring(0, 8) & "…", OAuthClientId)
-            LabMsNotWired.Text = $"已配置微软登录客户端 ID（{MaskedId}）。点「登录」后按提示在浏览器输入设备代码；需要使用绑定了 Xbox 档案的个人 Microsoft 账户。"
-            LabMsNotWired.ClearValue(TextBlock.ForegroundProperty)
+            LabMsNotWired.Text = "微软正版登录暂不可用：本应用的 AppID 仍在 Mojang 审核中，审核通过后才能登录。" & vbCrLf &
+                                 "可先使用「离线登录」或「第三方登录」。"
+            LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
         End If
 End Sub
     Private Sub ComboAccounts_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboAccounts.SelectionChanged

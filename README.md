@@ -1,8 +1,8 @@
 # PCL Harness
 
-基于 [Plain Craft Launcher 2 开源版](https://github.com/Meloong-Git/PCL)（上游版本 2.14.0.0）二次开发的自编版启动器，在保留原版功能的基础上加入独立配置目录、主题系统、百宝箱、插件系统与联机直连等扩展。
+基于 [Plain Craft Launcher 2 开源版](https://github.com/Meloong-Git/PCL)（上游版本 2.14.0.0）二次开发的自编版启动器，在保留原版功能的基础上加入独立配置目录、主题系统、插件系统与联机直连等扩展。
 
-- 当前版本：**3.1.7**（自编版）
+- 当前版本：**3.2.4**（自编版）
 - 上游基线：PCL 2.14.0.0（2026-10-16 发布）
 - 反馈 / 问题：<https://github.com/Badqf/PCL-Harness/issues>
 - 插件开发文档：[PLUGIN-DEV.md](PLUGIN-DEV.md)
@@ -17,17 +17,12 @@
 - **主题系统**：深色 / 浅色，色相、饱和度、亮度三个滑块 + 预设配色，顶部标题栏、控件、文字与“内存分配”里的动态数字全部跟随。
 - **切换即重启**：改动明暗或配色后自动重启启动器，不再需要手动重启才能整体生效。
 
-### 百宝箱（更多 → 百宝箱）
-- **今日人品**：按日期生成当天固定的人品值并弹窗显示评语。
-- **内存优化**：调用 `EmptyWorkingSet` 回收启动器自身占用的物理内存。
-- **清理游戏垃圾**：清理当前版本目录下的 `logs\`、`crash-reports\` 与 `versions\` 里的 `*.log`，不动存档与 Mod。
-- **下载自定义文件**：用 PCL 的多线程下载引擎下载任意文件到指定目录。
-
-### 插件系统（API v4）
+### 插件系统（API v5）
 - 清单 `plugin.json`（`id`/`name`/`version`/`author`/`description`/`entry`/`dll`/`permissions`/`dependencies`）。
 - 接口：`IPclPlugin`、`IPclPluginUi`、`IPclPluginUi2`（主页卡片 / 设置页卡片 / 状态栏组件）、`IPclPluginEvents`、`IPclPluginLifecycle`、`IPclPluginLink`、`IPclPluginDownload`、`IPclPluginClosing`。
 - 宿主能力：日志与提示、消息框、打开网页/文件夹、主题信息、文件读写（受限目录）、HTTP 请求与下载、追加 JVM / 游戏参数、跨页导航。
 - 权限（`net`/`files`/`args`/`ui`/`process`）与依赖顺序加载、循环依赖与缺失依赖提示。
+- **v5 新增**：事件总线（`Host.Events.On`）、强类型设置（`GetSetting/SetSetting`）、日志分级、`net.hosts` 与 `files.read/write` 白名单、DLL `sha256` 校验、`minApiVersion` 闸门。
 - **热重载**：改动插件目录里的 JSON 会自动重新加载并提示。
 - 插件管理页支持搜索、启用/禁用，并显示版本、来源、说明与权限。
 - 示例插件与开发包：`samples/DemoPlugin`（发布版目录里另有 `plugin-dev-kit.zip`）。
@@ -65,7 +60,7 @@ Plain Craft Launcher 2\   VB.NET / WPF 主程序
 PCLCS\                    C# 子项目（Minecraft 版本处理、版本修改页等）
 MeloongCore\              上游核心库
 samples\DemoPlugin\       插件示例与一键构建脚本
-PLUGIN-DEV.md             插件开发指南（API v4）
+PLUGIN-DEV.md             插件开发指南（API v5）
 ```
 
 ## 许可
