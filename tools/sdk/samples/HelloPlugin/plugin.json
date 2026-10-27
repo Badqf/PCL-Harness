@@ -1,0 +1,9 @@
+{
+  "id": "hello",
+  "name": "你好插件",
+  "version": "1.0.0",
+  "author": "你",
+  "description": "最小示例：加载时弹一条提示。",
+  "entry": "HelloPlugin",
+  "dll": "Hello.Plugin.dll"
+}
