@@ -1,4 +1,4 @@
-# PCL Harness 插件开发包（SDK）{{VERSION}}
+﻿# PCL Harness 插件开发包（SDK）{{VERSION}}
 
 对应启动器版本：**PCL Harness {{VERSION}}**（插件 API v5）。
 
@@ -26,6 +26,15 @@
    ```
 
 3. 把 `samples\HelloPlugin` 整个文件夹复制到 `PCLHarness\Plugins\`，重启启动器。插件页里应出现「你好插件」，并弹出一条提示。
+   **注意：新插件默认是停用的**（`plugins.json` 里没有记录就不会加载），要在插件页点一下「启用」——启用会立即热重载，不用重启。`@ 'step3'
+
+$t=Rep $t '全部手动指定：' @'
+编译脚本已处理两件事：`/codepage:65001`（源码即使不带 BOM，中文也不会乱码）和引用 `Microsoft.VisualBasic.dll`（可以直接用 `vbCrLf`；不想引用就改用 `Environment.NewLine`）。自己拼 vbc 命令行时缺这两项会分别得到「中文乱码」和 `BC30451: 未声明名称`。
+
+全部手动指定：'@ 'compile-notes'
+
+$t=Rep $t '两处都会被扫描。每个插件目录里放 `plugin.json` + 编译好的 dll；`data\` 是插件自己的数据目录，由启动器创建。' @'
+两处都会被扫描。每个插件目录里放 `plugin.json` + 编译好的 dll；`data\` 是插件自己的数据目录，由启动器创建，运行时对应 `Host.DataFolder`，真实路径是 `PCLHarness\Plugins\<插件id>\data\`（不是 `PluginData\`）。
 
    开发阶段可以直接把输出目录指到 `PCLHarness\Plugins\<你的插件>\`，编译完在插件页点「重新扫描」，或改一下 `plugin.json` 的时间戳即可热重载。
 
@@ -77,6 +86,9 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Project samples\DemoPlugin `
 | 找不到 `mscorlib.dll` | 装 .NET Framework 4.8 Developer Pack |
 | 插件页显示「加载失败」 | 点开该插件看完整异常；常见是 dll 名与 `plugin.json` 的 `dll` 字段不一致，或类型没实现 `IPclPlugin` |
 | 热重载不生效 | 先点「重新扫描」；仍不行就重启启动器（已加载的 dll 会被锁定） |
+| 插件页看不到 / 日志里没有插件行 | 先确认 `plugin.json` 在 `PCLHarness\Plugins\<id>\` 这一层；新插件默认停用，要在插件页点「启用」。日志会写「插件 X 默认未启用…」和「扫描完成：共 N 个插件，已启用 M 个」 |
+| 中文变成乱码 | 源码存成 UTF-8；自拼 vbc 要加 `/codepage:65001`（`build.ps1` 已加） |
+| `BC30451: 未声明名称 vbCrLf` | 给 vbc 加 `/r:Microsoft.VisualBasic.dll`（`build.ps1` 已加），或改用 `Environment.NewLine` |
 
 ## 许可
 

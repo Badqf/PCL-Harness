@@ -34,6 +34,7 @@ $ErrorActionPreference = "Stop"
 function Find-Vbc {
     $candidates = @(
         $env:PCL_HARNESS_VBC,
+        (Join-Path $env:USERPROFILE "roslyn\tasks\vbc.exe"),
         "C:\Users\$env:USERNAME\roslyn\tasks\vbc.exe",
         "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\vbc.exe",
         "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\vbc.exe"
@@ -114,8 +115,11 @@ if ($ReferencePath) {
 if (-not $ReferencePath) { $ReferencePath = Find-References }
 if (-not $ReferencePath) { throw "找不到 .NET Framework 4.8 参考程序集：装 .NET Framework 4.8 Developer Pack，或用 -ReferencePath 指定。" }
 
+$isLegacyVbc = $VbcPath -match '\\v4\.0\.30319\\vbc\.exe$'
+
 $refs = @(
     "$ReferencePath\mscorlib.dll",
+    "$ReferencePath\Microsoft.VisualBasic.dll",
     "$ReferencePath\System.dll",
     "$ReferencePath\System.Core.dll",
     "$ReferencePath\System.Data.dll",
@@ -135,8 +139,15 @@ Write-Host "启动器     : $launcherExe"
 Write-Host "源码       : $($sources.Count) 个文件"
 Write-Host "输出       : $outDll"
 
-$vbcArgs = @("/noconfig", "/nostdlib", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/r:$launcherExe")
-foreach ($r in $refs) { $vbcArgs += "/r:$r" }
+$effectiveRefs = $refs
+if ($isLegacyVbc) {
+    # 旧版 vbc（Framework v4.0.30319）会自动引用 mscorlib，显式再引用会报 BC2000
+    $effectiveRefs = $refs | Where-Object { $_ -ne "$ReferencePath\mscorlib.dll" }
+    $vbcArgs = @("/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
+} else {
+    $vbcArgs = @("/noconfig", "/nostdlib", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
+}
+foreach ($r in $effectiveRefs) { $vbcArgs += "/r:$r" }
 $vbcArgs += $sources
 
 & $VbcPath @vbcArgs

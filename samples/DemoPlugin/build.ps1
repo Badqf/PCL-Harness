@@ -1,4 +1,4 @@
-# Build the PCL Harness sample plugin (samples/DemoPlugin).
+﻿# Build the PCL Harness sample plugin (samples/DemoPlugin).
 # Usage: powershell -ExecutionPolicy Bypass -File samples\DemoPlugin\build.ps1
 # The script walks up to find the repository root (the folder with the .sln).
 
@@ -21,9 +21,9 @@ if (-not (Test-Path $fw)) { throw ".NET Framework 4.8 reference assemblies not f
 if (-not (Test-Path $exe)) { throw "Launcher exe not found: $exe (run build.ps1 in the repo root first)." }
 
 $out = Join-Path $PSScriptRoot "Demo.Plugin.dll"
-& $vbc /nologo /target:library /out:$out /optionstrict- /optionexplicit+ /optioninfer+ `
+& $vbc /nologo /target:library /out:$out /optionstrict- /optionexplicit+ /optioninfer+ /codepage:65001 `
     /r:"$exe" `
-    /r:"$fw\mscorlib.dll" /r:"$fw\System.dll" /r:"$fw\System.Core.dll" `
+    /r:"$fw\mscorlib.dll" /r:"$fw\System.dll" /r:"$fw\System.Core.dll" /r:"$fw\Microsoft.VisualBasic.dll" `
     /r:"$fw\System.Xaml.dll" /r:"$fw\WindowsBase.dll" `
     /r:"$fw\PresentationCore.dll" /r:"$fw\PresentationFramework.dll" `
     (Join-Path $PSScriptRoot "DemoPlugin.vb")

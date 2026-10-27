@@ -11,6 +11,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 415 Then 'PCL Harness 3.2.5
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：插件未启用或缺少清单时，日志会明确提示（扫描完成：共 N 个插件，已启用 M 个）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：插件文档与 SDK 中的路径、权限、编码说明与宿主实际行为不一致"))
+                FeatureCount += 1
+                BugCount += 3
+            End If
             If LastVersion < 414 Then 'PCL Harness 3.2.4
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(5, "新增：插件 API v5（事件总线、强类型设置、权限白名单、DLL 校验）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(4, "新增：微软正版登录（设备代码流）"))

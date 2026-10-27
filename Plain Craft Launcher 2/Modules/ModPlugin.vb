@@ -222,14 +222,27 @@ Public Module ModPlugin
             Dim EnabledIds = ReadEnabled()
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
                 Dim Info = ReadManifest(Folder)
-                If Info Is Nothing Then Continue For
+                If Info Is Nothing Then
+                    If IO.File.Exists(Path.Combine(Folder, "plugin.json")) Then
+                        Logger.Warn($"目录 {IO.Path.GetFileName(Folder)} 的 plugin.json 无法解析，已跳过。")
+                    Else
+                        Logger.Info($"目录 {IO.Path.GetFileName(Folder)} 里没有 plugin.json，已跳过（插件目录必须直接包含 plugin.json）。")
+                    End If
+                    Continue For
+                End If
                 Info.Enabled = EnabledIds.Contains(Info.Id.ToLowerInvariant())
+                If Not Info.Enabled Then
+                    Logger.Info($"插件 {Info.DisplayName}（{Info.Id}）默认未启用：到「插件」页点启用后才会加载，启用记录保存于 {PathEnabledFile}。")
+                End If
                 If String.IsNullOrEmpty(Info.Id) Then
                     Info.[Error] = "plugin.json 缺少 id"
                     Info.Enabled = False
                 End If
                 Plugins.Add(Info)
             Next
+            Dim DiscoveredCount As Integer = Plugins.Count
+            Dim EnabledCount As Integer = Plugins.Where(Function(P) P.Enabled).Count
+            Logger.Info($"扫描完成：共 {DiscoveredCount} 个插件，已启用 {EnabledCount} 个。")
             If LoadEnabled Then
                 '按依赖顺序加载：依赖先加载，缺依赖的插件标记失败
                 Dim Pending = Plugins.Where(Function(P) P.Enabled AndAlso String.IsNullOrEmpty(P.[Error])).ToList()

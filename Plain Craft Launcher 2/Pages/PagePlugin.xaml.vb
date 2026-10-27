@@ -542,14 +542,14 @@ Public Class PagePlugin
         Dim Body As New StackPanel
 
         AddDocTitle(Body, "插件放在哪里")
-        AddDocText(Body, "每个插件是 " & ModPlugin.PathPluginRoot & " 下的一个文件夹，文件夹里必须有 plugin.json。只有 plugin.json 的插件是「声明型插件」，只出现在列表里，不执行任何代码；带 DLL 并实现了 PCL.IPclPlugin 的插件，启用后会由启动器反射加载。")
+        AddDocText(Body, "每个插件是 " & ModPlugin.PathPluginRoot & " 下的一个文件夹，文件夹里必须有 plugin.json。只有 plugin.json 的插件是「声明型插件」，只出现在列表里，不执行任何代码；带 DLL 并实现了 PCL.IPclPlugin 的插件，启用后会由启动器反射加载。新建的插件默认是「停用」状态，不会加载、日志里也没有插件行；在列表里点「启用」即可，启用后自动热重载，不用重启。")
 
         AddDocTitle(Body, "plugin.json")
         AddDocCode(Body, "{""id"": ""demo"", ""name"": ""示例"", ""version"": ""1.0.0""," & vbCrLf & " ""author"": ""你"", ""description"": ""说明""," & vbCrLf & " ""entry"": ""Demo.Plugin"", ""dll"": ""Demo.Plugin.dll""}")
 
         AddDocTitle(Body, "宿主接口")
         AddDocCode(Body, "Public Interface IPclPlugin" & vbCrLf & "    Sub OnLoad(Host As PluginHost)" & vbCrLf & "    Sub OnUnload()" & vbCrLf & "End Interface")
-        AddDocText(Body, "OnLoad 拿到的 Host 可以调用：HostLog（写日志）、HostHint（左下角提示）、HostMessage（弹窗）、HostOpenUrl、HostOpenFolder、HostDataFolder（插件自己的数据目录）。")
+        AddDocText(Body, "OnLoad 拿到的 Host 可以调用：HostLog（写日志）、HostHint（左下角提示）、HostMessage（弹窗）、HostOpenUrl、HostOpenFolder、HostDataFolder（插件自己的数据目录，真实路径 PCLHarness\Plugins\<id>\data）。")
 
         AddDocTitle(Body, "扩展点（v2，可选）")
         AddDocCode(Body, "Public Interface IPclPluginUi" & vbCrLf & "    Function GetPages() As IEnumerable(Of PluginPageInfo)" & vbCrLf & "    Function GetNavItems() As IEnumerable(Of PluginNavItem)" & vbCrLf & "    Function GetSettings() As IEnumerable(Of PluginSetting)" & vbCrLf & "End Interface")
@@ -559,12 +559,12 @@ Public Class PagePlugin
         AddDocCode(Body, "Dim Value = ModPlugin.GetSetting(Host.Info, ""Key"", 默认值)" & vbCrLf & "ModPlugin.SetSetting(Host.Info, ""Key"", 新值)")
 
         AddDocTitle(Body, "v5 新增（当前版本）")
-        AddDocCode(Body, "{""minApiVersion"": 5," & vbCrLf & " ""sha256"": ""DLL 的 SHA-256""," & vbCrLf & " ""permissions"": {" & vbCrLf & "   ""net"": {""hosts"": [""api.github.com"", ""*.example.com""]}," & vbCrLf & "   ""files"": {""read"": [""Downloads/""], ""write"": [""PluginData/demo/""]}}}")
+        AddDocCode(Body, "{""minApiVersion"": 5," & vbCrLf & " ""sha256"": ""DLL 的 SHA-256""," & vbCrLf & " ""permissions"": {" & vbCrLf & "   ""net"": {""hosts"": [""api.github.com"", ""*.example.com""]}," & vbCrLf & "   ""files"": {""read"": [""Downloads/""], ""write"": [""PCLHarness/PluginOut/""]}}}")
         AddDocText(Body, "permissions 写成对象可以做细化：net.hosts 是允许访问的域名（支持 *. 前缀通配与 *），files.read / files.write 是允许读写的路径（插件自己的数据目录始终可访问）。sha256 用于 DLL 完整性校验，与 plugin.json 不一致时拒绝加载；minApiVersion 高于启动器支持的版本时也会拒绝加载并提示更新。")
         AddDocCode(Body, "Host.Events.On(""页面切换"", New Action(Of String, String)(Sub(Page, SubType) Host.LogInfo(Page) End Sub))" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
         AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
         AddDocTitle(Body, "示例")
-        AddDocText(Body, "完整示例见发布包 samples/DemoPlugin（DemoPlugin.vb + build.ps1），包含自定义页面、标题栏入口与两个设置项。编译：把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可。")
+        AddDocText(Body, "完整示例见发布包 samples/DemoPlugin（DemoPlugin.vb + build.ps1），包含自定义页面、标题栏入口与两个设置项。编译：把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可。编译注意：源码存 UTF-8（自拼命令行要加 /codepage:65001，否则中文乱码）；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine（samples 里的 build.ps1 已处理这两项）。")
 
         Body.Margin = New Thickness(25, 40, 25, 20)
         Card.Children.Add(Body)

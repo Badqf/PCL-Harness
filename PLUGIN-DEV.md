@@ -62,6 +62,13 @@ End Class
 
 编译后把 DLL 放进 `Plugins\hello\`，打开「插件」页点「重新扫描」，或直接改一下 `plugin.json` 的时间戳触发热重载。
 
+> **首次调试两步**：① 新插件默认是**停用**的——`plugins.json` 里没有它的记录就不会加载（改动前日志里连痕迹都没有）；到「插件」页找到它点启用即可，会自动热重载，不用重启。② 插件页顶部会显示「共 N 个，已启用 M 个」，M 为 0 就说明还没启用。
+
+### 编译与编码
+
+- 源码请存成 **UTF-8（建议带 BOM）**：`vbc` 默认按系统 ANSI 解码，中文会整片变成乱码。SDK 的 `build.ps1` 已加 `/codepage:65001`；自己拼 vbc 命令行务必也加上。
+- `vbCrLf` / `vbLf` / `vbTab` 定义在 `Microsoft.VisualBasic` 程序集里，`vbc` 默认不引用它（报 `BC30451: 未声明名称`）。两种解法：给 vbc 加 `/r:Microsoft.VisualBasic.dll`（SDK 脚本已加），或改用 `Environment.NewLine`。
+
 ---
 
 ## 2. 权限模型
@@ -295,6 +302,8 @@ ModPlugin.SetSetting(Host.Info, "greeting", "新值")
 ## 7. 热重载与调试
 
 - 修改 `plugin.json` 或 DLL 的时间戳后，启动器约 1 秒内自动重载该插件，并提示「插件已热重载：名字」。
+- 新插件默认**停用**：`plugins.json` 里没有记录就不会加载。到「插件」页点启用即可，启用/停用会立即热重载。日志会写「插件 X 默认未启用…」与「扫描完成：共 N 个插件，已启用 M 个」。
+- 数据目录：`Host.DataFolder` = `PCLHarness\Plugins\<id>\data`（自动创建），不是 `PluginData\`。
 - 插件页「已发现的插件」会显示状态、错误、事件记录（最近 40 条），加载失败时直接看这里。
 - 日志文件：`PCLHarness\Log*.txt`，插件输出行形如
   `I [ModPlugin] [插件 示例插件] 收到事件：主题切换为 深色`。
@@ -334,6 +343,9 @@ DemoPlugin/
 **能用 C# 写吗？**
 可以，引用 `PCL Harness.exe`（类型都在 `PCL` 命名空间），实现同一套接口即可。
 
+**插件目录放好了，插件页却看不到 / 日志里没有插件行？**
+确认 `plugin.json` 和 DLL 都在 `PCLHarness\Plugins\<id>\` 这一层（不能多套一层）；新插件默认停用，要在插件页点启用才会加载。若目录里没有 `plugin.json` 或清单解析失败，启动器日志现在也会明确写出来。
+
 ## API v5（当前版本）
 
 v5 在 v4 基础上补齐了「细粒度权限、完整性校验、事件、强类型设置、日志分级」，旧插件不需要任何改动。
@@ -346,7 +358,7 @@ v5 在 v4 基础上补齐了「细粒度权限、完整性校验、事件、强�
   "sha256": "DLL 的 SHA-256（小写十六进制，可省略）",
   "permissions": {
     "net": { "hosts": ["api.github.com", "*.example.com"] },
-    "files": { "read": ["Downloads/"], "write": ["PluginData/demo/"] }
+    "files": { "read": ["Downloads/"], "write": ["PCLHarness/PluginOut/"] }
   }
 }
 ```
@@ -355,7 +367,7 @@ v5 在 v4 基础上补齐了「细粒度权限、完整性校验、事件、强�
 - `sha256`：加载前校验 DLL，与清单不一致直接拒绝加载（防止文件损坏或被替换）。
 - `permissions` 仍可写成字符串数组（v4 写法，表示整类权限）；写成对象时按下列规则细化：
   - `net.hosts`：允许访问的域名，支持 `*.example.com` 前缀通配与 `*`；未列出的域名会抛出 `UnauthorizedAccessException`。
-  - `files.read` / `files.write`：允许读写的路径，相对路径按启动器目录解析，`*` 通配，末尾 `/` 表示整个目录。插件自己的数据目录（PluginData/<id>/）始终可访问。
+  - `files.read` / `files.write`：允许读写的路径，相对路径按启动器目录解析，`*` 通配，末尾 `/` 表示整个目录。插件自己的数据目录（`Plugins\<id>\data`，即 `Host.DataFolder`，会自动创建）始终可访问。
 
 ### 宿主 API
 
