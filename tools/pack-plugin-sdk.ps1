@@ -73,6 +73,9 @@ $demoJson = @"
 }
 "@
 [System.IO.File]::WriteAllText((Join-Path $demoOut "plugin.json"), $demoJson, (New-Object System.Text.UTF8Encoding($false)))
+# 仓库里有正式清单时以它为准，避免 SDK 清单与指南漂移
+$repoManifest = Join-Path $repo "samples\DemoPlugin\plugin.json"
+if (Test-Path $repoManifest) { Copy-Item $repoManifest (Join-Path $demoOut "plugin.json") -Force }
 
 # 打包
 $zip = Join-Path $OutputDirectory "$name.zip"

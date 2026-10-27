@@ -1,6 +1,6 @@
-# PCL Harness 插件开发指南（API v4）
+# PCL Harness 插件开发指南（API v5）
 
-> 适用版本：PCL Harness 3.1.x（上游 2.14.0.0 合并后）
+> 适用版本：PCL Harness 3.2.x（插件 API v5，上游 2.14.0.0 合并后）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
@@ -37,7 +37,7 @@ PCLHarness\Plugins\hello\
 | `author` / `description` | 插件页显示 |
 | `entry` | 实现 `IPclPlugin` 的类型全名；留空则自动搜索 |
 | `dll` | DLL 文件名，相对插件文件夹 |
-| `permissions` | 可选，字符串数组：`net` `files` `args` `ui` `process` |
+| `permissions` | 可选。字符串数组只认 `net` `files` `args` 三种；v5 也可写成对象（`net.hosts` / `files.read` / `files.write`），见「API v5」一节 |
 | `deps` | 可选，依赖的插件 id 数组（加载顺序会被自动排好） |
 
 ### 代码（VB.NET）
@@ -70,11 +70,11 @@ End Class
 
 | 权限 | 允许的 API |
 | --- | --- |
-| `net` | `Host.HttpGetString` / `Host.HttpDownload` |
-| `files` | 读写任意路径；没有该权限时只能访问 `Host.DataFolder` 与当前版本目录 |
+| `net` | `Host.HttpGetString` / `Host.HttpDownload`；v5 可再用 `net.hosts` 收缩到域名白名单 |
+| `files` | 读写文件；v5 可再用 `files.read` / `files.write` 收缩到路径白名单。没有该权限时只能访问 `Host.DataFolder` 与当前版本目录 |
 | `args` | `Host.AppendJvmArgs` / `Host.AppendGameArgs` |
-| `ui` | 内嵌卡片、状态栏组件（v4 新增） |
-| `process` | 预留（启动外部进程，当前不强制校验） |
+
+> 权限名以宿主实际校验的字符串为准：**`files`（复数）、`net`、`args`**。`file`（单数）、`ui`、`process`、`events` 都不会被校验——写了既不报错也不产生任何限制；事件订阅、内嵌卡片、状态栏组件本身不需要权限。
 
 插件页「已发现的插件」会直接显示 `权限：…` 与 `依赖：…`，方便排查。
 
@@ -303,17 +303,17 @@ ModPlugin.SetSetting(Host.Info, "greeting", "新值")
 
 ## 8. 示例插件
 
-完整示例：`F:\PCL2-Source\samples\DemoPlugin\`
+完整示例（相对 SDK 根目录）：`samples\DemoPlugin\`；v5 最小示例在 `samples\HelloPlugin\`。
 
 ```
 DemoPlugin/
-├─ DemoPlugin.vb      演示 v4 全部接口
-├─ DemoPlugin.vbproj
-├─ plugin.json
-└─ build.ps1          一键编译并把 DLL 部署到 PCLHarness\Plugins\demo-harness\
+├─ DemoPlugin.vb      演示 v4 全部接口（UI 卡片、设置项、事件、文件 / 网络）
+├─ plugin.json        权限声明（默认生成 files / net / args）
+├─ build.ps1          一键编译（引用启动器 exe）
+└─ Demo.Plugin.dll    编译产物（可选）
 ```
 
-`DemoPlugin.vb` 里包含了主页卡片、状态栏组件、设置项、页面注册、事件日志、文件读写、权限演示等全部用法，可直接复制改写。
+`DemoPlugin.vb` 里包含了主页卡片、状态栏组件、设置项、页面注册、事件日志、文件读写、权限演示等用法，可直接复制改写；v5 新增的事件总线、强类型设置、日志分级见 `samples\HelloPlugin\HelloPlugin.vb`。
 
 ---
 

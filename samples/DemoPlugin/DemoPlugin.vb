@@ -26,12 +26,12 @@ Public Class DemoPlugin
         Me.Host = Host
         LoadCount += 1
         Host.Log("示例插件已加载（第 " & LoadCount & " 次），数据目录：" & Host.DataFolder)
-        If Host.HasPermission("file") Then
+        If Host.HasPermission("files") Then
             Dim DataFile As String = System.IO.Path.Combine(Host.DataFolder, "demo-state.txt")
             Host.WriteTextFile(DataFile, $"last load = {Date.Now:yyyy-MM-dd HH:mm:ss}")
-            Host.Log("file 权限演示，文件内容：" & Host.ReadTextFile(DataFile))
+            Host.Log("files 权限演示，文件内容：" & Host.ReadTextFile(DataFile))
         Else
-            Host.Log("未声明 file 权限，跳过文件读写演示")
+            Host.Log("未声明 files 权限，跳过文件读写演示")
         End If
         If GetBool("showHintOnLoad", False) Then
             Host.Hint("示例插件已启用：插件页的「扩展点」里能看到它注册的设置项。")

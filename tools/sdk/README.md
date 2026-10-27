@@ -7,13 +7,13 @@
 - `PLUGIN-DEV.md`：完整开发指南（接口、权限、宿主 API、内嵌 UI、热重载、FAQ）
 - API v5：细粒度权限（net.hosts / files.read / files.write）、DLL sha256 校验、事件总线、强类型设置、日志分级
 - `build.ps1`：通用编译脚本（自动找 vbc 与 .NET Framework 4.8 参考程序集）
-- `samples\HelloPlugin\`：最小插件（十行代码）
+- `samples\HelloPlugin\`：最小插件（十行代码，API v5：事件、强类型设置、域名白名单）
 - `samples\DemoPlugin\`：功能演示插件（事件钩子、设置项、卡片、文件/网络 API）
 - `LICENSE`：上游《PCL 分发有限许可》+《PCL 存储库合理使用指南》
 
 ## 三步上手
 
-1. 准备启动器：把本 Release 里的 `PCL Harness.exe` 放到本 SDK 目录，或者设一个环境变量：
+1. 准备启动器：本 SDK **不内置** `PCL Harness.exe`（避免与启动器版本错配）。从同一个 Release 下载 `PCL Harness.exe` 放到本 SDK 目录，或者设一个环境变量：
 
    ```powershell
    setx PCL_HARNESS_EXE "C:\你的路径\PCL Harness.exe"
@@ -56,10 +56,11 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Project samples\DemoPlugin `
 
 ## 权限
 
-`plugin.json` 的 `permissions` 可选：`net`、`files`、`args`、`ui`、`process`。
+`plugin.json` 的 `permissions` 只认三种：`net`、`files`、`args`（宿主实际校验的字符串；`file` 单数、`ui`、`process`、`events` 都不会生效）。
 
 - 不写 = 全部放行（兼容旧插件）
-- 写了之后超范围调用会抛 `UnauthorizedAccessException`
+- 写了之后超范围调用会抛 `UnauthorizedAccessException` 
+- v5 还可写成对象进一步收缩范围：`{"net":{"hosts":[...]},"files":{"read":[...],"write":[...]}}`
 
 详见 `PLUGIN-DEV.md` 第 2 节。
 

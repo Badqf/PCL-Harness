@@ -1,0 +1,10 @@
+{
+  "id": "demo-harness",
+  "name": "示例插件",
+  "version": "1.4.0",
+  "author": "PCL Harness",
+  "description": "演示 v4 能力：内嵌 UI（主页/设置卡片、状态栏）、生命周期/下载/联机事件、文件与网络 API，以及 v3 的事件钩子与设置项。",
+  "entry": "DemoPlugin",
+  "dll": "Demo.Plugin.dll",
+  "permissions": [ "files", "net", "args" ]
+}
