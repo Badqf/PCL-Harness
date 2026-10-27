@@ -361,6 +361,20 @@ Friend Module ModSecret
     ''' <summary>当前正在进行的更新下载任务；Nothing 表示没有。</summary>
     Private UpdateDownloadTask As LoaderDownload = Nothing
 
+    ' 下载期间定时续命左下角 Hint；下载结束或取消后停止。
+    Private UpdateHintTimer As Timers.Timer = Nothing
+
+    Private Sub StopUpdateHintTimer()
+        If UpdateHintTimer Is Nothing Then Return
+        Dim Timer As Timers.Timer = UpdateHintTimer
+        UpdateHintTimer = Nothing
+        Try
+            Timer.Stop()
+            Timer.Dispose()
+        Catch
+        End Try
+    End Sub
+
     ''' <summary>
     ''' 把更新包作为普通下载任务放进任务栏：右下角会显示进度圆环，点进去能看到进度并手动取消。
     ''' Manual=True 时下载完成后弹窗询问是否立即重启，否则静默等待退出启动器时替换。
@@ -376,46 +390,64 @@ Friend Module ModSecret
         End Try
         Dim Downloader As New LoaderDownload($"PCL Harness {Info.Version} 更新", New List(Of NetFile) From {New NetFile(Info.DownloadUrls, Target)})
         Downloader.Show = True
-        RunInUi(Sub()
-                    If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 PCL Harness {Info.Version} 正在下载……")
-                End Sub)
-        Dim LastPercent As Integer = -1
+        Dim StartHint As String = $"正在下载新版本 PCL Harness {Info.Version}…… 可在右下角「任务管理」查看进度或取消"
+        Hint(StartHint)
+        StopUpdateHintTimer()
+        UpdateHintTimer = New Timers.Timer(1500) With {.AutoReset = True}
+        AddHandler UpdateHintTimer.Elapsed,
+            Sub()
+                If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then
+                    Hint(StartHint, HintType.Blue, Log:=False)
+                Else
+                    StopUpdateHintTimer()
+                End If
+            End Sub
+        UpdateHintTimer.Start()
+        Dim LastHintAt As DateTime = DateTime.MinValue
         AddHandler Downloader.ProgressChanged,
             Sub(NewProgress As Double, OldProgress As Double)
-                Dim Percent As Integer = CInt(Math.Round(NewProgress.Clamp(0, 1) * 100))
-                If Percent = LastPercent Then Return
-                LastPercent = Percent
-                RunInUi(Sub()
-                    If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 PCL Harness {Info.Version} 正在下载…… {Percent}%")
-                End Sub)
+                Dim Now As DateTime = DateTime.Now
+                If (Now - LastHintAt).TotalSeconds < 1.5 Then Return
+                LastHintAt = Now
+                Hint(StartHint)
+        StopUpdateHintTimer()
+        UpdateHintTimer = New Timers.Timer(1500) With {.AutoReset = True}
+        AddHandler UpdateHintTimer.Elapsed,
+            Sub()
+                If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then
+                    Hint(StartHint, HintType.Blue, Log:=False)
+                Else
+                    StopUpdateHintTimer()
+                End If
+            End Sub
+        UpdateHintTimer.Start()
             End Sub
         AddHandler Downloader.OnStateChangedUi,
             Sub(L As LoaderBase, NewState As LoadState, OldState As LoadState)
                 Try
                     Select Case NewState
                         Case LoadState.Finished
+                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
                             If Not IO.File.Exists(Target) Then
                                 Logger.Warn($"[Update] 下载任务已结束，但没有找到更新文件：{Target}")
-                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
                                 Return
                             End If
                             PendingUpdateExe = Target
                             PendingUpdateVersion = Info.Version
                             Logger.Info($"[Update] 已{(If(Manual, "下载", "静默下载"))} {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换")
                             If Manual Then
-                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
                                 If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
                                     ApplyDownloadedUpdate(Target)
                                 Else
-                                    Hint("新版本将在退出启动器时自动替换并重启")
+                                    Hint("新版本将在退出启动器时自动替换并重启", HintType.Green)
                                 End If
                             Else
-                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 {Info.Version} 已就绪，退出启动器时自动更新")
+                                Hint($"新版本 {Info.Version} 已下载完成，退出启动器时自动更新", HintType.Green)
                             End If
                         Case LoadState.Canceled
+                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
-                            If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
                             Try
                                 IO.File.Delete(Target)
                             Catch
@@ -423,8 +455,8 @@ Friend Module ModSecret
                             Logger.Info($"[Update] 已取消下载 {Info.Version}")
                             Hint("已取消下载新版本")
                         Case LoadState.Failed
+                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
-                            If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
                             Logger.Warn($"[Update] 下载新版本 {Info.Version} 失败")
                             Hint("下载新版本失败，可稍后在设置中手动重试", HintType.Red)
                     End Select

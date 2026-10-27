@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -11,7 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
-            If LastVersion < 418 Then 'PCL Harness 3.2.8
+                        If LastVersion < 419 Then 'PCL Harness 3.2.9
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：新版本下载改用左下角 Hint 提示，不再固定占用一行文字"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "        提示会自动消失；进度仍可在右下角「任务管理」查看与取消"))
+                FeatureCount += 1
+                BugCount += 0
+            End If
+
+        If LastVersion < 418 Then 'PCL Harness 3.2.8
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：下载新版本时会显示在任务管理里，右下角显示进度圆环，可随时手动取消"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：左下角显示新版本下载进度，下载完成后提示「退出启动器时自动更新」"))
                 FeatureCount += 2
@@ -1908,13 +1915,6 @@ Public Class FormMain
     Private Function BtnExtraDownload_ShowCheck() As Boolean
         Return HasDownloadingTask() AndAlso Not PageCurrent = PageType.TaskManager
     End Function
-    ''' <summary>左下角的常驻状态提示（例如新版本正在下载）；传空文本并 Show=False 可隐藏。</summary>
-    Public Sub SetUpdateStatus(Text As String, Optional Show As Boolean = True)
-        RunInUi(Sub()
-            LabUpdateStatus.Text = Text
-            LabUpdateStatus.Visibility = If(Show AndAlso Text <> "", Visibility.Visible, Visibility.Collapsed)
-        End Sub)
-    End Sub
 
     '投降
     Public Sub AprilGiveup() Handles BtnExtraApril.Click
