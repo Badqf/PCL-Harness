@@ -245,7 +245,7 @@ NextInner:
         RunInUiWait(Sub() CheckResult = McLoginAble(McLoginInput()))
         If CheckResult <> "" Then Throw New ArgumentException(CheckResult)
         '求赞助
-        If BuildType = BuildTypes.Release AndAlso CurrentLaunchOptions?.SaveBatch Is Nothing Then '保存脚本时不提示
+        If False Then '保存脚本时不提示（赞助提示已按需求停用）
             RunInNewThread(
             Sub()
                 Select Case Settings.Get(Of Integer)("SystemLaunchCount")

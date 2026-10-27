@@ -77,16 +77,16 @@ Public Module ModIntro
 
             AddHead(Main, "和原版 PCL2 的区别")
             AddItem(Main, "独立配置目录", "数据统一放在 PCLHarness 文件夹，与原版 PCL 互不覆盖；首次启动可一键迁移旧设置与插件。")
-            AddItem(Main, "外观可切换", "深色 / 浅色外观，支持自定义主色调与配色预设。")
+            AddItem(Main, "外观可切换", "深色 / 浅色外观；主色调限定在蓝色系（合规要求），另有 8 个预设一键切换。")
             AddItem(Main, "不依赖官方服务", "移除在线更新与联网通知；下载与联机都有本地 / 镜像路线。")
-            AddItem(Main, "插件框架（API v3）", "插件可添加页面、顶栏入口、设置项，并监听启动器就绪、页面切换、游戏启动等事件。")
+            AddItem(Main, "插件框架（API v5）", "事件总线、强类型设置、日志分级、权限白名单与 sha256 校验；可添加页面、顶栏入口与设置项。")
             AddItem(Main, "联机可完全直连", "P2P 直连：房主把「地址|邀请码」发给朋友即可，公网可用 UPnP 自动映射。")
             AddItem(Main, "凭据留在本地", "微软登录与 CurseForge 的 Client ID / API Key 放在 PCLHarness\Secrets.json。")
 
             AddHead(Main, "能做什么")
             AddItem(Main, "下载与整理游戏", "游戏版本、Mod、整合包、资源包、光影，支持镜像优先与自动安装。")
             AddItem(Main, "联机开房", "建房并复制邀请，或输入邀请码加入；局域网可直接连。")
-            AddItem(Main, "用插件扩展", "插件 dll 放进 PCLHarness\Plugins 即可加载。")
+            AddItem(Main, "用插件扩展", "插件放进 PCLHarness\Plugins 即可加载；开发包见 Release 附件（PLUGIN-DEV.md + 示例）。")
             AddItem(Main, "原版能力照旧", "版本隔离、内存分配、Java 管理、自定义主页等全部保留。")
 
             AddPara(Main, "需要正版登录或官方 CurseForge 源时：在 PCLHarness\Secrets.json 里填 MsClientId 与 CurseForgeApiKey，然后重启启动器。", 11, 16, New Thickness(1, 10, 1, 2), 0.72)

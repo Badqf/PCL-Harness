@@ -493,7 +493,7 @@ Public Class FormMain
     '根据打开次数触发的事件
     Private Sub RunCountSub()
         Settings.Set("SystemCount", Settings.Get(Of Integer)("SystemCount") + 1)
-        If BuildType = BuildTypes.Snapshot Then
+        If False Then '快照版赞助相关弹窗已按需求停用
             Select Case Settings.Get(Of Integer)("SystemCount")
                 Case 1
                     MyMsgBox("欢迎使用 PCL 快照版！" & vbCrLf &
