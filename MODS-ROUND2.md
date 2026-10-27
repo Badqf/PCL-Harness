@@ -272,10 +272,14 @@ cd F:\PCL2-Source
 步骤（Azure 免费账号 → 注册应用）：
 
 0. 用 InPrivate 窗口打开 <https://azure.microsoft.com/pricing/purchase-options/azure-account> → 「免费开始使用」，用个人微软账号注册 Azure（需手机验证 + 信用卡预授权，试用额度内不扣费）。注册完成后账号下会自动出现一个 Entra 租户，右上角能看到租户名。
-
 1. 打开 <https://entra.microsoft.com> → 「应用」→「应用注册」→「新注册」。
 2. 名称随便（如 `PCL Harness Login`）。
 3. 「受支持的账户类型」**必须包含「个人 Microsoft 账户」**（选「任何组织目录中的账户和个人 Microsoft 账户」，或新版门户里的「仅个人 Microsoft 账户」）。本启动器固定走 `/consumers/` 设备代码流（`Modules\Minecraft\ModLaunch.vb:901`），选「仅此组织目录中的账户」会直接失败（`AADSTS90002` / `invalid_grant`），工作/学校账户也无法登录 Minecraft。
+4. 重定向 URI 留空即可（设备代码流不需要）。
+5. 注册完成后记下「应用程序(客户端) ID」。
+6. 进「身份验证」→ 拉到底部「高级设置」→「允许公共客户端流」选 **是**（`Enable the following mobile and desktop flows` / `Allow public client flows`）。**这一步不做，设备代码流会直接失败。**
+7. 不需要生成客户端密码。
+
 #### 16.2.1 已有 M365 E5 租户时（2026-10 补充）
 
 有 E5 订阅子账户后不必再注册 Azure 账号：直接用它登录 <https://entra.microsoft.com>，租户里就有「应用注册」。注意 E5 只是「放应用注册的地方」，它本身登不进 Minecraft——工作/学校账户没有 Xbox 档案，登录会在 Xbox 那一步失败；实际登录必须用个人微软账号（@outlook.com / @hotmail.com / @live.com，或用 Gmail 注册的 MSA）。
@@ -288,10 +292,6 @@ cd F:\PCL2-Source
 | 需要管理员同意 | 让全局管理员在「企业应用」里授予；`XboxLive.signin` 一般不需要 |
 | 试用订阅到期 / 租户回收 | 应用注册随之消失，记得备份 Client ID；后续可在 Azure 免费账号建的个人目录里重建 |
 | 新建客户端密码 | 不需要，设备代码流是公共客户端；多建一个反而多一个泄露面 |
-4. 重定向 URI 留空即可（设备代码流不需要）。
-5. 注册完成后记下「应用程序(客户端) ID」。
-6. 进「身份验证」→ 拉到底部「高级设置」→「允许公共客户端流」选 **是**（`Enable the following mobile and desktop flows` / `Allow public client flows`）。**这一步不做，设备代码流会直接失败。**
-7. 不需要生成客户端密码。
 
 然后把客户端 ID 填进 `Secrets.json` 的 `MsClientId`（或环境变量 `PCL_MS_CLIENT_ID`），重启 → 启动页「正版」→「登录」，会出现设备代码弹窗（一串代码 + 一个网址），浏览器打开输入即可。
 
