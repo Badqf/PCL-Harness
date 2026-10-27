@@ -1,4 +1,4 @@
-﻿<local:MyPageRight
+<local:MyPageRight
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -34,8 +34,8 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="1*" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="色调" Margin="0,0,20,0" />
-                            <local:MySlider Grid.Column="1" x:Name="SliderLauncherHue" MaxValue="360" />
+                            <TextBlock VerticalAlignment="Center" HorizontalAlignment="Left" Text="色调（限蓝色）" Margin="0,0,20,0" />
+                            <local:MySlider Grid.Column="1" x:Name="SliderLauncherHue" MinValue="200" MaxValue="230" />
                             <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Left" Text="饱和度" Margin="28,0,20,0" />
                             <local:MySlider Grid.Column="3" x:Name="SliderLauncherSat" MaxValue="100" />
                         </Grid>

@@ -33,6 +33,8 @@ $ErrorActionPreference = "Stop"
 
 function Find-Vbc {
     $candidates = @(
+        $env:PCL_HARNESS_VBC,
+        "C:\Users\$env:USERNAME\roslyn\tasks\vbc.exe",
         "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\vbc.exe",
         "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\vbc.exe"
     )
@@ -116,6 +118,10 @@ $refs = @(
     "$ReferencePath\mscorlib.dll",
     "$ReferencePath\System.dll",
     "$ReferencePath\System.Core.dll",
+    "$ReferencePath\System.Data.dll",
+    "$ReferencePath\System.Xml.dll",
+    "$ReferencePath\System.Xml.Linq.dll",
+    "$ReferencePath\System.Drawing.dll",
     "$ReferencePath\System.Xaml.dll",
     "$ReferencePath\WindowsBase.dll",
     "$ReferencePath\PresentationCore.dll",
@@ -129,7 +135,7 @@ Write-Host "启动器     : $launcherExe"
 Write-Host "源码       : $($sources.Count) 个文件"
 Write-Host "输出       : $outDll"
 
-$vbcArgs = @("/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/r:$launcherExe")
+$vbcArgs = @("/noconfig", "/nostdlib", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/r:$launcherExe")
 foreach ($r in $refs) { $vbcArgs += "/r:$r" }
 $vbcArgs += $sources
 

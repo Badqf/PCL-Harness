@@ -558,6 +558,11 @@ Public Class PagePlugin
         AddDocTitle(Body, "设置值读写")
         AddDocCode(Body, "Dim Value = ModPlugin.GetSetting(Host.Info, ""Key"", 默认值)" & vbCrLf & "ModPlugin.SetSetting(Host.Info, ""Key"", 新值)")
 
+        AddDocTitle(Body, "v5 新增（当前版本）")
+        AddDocCode(Body, "{""minApiVersion"": 5," & vbCrLf & " ""sha256"": ""DLL 的 SHA-256""," & vbCrLf & " ""permissions"": {" & vbCrLf & "   ""net"": {""hosts"": [""api.github.com"", ""*.example.com""]}," & vbCrLf & "   ""files"": {""read"": [""Downloads/""], ""write"": [""PluginData/demo/""]}}}")
+        AddDocText(Body, "permissions 写成对象可以做细化：net.hosts 是允许访问的域名（支持 *. 前缀通配与 *），files.read / files.write 是允许读写的路径（插件自己的数据目录始终可访问）。sha256 用于 DLL 完整性校验，与 plugin.json 不一致时拒绝加载；minApiVersion 高于启动器支持的版本时也会拒绝加载并提示更新。")
+        AddDocCode(Body, "Host.Events.On(""页面切换"", New Action(Of String, String)(Sub(Page, SubType) Host.LogInfo(Page) End Sub))" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
+        AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
         AddDocTitle(Body, "示例")
         AddDocText(Body, "完整示例见发布包 samples/DemoPlugin（DemoPlugin.vb + build.ps1），包含自定义页面、标题栏入口与两个设置项。编译：把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可。")
 

@@ -28,7 +28,7 @@ Public Module ModPlugin
     ''' v3 事件钩子；
     ''' v4 生命周期与联机/下载事件、内嵌卡片与状态栏小组件、权限与依赖、热重载与事件日志。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 4
+    Public Const ApiVersionUi As Integer = 5
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -78,6 +78,12 @@ Public Module ModPlugin
         Public ReadOnly Permissions As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
         ''' <summary>插件声明的依赖（其它插件的 id）。</summary>
         Public ReadOnly Dependencies As New List(Of String)
+        ''' <summary>API v5：细化权限（permissions 写成对象时才有内容）。</summary>
+        Public ReadOnly Detail As New PermissionDetail
+        ''' <summary>API v5：plugin.json 里声明的 DLL 校验值（sha256 / sha256.dll），空表示不校验。</summary>
+        Public DllSha256 As String = ""
+        ''' <summary>API v5：插件要求的最低 API 版本（0 表示未声明）。</summary>
+        Public MinApiVersion As Integer = 0
         ''' <summary>最近的事件/错误记录（最多 40 条，插件页可见）。</summary>
         Public ReadOnly Events As New List(Of String)
         ''' <summary>记录一条事件日志。</summary>
@@ -312,6 +318,21 @@ Public Module ModPlugin
                 Info.[Error] = "找不到 DLL：" & DllPath
                 Return
             End If
+            If Info.MinApiVersion > ApiVersionUi Then
+                Info.[Error] = $"插件要求 API v{Info.MinApiVersion}，本启动器最高支持 v{ApiVersionUi}，请更新启动器后再用"
+                Info.AddEvent(Info.[Error])
+                Return
+            End If
+            If Not String.IsNullOrWhiteSpace(Info.DllSha256) Then
+                Dim ActualHash = Sha256OfFile(DllPath)
+                If Not String.Equals(ActualHash, Info.DllSha256, StringComparison.OrdinalIgnoreCase) Then
+                    Dim Want = Info.DllSha256.Substring(0, Math.Min(12, Info.DllSha256.Length))
+                    Dim Got = ActualHash.Substring(0, Math.Min(12, ActualHash.Length))
+                    Info.[Error] = "DLL 校验失败：sha256 与 plugin.json 不一致，已拒绝加载（文件可能损坏或被替换）"
+                    Info.AddEvent($"校验失败：清单 {Want}…，实际 {Got}…")
+                    Return
+                End If
+            End If
             Dim Asm = Assembly.LoadFrom(DllPath)
             Dim Type As Type = Nothing
             If Not String.IsNullOrEmpty(Info.EntryType) Then Type = Asm.GetType(Info.EntryType, False, True)
@@ -421,12 +442,62 @@ Public Module ModPlugin
             Info.Description = If(Json.Value(Of String)("description"), "").Trim()
             Info.EntryType = If(Json.Value(Of String)("entry"), "").Trim()
             Info.DllName = If(Json.Value(Of String)("dll"), "").Trim()
-            Dim Perms = Json.Value(Of JArray)("permissions")
-            If Perms IsNot Nothing Then
-                For Each P In Perms
-                    Dim Name = P.ToString().Trim().ToLowerInvariant()
-                    If Name <> "" Then Info.Permissions.Add(Name)
-                Next
+            Dim PermsToken = Json("permissions")
+            If PermsToken IsNot Nothing Then
+                Dim PermsArray = TryCast(PermsToken, JArray)
+                If PermsArray IsNot Nothing Then
+                    For Each P In PermsArray
+                        Dim Name = P.ToString().Trim().ToLowerInvariant()
+                        If Name <> "" Then Info.Permissions.Add(Name)
+                    Next
+                Else
+                    Dim PermsObject = TryCast(PermsToken, JObject)
+                    If PermsObject IsNot Nothing Then
+                        Info.Detail.HasDetail = True
+                        For Each Prop In PermsObject.Properties()
+                            Dim Key = Prop.Name.Trim().ToLowerInvariant()
+                            If Key = "" Then Continue For
+                            Info.Permissions.Add(Key)
+                            Select Case Key
+                                Case "net"
+                                    For Each H In ReadStringList(Prop.Value)
+                                        Info.Detail.Hosts.Add(H)
+                                    Next
+                                    Dim NetObject = TryCast(Prop.Value, JObject)
+                                    If NetObject IsNot Nothing Then
+                                        For Each H In ReadStringList(NetObject("hosts"))
+                                            If Not Info.Detail.Hosts.Contains(H) Then Info.Detail.Hosts.Add(H)
+                                        Next
+                                    End If
+                                Case "files"
+                                    Dim FilesObject = TryCast(Prop.Value, JObject)
+                                    If FilesObject IsNot Nothing Then
+                                        For Each R In ReadStringList(FilesObject("read"))
+                                            Info.Detail.ReadPaths.Add(R)
+                                        Next
+                                        For Each W In ReadStringList(FilesObject("write"))
+                                            Info.Detail.WritePaths.Add(W)
+                                        Next
+                                    Else
+                                        For Each P In ReadStringList(Prop.Value)
+                                            Info.Detail.ReadPaths.Add(P)
+                                            Info.Detail.WritePaths.Add(P)
+                                        Next
+                                    End If
+                            End Select
+                        Next
+                    End If
+                End If
+            End If
+            Dim ShaToken = Json("sha256")
+            If ShaToken IsNot Nothing Then
+                Dim ShaObject = TryCast(ShaToken, JObject)
+                Info.DllSha256 = If(ShaObject IsNot Nothing, If(ShaObject.Value(Of String)("dll"), ""), ShaToken.ToString()).Trim()
+            End If
+            Dim MinApiToken = Json("minApiVersion")
+            If MinApiToken IsNot Nothing Then
+                Dim MinApiValue As Integer
+                If Integer.TryParse(MinApiToken.ToString().Trim(), MinApiValue) Then Info.MinApiVersion = MinApiValue
             End If
             Dim Deps = Json.Value(Of JArray)("dependencies")
             If Deps IsNot Nothing Then
@@ -955,6 +1026,158 @@ Public Module ModPlugin
         End Try
     End Sub
 
+    ' ================= API v5 基础设施 =================
+
+    ''' <summary>API v5：细化权限（plugin.json 的 permissions 写成对象时才有内容）。</summary>
+    Public Class PermissionDetail
+        Public HasDetail As Boolean
+        ''' <summary>net 允许访问的主机，支持 *.example.com 与 * 。</summary>
+        Public ReadOnly Hosts As New List(Of String)
+        ''' <summary>files 允许读取的路径（支持 * 通配）。</summary>
+        Public ReadOnly ReadPaths As New List(Of String)
+        ''' <summary>files 允许写入的路径（支持 * 通配）。</summary>
+        Public ReadOnly WritePaths As New List(Of String)
+    End Class
+
+    ''' <summary>把清单里的字符串或字符串数组统一读成列表。</summary>
+    Private Function ReadStringList(Token As JToken) As List(Of String)
+        Dim Result As New List(Of String)
+        If Token Is Nothing Then Return Result
+        Dim Items = TryCast(Token, JArray)
+        If Items IsNot Nothing Then
+            For Each Item In Items
+                Dim Text = Item.ToString().Trim()
+                If Text <> "" Then Result.Add(Text)
+            Next
+        Else
+            Dim JValueToken = TryCast(Token, JValue)
+            If JValueToken Is Nothing Then Return Result
+            Dim Text = JValueToken.ToString().Trim()
+            If Text <> "" Then Result.Add(Text)
+        End If
+        Return Result
+    End Function
+
+    ''' <summary>主机名是否匹配模式（支持 *.example.com 与 *）。</summary>
+    Public Function MatchHostPattern(Host As String, Pattern As String) As Boolean
+        If String.IsNullOrWhiteSpace(Pattern) Then Return False
+        Dim H = Host.Trim().ToLowerInvariant()
+        Dim P = Pattern.Trim().ToLowerInvariant()
+        If P = "*" Then Return True
+        If P.StartsWith("*.") Then Return H = P.Substring(2) OrElse H.EndsWith(P.Substring(1), StringComparison.OrdinalIgnoreCase)
+        Return String.Equals(H, P, StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    ''' <summary>路径是否匹配模式（相对路径按启动器目录解析，末尾反斜杠表示整个目录）。</summary>
+    Public Function PathMatches(Pattern As String, FullPath As String) As Boolean
+        If String.IsNullOrWhiteSpace(Pattern) Then Return False
+        Dim P = Pattern.Trim().Replace("/", "\")
+        Dim F = FullPath.Trim().Replace("/", "\")
+        Try
+            If Not IO.Path.IsPathRooted(P) Then P = IO.Path.GetFullPath(IO.Path.Combine(New IO.DirectoryInfo(Paths.BaseThenName).FullName, P))
+        Catch
+            Return False
+        End Try
+        If P.EndsWith("\") Then Return F.StartsWith(P, StringComparison.OrdinalIgnoreCase)
+        If Not P.Contains("*") Then Return String.Equals(F, P, StringComparison.OrdinalIgnoreCase) OrElse F.StartsWith(P & "\", StringComparison.OrdinalIgnoreCase)
+        Return F.ToLowerInvariant() Like P.ToLowerInvariant()
+    End Function
+
+    ''' <summary>计算文件的 SHA-256（小写十六进制）；失败返回空字符串。</summary>
+    Public Function Sha256OfFile(FilePath As String) As String
+        Try
+            Using Stream = IO.File.OpenRead(FilePath)
+                Using Sha = Security.Cryptography.SHA256.Create()
+                    Dim Bytes = Sha.ComputeHash(Stream)
+                    Dim Builder As New Text.StringBuilder()
+                    For Each B In Bytes
+                        Builder.Append(B.ToString("x2"))
+                    Next
+                    Return Builder.ToString()
+                End Using
+            End Using
+        Catch
+            Return ""
+        End Try
+    End Function
+
+    ''' <summary>检查网址是否在插件的 net 白名单里（未声明 hosts 时按全部允许处理）。</summary>
+    Public Sub EnsureHostAllowed(Info As PluginInfo, Url As String)
+        If Info Is Nothing OrElse Not Info.Detail.HasDetail Then Return
+        If Info.Detail.Hosts.Count = 0 Then Return
+        Dim Host As String = ""
+        Try
+            Host = New Uri(Url).Host
+        Catch
+        End Try
+        If Host = "" Then Throw New ArgumentException("无效的网址：" & Url)
+        If Info.Detail.Hosts.Any(Function(P) MatchHostPattern(Host, P)) Then Return
+        Info.AddEvent($"拦截未授权的网络请求：{Host}")
+        Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 net 权限只允许 {String.Join("、", Info.Detail.Hosts)}，已拦截 {Host}")
+    End Sub
+
+    ''' <summary>API v5：事件总线。插件用 Host.Events.On("事件名", Sub(...) ...) 订阅。</summary>
+    Public Class PluginEventBus
+        Private ReadOnly _Handlers As New Dictionary(Of String, List(Of [Delegate]))(StringComparer.OrdinalIgnoreCase)
+        ''' <summary>订阅事件。</summary>
+        Public Sub [On](EventName As String, Handler As [Delegate])
+            If String.IsNullOrWhiteSpace(EventName) OrElse Handler Is Nothing Then Return
+            SyncLock _Handlers
+                Dim Items As List(Of [Delegate]) = Nothing
+                If Not _Handlers.TryGetValue(EventName, Items) Then
+                    Items = New List(Of [Delegate])
+                    _Handlers(EventName) = Items
+                End If
+                Items.Add(Handler)
+            End SyncLock
+        End Sub
+        ''' <summary>取消订阅。</summary>
+        Public Sub Off(EventName As String, Handler As [Delegate])
+            SyncLock _Handlers
+                Dim Items As List(Of [Delegate]) = Nothing
+                If _Handlers.TryGetValue(EventName, Items) Then
+                    Items.Remove(Handler)
+                    If Items.Count = 0 Then _Handlers.Remove(EventName)
+                End If
+            End SyncLock
+        End Sub
+        ''' <summary>某个事件的订阅者数量。</summary>
+        Public Function SubscriberCount(EventName As String) As Integer
+            SyncLock _Handlers
+                Dim Items As List(Of [Delegate]) = Nothing
+                If _Handlers.TryGetValue(EventName, Items) Then Return Items.Count
+            End SyncLock
+            Return 0
+        End Function
+        ''' <summary>触发事件，返回成功执行的处理器数量。</summary>
+        Public Function Emit(EventName As String, ParamArray Args As Object()) As Integer
+            Dim Snapshot As New List(Of [Delegate])
+            SyncLock _Handlers
+                Dim Items As List(Of [Delegate]) = Nothing
+                If Not _Handlers.TryGetValue(EventName, Items) Then Return 0
+                Snapshot.AddRange(Items)
+            End SyncLock
+            Dim Count As Integer = 0
+            For Each Handler In Snapshot
+                Try
+                    Handler.DynamicInvoke(Args)
+                    Count += 1
+                Catch ex As Exception
+                    Logger.Error(ex, "插件事件处理失败：" & EventName, LogBehavior.None)
+                End Try
+            Next
+            Return Count
+        End Function
+    End Class
+
+    ''' <summary>向所有已加载插件广播事件（宿主内部使用）。</summary>
+    Public Function EmitPluginEvent(EventName As String, ParamArray Args As Object()) As Integer
+        Dim Count As Integer = 0
+        For Each Info In Plugins.ToList()
+            If Info.Loaded AndAlso Info.Host IsNot Nothing Then Count += Info.Host.Events.Emit(EventName, Args)
+        Next
+        Return Count
+    End Function
 End Module
 
 ''' <summary>
@@ -1190,8 +1413,17 @@ Public Class PluginHost
     End Function
 
     ''' <summary>读写任意路径需要 files 权限；未声明时只允许访问插件自己的 data 目录与当前版本目录。</summary>
-    Private Sub CheckFileAccess(Path As String)
-        If Info.HasPermission("files") Then Return
+    Private Sub CheckFileAccess(Path As String, Optional ForWrite As Boolean = False)
+        If Info.HasPermission("files") Then
+            If Not Info.Detail.HasDetail Then Return
+            Dim FullPath = IO.Path.GetFullPath(Path)
+            Dim Patterns = If(ForWrite, Info.Detail.WritePaths, Info.Detail.ReadPaths)
+            If Patterns.Count = 0 Then Return
+            Dim OwnData = IO.Path.GetFullPath(DataFolder).TrimEnd("\"c) & "\"
+            If FullPath.StartsWith(OwnData, StringComparison.OrdinalIgnoreCase) Then Return
+            If Patterns.Any(Function(P) PathMatches(P, FullPath)) Then Return
+            Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 files 权限未包含该路径：{FullPath}（plugin.json 中 permissions.files 只允许 {String.Join("、", Patterns)}）")
+        End If
         Dim Full = IO.Path.GetFullPath(Path)
         Dim Allowed As New List(Of String) From {IO.Path.GetFullPath(DataFolder)}
         Try
@@ -1212,7 +1444,7 @@ Public Class PluginHost
 
     ''' <summary>写入文本文件（默认 UTF-8，自动创建目录）。</summary>
     Public Sub WriteTextFile(Path As String, Text As String)
-        CheckFileAccess(Path)
+        CheckFileAccess(Path, True)
         IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Path))
         IO.File.WriteAllText(Path, If(Text, ""), New UTF8Encoding(False))
     End Sub
@@ -1225,6 +1457,7 @@ Public Class PluginHost
     ''' <summary>发起一个 GET 请求并返回文本（需要 net 权限；未声明权限时按默认允许处理）。</summary>
     Public Function HttpGetString(Url As String) As String
         If Not Info.HasPermission("net") Then Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 没有 net 权限")
+        EnsureHostAllowed(Info, Url)
         Dim Request = CType(Net.WebRequest.Create(Url), Net.HttpWebRequest)
         Request.Timeout = 15000
         Request.ReadWriteTimeout = 15000
@@ -1239,7 +1472,8 @@ Public Class PluginHost
     ''' <summary>下载到本地文件（需要 net + files 权限），成功返回 True。</summary>
     Public Function HttpDownload(Url As String, LocalPath As String) As Boolean
         Try
-            CheckFileAccess(LocalPath)
+            EnsureHostAllowed(Info, Url)
+            CheckFileAccess(LocalPath, True)
             IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(LocalPath))
             Using Client As New Net.WebClient()
                 Client.Headers.Add("User-Agent", "PCLHarness-Plugin/" & ApiVersionUi)
@@ -1286,4 +1520,57 @@ Public Class PluginHost
     End Sub
 
 
+    ' ================= v5 新增能力 =================
+
+    ''' <summary>API v5：事件总线，例如 Host.Events.On("页面切换", Sub(Name) Host.LogInfo("进入 " & Name) End Sub)。</summary>
+    Public ReadOnly Events As New PluginEventBus()
+
+    ''' <summary>API v5：读取强类型设置（自动做类型转换，失败时用默认值）。</summary>
+    Public Function GetSetting(Of T)(Key As String, DefaultValue As T) As T
+        Try
+            Dim Raw = ModPlugin.GetSetting(Info, Key, DefaultValue)
+            If Raw Is Nothing Then Return DefaultValue
+            If TypeOf Raw Is T Then Return CType(Raw, T)
+            Return CType(Convert.ChangeType(Raw, GetType(T), Globalization.CultureInfo.InvariantCulture), T)
+        Catch
+            Return DefaultValue
+        End Try
+    End Function
+
+    ''' <summary>API v5：写入强类型设置（值会自动保存到 plugins.settings.json）。</summary>
+    Public Sub SetSetting(Of T)(Key As String, Value As T)
+        ModPlugin.SetSetting(Info, Key, Value)
+    End Sub
+
+    ''' <summary>API v5：调试日志（只写启动器日志，不打扰用户）。</summary>
+    Public Sub LogDebug(Text As String)
+        Logger.Info($"[插件 {Info.DisplayName}][调试] {Text}")
+    End Sub
+
+    ''' <summary>API v5：普通日志。</summary>
+    Public Sub LogInfo(Text As String)
+        Logger.Info($"[插件 {Info.DisplayName}] {Text}")
+    End Sub
+
+    ''' <summary>API v5：警告日志（同时记到插件事件）。</summary>
+    Public Sub LogWarn(Text As String)
+        Logger.Info($"[插件 {Info.DisplayName}][警告] {Text}")
+        Info.AddEvent("警告：" & Text)
+    End Sub
+
+    ''' <summary>API v5：错误日志（同时记到插件事件）。</summary>
+    Public Sub LogError(Text As String)
+        Logger.Error(New Exception(Text), $"插件 {Info.DisplayName} 报错", LogBehavior.None)
+        Info.AddEvent("错误：" & Text)
+    End Sub
+
+    ''' <summary>API v5：弹出带按钮的对话框，返回点下的按钮文字（阻塞到用户点击）。</summary>
+    Public Function Ask(Text As String, Optional Title As String = "插件提示", Optional Button1 As String = "确定", Optional Button2 As String = "取消") As String
+        Dim Result As Integer = 1
+        RunInUi(Sub()
+                    Result = ModMain.MyMsgBox(If(Text, ""), Title, Button1, If(Button2, ""))
+                End Sub)
+        If Result = 2 AndAlso Not String.IsNullOrEmpty(Button2) Then Return Button2
+        Return Button1
+    End Function
 End Class

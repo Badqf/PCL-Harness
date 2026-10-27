@@ -22,6 +22,22 @@ Public Class MySlider
             RefreshWidth(Nothing, Nothing)
         End Set
     End Property
+    Private _MinValue As Integer = 0
+    Public Property MinValue As Integer
+        Get
+            Return _MinValue
+        End Get
+        Set(value As Integer)
+            If value = _MinValue Then Return
+            _MinValue = value
+            RefreshWidth(Nothing, Nothing)
+        End Set
+    End Property
+    Private ReadOnly Property ValueRange As Integer
+        Get
+            Return Math.Max(1, MaxValue - MinValue)
+        End Get
+    End Property
     Private ChangeByKey As Boolean = False
     Private _Value As Integer = 0
     Public Property Value As Integer
@@ -31,7 +47,7 @@ Public Class MySlider
         Set(newValue As Integer)
             Try
 
-                newValue = newValue.Clamp(0, MaxValue)
+                newValue = newValue.Clamp(MinValue, MaxValue)
                 If _Value = newValue Then Return
 
                 '触发 Preview 事件，修改新值
@@ -49,8 +65,9 @@ Public Class MySlider
 
                 If IsLoaded AndAlso AniControlEnabled = 0 Then
                     If ActualWidth < ShapeDot.Width Then Return
-                    Dim NewWidth As Double = _Value / MaxValue * (ActualWidth - ShapeDot.Width)
-                    Dim DeltaProcess As Double = Math.Abs(LineFore.Width / (ActualWidth - ShapeDot.Width) - _Value / MaxValue)
+                    Dim NewProcess As Double = (_Value - MinValue) / ValueRange
+                    Dim NewWidth As Double = NewProcess * (ActualWidth - ShapeDot.Width)
+                    Dim DeltaProcess As Double = Math.Abs(LineFore.Width / (ActualWidth - ShapeDot.Width) - NewProcess)
                     Dim Time As Double = (1 - Math.Pow(1 - DeltaProcess, 3)) * 300 + If(ChangeByKey, 100, 0)
                     AniStart({
                             AaWidth(LineFore, Math.Max(0, NewWidth + If(NewWidth < 0.5, 0, 0.5)) - LineFore.Width, Time,, If(Time > 50, New AniEaseOutFluent, New AniEaseLinear)),
@@ -70,7 +87,7 @@ Public Class MySlider
     Private Sub RefreshWidth(sender As Object, e As SizeChangedEventArgs) Handles Me.SizeChanged
         If Not IsNothing(e) Then PanMain.Width = e.NewSize.Width
         AniStop("MySlider Progress " & Uuid)
-        Dim NewWidth As Double = _Value / MaxValue * (ActualWidth - ShapeDot.Width)
+        Dim NewWidth As Double = (_Value - MinValue) / ValueRange * (ActualWidth - ShapeDot.Width)
         LineFore.Width = Math.Max(0, NewWidth + If(NewWidth < 0.5, 0, 0.5))
         LineBack.Width = Math.Max(0, ActualWidth - ShapeDot.Width - NewWidth + If(ActualWidth - ShapeDot.Width - NewWidth < 0.5, 0, 0.5))
         ShapeDot.Margin = New Thickness(NewWidth, ShapeDot.Margin.Top, ShapeDot.Margin.Right, ShapeDot.Margin.Bottom)
@@ -92,7 +109,7 @@ Public Class MySlider
     End Sub
     Public Sub DragDoing()
         Dim Percent As Double = ((Mouse.GetPosition(PanMain).X - ShapeDot.Width / 2) / (ActualWidth - ShapeDot.Width)).Clamp(0, 1)
-        Dim NewValue As Integer = Percent * MaxValue
+        Dim NewValue As Integer = MinValue + Percent * ValueRange
         If Not NewValue = Value Then
             Value = NewValue
         End If

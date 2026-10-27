@@ -1,4 +1,4 @@
-﻿Public Class PageSetupUI
+Public Class PageSetupUI
 
     Private Sub PageSetupUI_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
         '重复加载部分
@@ -365,7 +365,8 @@ Refresh:
     '自定义配色
     Private Sub HSL_Change() Handles SliderLauncherHue.Change, SliderLauncherLight.Change, SliderLauncherSat.Change, SliderLauncherDelta.Change
         If AniControlEnabled <> 0 OrElse SliderLauncherSat Is Nothing OrElse Not SliderLauncherSat.IsLoaded Then Return
-        ModSecret.ColorHue = SliderLauncherHue.Value
+        '色调限定蓝色区间：上游许可要求 Windows 下主要色相为蓝色，避免与赞助解锁的主题功能相似
+        ModSecret.ColorHue = SliderLauncherHue.Value.Clamp(200, 230)
         ModSecret.ColorSat = SliderLauncherSat.Value
         ModSecret.ColorLightAdjust = SliderLauncherLight.Value
         ModSecret.ColorHueTopbarDelta = SliderLauncherDelta.Value
@@ -579,10 +580,10 @@ Refresh:
         SliderBackgroundBlur.GetHintText = Function(v) v & " 像素"
     End Sub
 
-    '配色预设
+    '配色预设（按上游许可要求，主流色相限定在蓝色区间 200°~230°）
     Private Shared ReadOnly ColorPresets As (Name As String, Hue As Integer, Sat As Integer)() = {
-        ("蓝", 220, 85), ("青", 185, 80), ("绿", 145, 75), ("紫", 265, 80),
-        ("粉", 320, 70), ("橙", 30, 85), ("红", 355, 75), ("灰", 210, 10)
+        ("标准蓝", 220, 85), ("冰蓝", 204, 70), ("海蓝", 214, 92), ("靛青", 228, 78),
+        ("天青", 200, 72), ("晴蓝", 224, 62), ("雾蓝", 216, 32), ("灰蓝", 212, 12)
     }
     Private Sub BuildColorPresets()
         If PanColorPresets Is Nothing OrElse PanColorPresets.Children.Count > 0 Then Return

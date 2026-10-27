@@ -333,3 +333,55 @@ DemoPlugin/
 
 **能用 C# 写吗？**
 可以，引用 `PCL Harness.exe`（类型都在 `PCL` 命名空间），实现同一套接口即可。
+
+## API v5（当前版本）
+
+v5 在 v4 基础上补齐了「细粒度权限、完整性校验、事件、强类型设置、日志分级」，旧插件不需要任何改动。
+
+### 清单新增字段
+
+```json
+{
+  "minApiVersion": 5,
+  "sha256": "DLL 的 SHA-256（小写十六进制，可省略）",
+  "permissions": {
+    "net": { "hosts": ["api.github.com", "*.example.com"] },
+    "files": { "read": ["Downloads/"], "write": ["PluginData/demo/"] }
+  }
+}
+```
+
+- `minApiVersion`：高于启动器支持的 API 版本时拒绝加载，并提示更新启动器。
+- `sha256`：加载前校验 DLL，与清单不一致直接拒绝加载（防止文件损坏或被替换）。
+- `permissions` 仍可写成字符串数组（v4 写法，表示整类权限）；写成对象时按下列规则细化：
+  - `net.hosts`：允许访问的域名，支持 `*.example.com` 前缀通配与 `*`；未列出的域名会抛出 `UnauthorizedAccessException`。
+  - `files.read` / `files.write`：允许读写的路径，相对路径按启动器目录解析，`*` 通配，末尾 `/` 表示整个目录。插件自己的数据目录（PluginData/<id>/）始终可访问。
+
+### 宿主 API
+
+```vb
+'事件订阅：内置事件「页面切换」(Page, SubType)
+Host.Events.On("页面切换", New Action(Of String, String)(
+    Sub(Page, SubType) Host.LogDebug($"进入 {Page} / {SubType}") End Sub))
+Host.Events.Off("页面切换", Handler)
+Host.Events.SubscriberCount("页面切换")
+
+'强类型设置（底层仍是 plugins.settings.json）
+Dim Count As Integer = Host.GetSetting("loadCount", 0)
+Host.SetSetting("loadCount", Count + 1)
+
+'日志分级（写启动器日志，Warn/Error 同时记入插件事件）
+Host.LogDebug("调试")
+Host.LogInfo("普通")
+Host.LogWarn("警告")
+Host.LogError("错误")
+
+'对话框：返回点下的按钮文字
+Dim Answer = Host.Ask("要现在打开吗？", "插件提示", "打开", "取消")
+```
+
+### 兼容性
+
+- 未声明 `permissions` 的插件：保持 v4 行为（默认放行），不做限制。
+- 只写了 v4 字符串数组权限的插件：仍按整类权限放行，不启用白名单。
+- API 版本：`ApiVersionUi = 5`，User-Agent 为 `PCLHarness-Plugin/5`。

@@ -1,9 +1,14 @@
 {
   "id": "hello",
   "name": "你好插件",
-  "version": "1.0.0",
-  "author": "你",
-  "description": "最小示例：加载时弹一条提示。",
+  "version": "1.1.0",
+  "author": "PCL Harness",
+  "description": "API v5 示例：事件订阅、强类型设置、日志分级、网络白名单。",
   "entry": "HelloPlugin",
-  "dll": "Hello.Plugin.dll"
+  "dll": "Hello.Plugin.dll",
+  "minApiVersion": 5,
+  "permissions": {
+    "net": { "hosts": ["api.github.com", "*.githubusercontent.com"] },
+    "files": { "read": ["Downloads/"], "write": ["PluginData/hello/"] }
+  }
 }

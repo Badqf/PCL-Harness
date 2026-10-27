@@ -307,8 +307,15 @@ Public Class FormMain
         ThemeCheckAll(False)
         '应用外观模式与自定义配色
         ModSecret.IsDarkMode = Settings.Get(Of Integer)("UiColorMode") <> 1
-        ModSecret.ColorHue = Settings.Get(Of Integer)("UiLauncherHue")
-        ModSecret.ColorSat = Settings.Get(Of Integer)("UiLauncherSat")
+        '色调限定蓝色区间（上游许可：主要色相必须为蓝色），老用户的越界配色在此收敛一次
+        Dim RawHue As Integer = Settings.Get(Of Integer)("UiLauncherHue")
+        Dim FixedHue As Integer = RawHue.Clamp(200, 230)
+        If FixedHue <> RawHue Then
+            Settings.Set("UiLauncherHue", FixedHue)
+            Logger.Info($"配色色调 {RawHue}° 超出蓝色区间，已收敛为 {FixedHue}°（上游许可要求主要色相为蓝色）")
+        End If
+        ModSecret.ColorHue = FixedHue
+        ModSecret.ColorSat = Settings.Get(Of Integer)("UiLauncherSat").Clamp(0, 100)
         ModSecret.ColorLightAdjust = Settings.Get(Of Integer)("UiLauncherLight")
         ModSecret.ColorHueTopbarDelta = Settings.Get(Of Integer)("UiLauncherDelta")
         ThemeRefresh(Settings.Get(Of Integer)("UiLauncherTheme"))
@@ -1678,6 +1685,12 @@ Public Class FormMain
 #End Region
 
             Logger.Info($"切换主要页面：{Stack.Page}, {SubType}")
+            '把页面切换广播给订阅了 v5 事件的插件（出错不影响界面）
+            Try
+                ModPlugin.EmitPluginEvent("页面切换", Stack.Page.ToString(), SubType)
+            Catch ex2 As Exception
+                Logger.Error(ex2, "广播页面切换事件失败", LogBehavior.None)
+            End Try
         Catch ex As Exception
             Logger.Error(ex, $"切换主要页面失败（ID {PageCurrent.Page}）")
         Finally
