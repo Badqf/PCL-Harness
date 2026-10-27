@@ -1,4 +1,4 @@
-Public Class PageLoginMs
+﻿Public Class PageLoginMs
 
     ''' <summary>
     ''' 刷新页面显示的所有信息。
@@ -23,7 +23,17 @@ Public Class PageLoginMs
         End Try
         '如果不保留输入，刷新列表后自动选择第一项
         ComboAccounts.SelectedIndex = If(KeepInput, Math.Max(0, IndexBefore), 0)
-    End Sub
+    
+        '根据是否配置了客户端 ID 更新提示文案
+        If String.IsNullOrWhiteSpace(OAuthClientId) Then
+            LabMsNotWired.Text = "尚未配置微软登录客户端 ID：请在 PCLHarness\Secrets.json 中填写 MsClientId，或设置环境变量 PCL_MS_CLIENT_ID。也可以先使用「离线登录」或「第三方登录」。"
+            LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
+        Else
+            Dim MaskedId As String = If(OAuthClientId.Length > 8, OAuthClientId.Substring(0, 8) & "…", OAuthClientId)
+            LabMsNotWired.Text = $"已配置微软登录客户端 ID（{MaskedId}）。点「登录」后按提示在浏览器输入设备代码；需要使用绑定了 Xbox 档案的个人 Microsoft 账户。"
+            LabMsNotWired.ClearValue(TextBlock.ForegroundProperty)
+        End If
+End Sub
     Private Sub ComboAccounts_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboAccounts.SelectionChanged
         If AniControlEnabled <> 0 OrElse ComboAccounts.SelectedItem Is Nothing OrElse ComboAccounts.ContentPresenter Is Nothing Then Return
         If TypeOf ComboAccounts.SelectedItem Is MyListItem Then

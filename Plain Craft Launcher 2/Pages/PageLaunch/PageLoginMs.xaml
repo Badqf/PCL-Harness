@@ -1,4 +1,4 @@
-<StackPanel x:Class="PageLoginMs" Tag="False" Orientation="Vertical"
+﻿<StackPanel x:Class="PageLoginMs" Tag="False" Orientation="Vertical"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -34,6 +34,5 @@
         </Grid>
     </Grid>
     <TextBlock x:Name="LabMsNotWired" Margin="0,14,0,0" FontSize="12.5" TextWrapping="Wrap"
-               Foreground="{DynamicResource ColorBrushRedLight}"
-               Text="当前版本尚未接入微软正版登录（需要自备 Azure 应用 ID）。请先使用「离线登录」，或选择「第三方登录」。" />
+               Text="微软登录使用设备代码流：点「登录」后在浏览器输入屏幕上的代码即可。" />
 </StackPanel>
