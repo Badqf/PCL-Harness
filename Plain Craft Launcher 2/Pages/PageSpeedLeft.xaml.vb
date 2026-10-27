@@ -1,4 +1,4 @@
-Public Class PageSpeedLeft
+﻿Public Class PageSpeedLeft
     Private Const WatcherInterval As Integer = 300
 
     '初始化
@@ -70,7 +70,7 @@ Public Class PageSpeedLeft
         If Loader Is Nothing OrElse Not Loader.Show Then Return
         Try
             '获取实际加载器列表
-            Dim LoaderList As List(Of LoaderBase) = CType(Loader, Object).GetLoaderList()
+            Dim LoaderList As List(Of LoaderBase) = LoaderTaskbarSubLoaders(Loader)
             If RightCards.ContainsKey(Loader.Name) Then
                 '已有此卡片
                 Dim Card As Grid = RightCards(Loader.Name)

@@ -11,6 +11,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 418 Then 'PCL Harness 3.2.8
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：下载新版本时会显示在任务管理里，右下角显示进度圆环，可随时手动取消"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：左下角显示新版本下载进度，下载完成后提示「退出启动器时自动更新」"))
+                FeatureCount += 2
+                BugCount += 0
+            End If
+
             If LastVersion < 417 Then 'PCL Harness 3.2.7
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：更新设置选「在有新版本时自动下载」时，后台静默下载并在退出启动器时替换、重启"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "调整：关于与鸣谢页移除「赞助者」卡片（含赞助作者按钮）"))
@@ -1901,6 +1908,13 @@ Public Class FormMain
     Private Function BtnExtraDownload_ShowCheck() As Boolean
         Return HasDownloadingTask() AndAlso Not PageCurrent = PageType.TaskManager
     End Function
+    ''' <summary>左下角的常驻状态提示（例如新版本正在下载）；传空文本并 Show=False 可隐藏。</summary>
+    Public Sub SetUpdateStatus(Text As String, Optional Show As Boolean = True)
+        RunInUi(Sub()
+            LabUpdateStatus.Text = Text
+            LabUpdateStatus.Visibility = If(Show AndAlso Text <> "", Visibility.Visible, Visibility.Collapsed)
+        End Sub)
+    End Sub
 
     '投降
     Public Sub AprilGiveup() Handles BtnExtraApril.Click

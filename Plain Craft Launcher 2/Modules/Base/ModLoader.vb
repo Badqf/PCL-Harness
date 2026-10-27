@@ -1,4 +1,4 @@
-Public Module ModLoader
+﻿Public Module ModLoader
 
     '各类加载器
     ''' <summary>
@@ -673,6 +673,17 @@ Restart:
     Public LoaderTaskbarProgress As Double = 0 '平滑后的进度
     Private LoaderTaskbarProgressLast As Shell.TaskbarItemProgressState = Shell.TaskbarItemProgressState.None
 
+    ''' <summary>
+    ''' 获取任务卡片的子加载器列表。普通加载器返回自身；组合加载器展开为最底层加载器。
+    ''' </summary>
+    Public Function LoaderTaskbarSubLoaders(Loader As LoaderBase) As List(Of LoaderBase)
+        If Loader Is Nothing Then Return New List(Of LoaderBase)
+        Try
+            Return CType(Loader, Object).GetLoaderList()
+        Catch ex As MissingMemberException
+            Return New List(Of LoaderBase) From {Loader}
+        End Try
+    End Function
     Public Sub LoaderTaskbarAdd(Of T)(Loader As LoaderCombo(Of T))
         If FrmSpeedLeft IsNot Nothing Then FrmSpeedLeft.TaskRemove(Loader)
         LoaderTaskbar.Add(Loader)

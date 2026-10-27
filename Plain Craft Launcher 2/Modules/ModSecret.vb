@@ -358,8 +358,15 @@ Friend Module ModSecret
     Private PendingUpdateExe As String = ""
     Private PendingUpdateVersion As String = ""
 
-    ''' <summary>把更新包下载到临时目录，返回本地路径。</summary>
-    Private Function DownloadUpdatePackage(Info As UpdateInfo) As String
+    ''' <summary>当前正在进行的更新下载任务；Nothing 表示没有。</summary>
+    Private UpdateDownloadTask As LoaderDownload = Nothing
+
+    ''' <summary>
+    ''' 把更新包作为普通下载任务放进任务栏：右下角会显示进度圆环，点进去能看到进度并手动取消。
+    ''' Manual=True 时下载完成后弹窗询问是否立即重启，否则静默等待退出启动器时替换。
+    ''' </summary>
+    Private Sub StartUpdateDownload(Info As UpdateInfo, Manual As Boolean)
+        If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then Return
         Dim Dir As String = PathTemp & "Update\"
         IO.Directory.CreateDirectory(Dir)
         Dim Target As String = Dir & "PCL-Harness-" & Info.Version & ".exe"
@@ -367,21 +374,73 @@ Friend Module ModSecret
             IO.File.Delete(Target)
         Catch
         End Try
-        NetDownloadByLoader(Info.DownloadUrls, Target)
-        If Not IO.File.Exists(Target) Then Throw New Exception("更新文件没有下载成功")
-        Dim Size As Long = New IO.FileInfo(Target).Length
-        If Size < 512 * 1024 Then Throw New Exception($"更新文件不完整（{Size} 字节）")
-        Logger.Info($"[Update] 已下载 {Target}（{Size} 字节）")
-        Return Target
-    End Function
+        Dim Downloader As New LoaderDownload($"PCL Harness {Info.Version} 更新", New List(Of NetFile) From {New NetFile(Info.DownloadUrls, Target)})
+        Downloader.Show = True
+        RunInUi(Sub()
+                    If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 PCL Harness {Info.Version} 正在下载……")
+                End Sub)
+        Dim LastPercent As Integer = -1
+        AddHandler Downloader.ProgressChanged,
+            Sub(NewProgress As Double, OldProgress As Double)
+                Dim Percent As Integer = CInt(Math.Round(NewProgress.Clamp(0, 1) * 100))
+                If Percent = LastPercent Then Return
+                LastPercent = Percent
+                RunInUi(Sub()
+                    If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 PCL Harness {Info.Version} 正在下载…… {Percent}%")
+                End Sub)
+            End Sub
+        AddHandler Downloader.OnStateChangedUi,
+            Sub(L As LoaderBase, NewState As LoadState, OldState As LoadState)
+                Try
+                    Select Case NewState
+                        Case LoadState.Finished
+                            UpdateDownloadTask = Nothing
+                            If Not IO.File.Exists(Target) Then
+                                Logger.Warn($"[Update] 下载任务已结束，但没有找到更新文件：{Target}")
+                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
+                                Return
+                            End If
+                            PendingUpdateExe = Target
+                            PendingUpdateVersion = Info.Version
+                            Logger.Info($"[Update] 已{(If(Manual, "下载", "静默下载"))} {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换")
+                            If Manual Then
+                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
+                                If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
+                                    ApplyDownloadedUpdate(Target)
+                                Else
+                                    Hint("新版本将在退出启动器时自动替换并重启")
+                                End If
+                            Else
+                                If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus($"新版本 {Info.Version} 已就绪，退出启动器时自动更新")
+                            End If
+                        Case LoadState.Canceled
+                            UpdateDownloadTask = Nothing
+                            If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
+                            Try
+                                IO.File.Delete(Target)
+                            Catch
+                            End Try
+                            Logger.Info($"[Update] 已取消下载 {Info.Version}")
+                            Hint("已取消下载新版本")
+                        Case LoadState.Failed
+                            UpdateDownloadTask = Nothing
+                            If FrmMain IsNot Nothing Then FrmMain.SetUpdateStatus("", False)
+                            Logger.Warn($"[Update] 下载新版本 {Info.Version} 失败")
+                            Hint("下载新版本失败，可稍后在设置中手动重试", HintType.Red)
+                    End Select
+                Catch ex As Exception
+                    Logger.Error(ex, "[Update] 处理更新下载状态失败")
+                End Try
+            End Sub
+        UpdateDownloadTask = Downloader
+        Downloader.Start()
+        LoaderTaskbar.Add(Downloader)
+    End Sub
 
     ''' <summary>设置项为「在有新版本时自动下载」：静默下载，退出启动器时替换并重启。</summary>
     Private Sub DownloadUpdateSilently(Info As UpdateInfo)
         Try
-            Dim Target As String = DownloadUpdatePackage(Info)
-            PendingUpdateExe = Target
-            PendingUpdateVersion = Info.Version
-            Logger.Info($"[Update] 已静默下载 {Info.Version}，将在退出启动器时替换并重启")
+            StartUpdateDownload(Info, False)
         Catch ex As Exception
             Logger.Warn(ex, "[Update] 静默下载更新失败")
         End Try
@@ -421,24 +480,14 @@ Friend Module ModSecret
         End Select
     End Sub
 
-    ''' <summary>下载新版本 exe，询问后重启完成替换。</summary>
+    ''' <summary>下载新版本 exe（作为任务栏里的普通任务），完成后询问是否立即重启。</summary>
     Private Sub DownloadAndApplyUpdate(Info As UpdateInfo)
-        RunInNewThread(Sub()
-            Try
-                RunInUi(Sub() Hint($"正在下载 PCL Harness {Info.Version}……"))
-                Dim Target As String = DownloadUpdatePackage(Info)
-                RunInUi(Sub()
-                    If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
-                        ApplyDownloadedUpdate(Target)
-                    Else
-                        Hint("更新文件已保留，下次启动会自动继续提示")
-                    End If
-                End Sub)
-            Catch ex As Exception
-                Logger.Error(ex, "[Update] 下载更新失败")
-                RunInUi(Sub() Hint("下载更新失败：" & ex.Message))
-            End Try
-        End Sub, "UpdateDownload")
+        Try
+            StartUpdateDownload(Info, True)
+        Catch ex As Exception
+            Logger.Error(ex, "[Update] 下载更新失败")
+            Hint("下载更新失败：" & ex.Message, HintType.Red)
+        End Try
     End Sub
 
     ''' <summary>以 --update 参数启动新版本，然后退出当前进程。</summary>

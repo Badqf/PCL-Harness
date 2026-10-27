@@ -1,4 +1,4 @@
-﻿<Window
+<Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:PCL"
@@ -243,7 +243,12 @@
                         </Border>
                     </Border>
                 </Grid>
-                <StackPanel x:Name="PanHint" IsHitTestVisible="False" UseLayoutRounding="True" SnapsToDevicePixels="True" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,20" Grid.RowSpan="2" />
+                <TextBlock x:Name="LabUpdateStatus" HorizontalAlignment="Left" VerticalAlignment="Bottom" Grid.RowSpan="2" Margin="20,0,0,46"
+                           Visibility="Collapsed" IsHitTestVisible="False" FontSize="12.5" TextTrimming="CharacterEllipsis">
+                    <TextBlock.Foreground>
+                        <DynamicResource ResourceKey="ColorBrush1" />
+                    </TextBlock.Foreground>
+                </TextBlock>                <StackPanel x:Name="PanHint" IsHitTestVisible="False" UseLayoutRounding="True" SnapsToDevicePixels="True" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="0,0,0,20" Grid.RowSpan="2" />
         <TextBlock x:Name="LabPluginStatus" HorizontalAlignment="Right" VerticalAlignment="Bottom" Grid.Row="1" Margin="15,0,15,46"
                    Visibility="Collapsed" IsHitTestVisible="False" FontSize="12" Opacity="0.85">
             <TextBlock.Foreground>
