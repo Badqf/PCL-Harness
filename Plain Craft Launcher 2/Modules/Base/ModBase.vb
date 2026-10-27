@@ -6,12 +6,12 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "3.2.2" '显示用版本名'
+    Public Const VersionBaseName As String = "3.2.3" '显示用版本名'
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
-    Public Const VersionCode As Integer = 412 '正式版
+    Public Const VersionCode As Integer = 413 '正式版
 #Else
-    Public Const VersionCode As Integer = 412 '快照版
+    Public Const VersionCode As Integer = 413 '快照版
 #End If
 
     '版本信息

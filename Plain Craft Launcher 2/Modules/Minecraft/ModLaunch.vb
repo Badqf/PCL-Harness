@@ -1040,6 +1040,13 @@ Retry:
                 Logger.Warn(ex, "微软登录第 4 步汇报 429")
                 Throw New Exception("$登录尝试太过频繁，请等待几分钟后再试！")
             ElseIf ex.StatusCode = HttpStatusCode.Forbidden Then
+                If ex.Response IsNot Nothing AndAlso ex.Response.Contains("Invalid app registration") Then
+                    'Minecraft 只允许在 Mojang 审核通过的 Client ID 上登录，与网络/IP 无关
+                    Logger.Warn(ex, "微软登录第 4 步汇报 403（Client ID 未通过 Mojang 审核）")
+                    Throw New Exception("$Minecraft 拒绝了本次登录：当前 Azure 应用的 Client ID 还没有通过 Mojang 的 AppID 审核。" & vbCrLf &
+                                        "请到 https://aka.ms/AppRegInfo 提交申请，审核通过后再试。" & vbCrLf &
+                                        "未审核时无论换什么网络都会失败，与 IP、VPN 无关。")
+                End If
                 Logger.Warn(ex, "微软登录第 4 步汇报 403")
                 Throw New Exception("$当前 IP 的登录尝试异常。" & vbCrLf & "如果你使用了 VPN 或加速器，请把它们关掉或更换节点后再试！")
             ElseIf ex.StatusCode = HttpStatusCode.ServiceUnavailable Then
