@@ -1,4 +1,4 @@
-'由于包含加解密等安全信息，本文件中的部分代码已被删除
+﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -330,11 +330,12 @@ Friend Module ModSecret
 
     ''' <summary>启动后自动检查更新（受 设置 → 其他 → 启动器更新 控制）。</summary>
     Friend Sub StartAutoUpdateCheck()
+        Dim Mode As Integer = Settings.Get(Of Integer)("SystemSystemUpdate")
         If Not IsDebugUpdate() Then
-            Dim Mode As Integer = Settings.Get(Of Integer)("SystemSystemUpdate")
             If Mode = 3 Then Return '关闭更新提示
             If Mode = 2 Then Return '仅重大漏洞：自编版不区分严重级别，交给手动检查
         End If
+        Dim Silent As Boolean = (Mode = 0) '在有新版本时自动下载：静默下载，退出时替换
         RunInNewThread(Sub()
             Threading.Thread.Sleep(6000)
             Try
@@ -342,11 +343,61 @@ Friend Module ModSecret
                 If Info Is Nothing Then Return
                 If Not IsNewerVersion(Info.Version) Then Return
                 If Settings.Get(Of String)("SystemIgnoredUpdate") = Info.Version AndAlso Not IsDebugUpdate() Then Return
-                RunInUi(Sub() ShowUpdatePrompt(Info))
+                If Silent Then
+                    DownloadUpdateSilently(Info)
+                Else
+                    RunInUi(Sub() ShowUpdatePrompt(Info))
+                End If
             Catch ex As Exception
                 Logger.Warn(ex, "[Update] 自动检查更新失败")
             End Try
         End Sub, "UpdateAutoCheck", Threading.ThreadPriority.BelowNormal)
+    End Sub
+
+    ''' <summary>已在后台静默下载、等待退出时应用的更新包。</summary>
+    Private PendingUpdateExe As String = ""
+    Private PendingUpdateVersion As String = ""
+
+    ''' <summary>把更新包下载到临时目录，返回本地路径。</summary>
+    Private Function DownloadUpdatePackage(Info As UpdateInfo) As String
+        Dim Dir As String = PathTemp & "Update\"
+        IO.Directory.CreateDirectory(Dir)
+        Dim Target As String = Dir & "PCL-Harness-" & Info.Version & ".exe"
+        Try
+            IO.File.Delete(Target)
+        Catch
+        End Try
+        NetDownloadByLoader(Info.DownloadUrls, Target)
+        If Not IO.File.Exists(Target) Then Throw New Exception("更新文件没有下载成功")
+        Dim Size As Long = New IO.FileInfo(Target).Length
+        If Size < 512 * 1024 Then Throw New Exception($"更新文件不完整（{Size} 字节）")
+        Logger.Info($"[Update] 已下载 {Target}（{Size} 字节）")
+        Return Target
+    End Function
+
+    ''' <summary>设置项为「在有新版本时自动下载」：静默下载，退出启动器时替换并重启。</summary>
+    Private Sub DownloadUpdateSilently(Info As UpdateInfo)
+        Try
+            Dim Target As String = DownloadUpdatePackage(Info)
+            PendingUpdateExe = Target
+            PendingUpdateVersion = Info.Version
+            Logger.Info($"[Update] 已静默下载 {Info.Version}，将在退出启动器时替换并重启")
+        Catch ex As Exception
+            Logger.Warn(ex, "[Update] 静默下载更新失败")
+        End Try
+    End Sub
+
+    ''' <summary>退出启动器时应用已静默下载的更新（由 EndProgramForce 调用）。</summary>
+    Friend Sub ApplyPendingUpdateOnExit()
+        If PendingUpdateExe = "" Then Return
+        If Not IO.File.Exists(PendingUpdateExe) Then Return
+        Try
+            Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PendingUpdateExe}"" ""True"""
+            Logger.Info($"[Update] 退出时应用更新 {PendingUpdateVersion}：{Args}")
+            StartProcess(PendingUpdateExe, Args)
+        Catch ex As Exception
+            Logger.Error(ex, "[Update] 退出时启动更新进程失败")
+        End Try
     End Sub
 
     ''' <summary>展示更新提示：立即下载并更新 / 打开发布页 / 稍后。</summary>
@@ -374,19 +425,8 @@ Friend Module ModSecret
     Private Sub DownloadAndApplyUpdate(Info As UpdateInfo)
         RunInNewThread(Sub()
             Try
-                Dim Dir As String = PathTemp & "Update\"
-                IO.Directory.CreateDirectory(Dir)
-                Dim Target As String = Dir & "PCL-Harness-" & Info.Version & ".exe"
-                Try
-                    IO.File.Delete(Target)
-                Catch
-                End Try
                 RunInUi(Sub() Hint($"正在下载 PCL Harness {Info.Version}……"))
-                NetDownloadByLoader(Info.DownloadUrls, Target)
-                If Not IO.File.Exists(Target) Then Throw New Exception("更新文件没有下载成功")
-                Dim Size As Long = New IO.FileInfo(Target).Length
-                If Size < 512 * 1024 Then Throw New Exception($"更新文件不完整（{Size} 字节）")
-                Logger.Info($"[Update] 已下载 {Target}（{Size} 字节）")
+                Dim Target As String = DownloadUpdatePackage(Info)
                 RunInUi(Sub()
                     If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
                         ApplyDownloadedUpdate(Target)

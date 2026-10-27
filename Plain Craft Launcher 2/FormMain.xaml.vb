@@ -11,6 +11,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 417 Then 'PCL Harness 3.2.7
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：更新设置选「在有新版本时自动下载」时，后台静默下载并在退出启动器时替换、重启"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "调整：关于与鸣谢页移除「赞助者」卡片（含赞助作者按钮）"))
+                FeatureCount += 1
+                BugCount += 0
+            End If
+
             If LastVersion < 416 Then 'PCL Harness 3.2.6
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：启动器可检查 GitHub Release 并在线更新（优先加速源，官方源备用）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：更新设置里的「检查更新」按钮可手动检查并下载"))
@@ -683,6 +690,7 @@ Public Class FormMain
         IsProgramEnding = True
         AniControlEnabled += 1
         If IsUpdateWaitingRestart Then UpdateRestart(False)
+        ModSecret.ApplyPendingUpdateOnExit()
         If ReturnCode = ProcessReturnValues.Exception Then
             If Not IsLogShown Then
                 FeedbackInfo()

@@ -12,16 +12,10 @@
 
         ItemAboutPcl.Info = ItemAboutPcl.Info.Replace("%VERSION%", VersionDisplay).Replace("%VERSIONCODE%", VersionCode).Replace("%BRANCH%", CInt(BuildType))
         ItemAboutPcl.Info &= "（PCL Harness 自编修改版，非官方发布）"
-        If BuildType = BuildTypes.Debug Then
-            BtnDonateDonate.Visibility = Visibility.Collapsed
-            BtnDonateOutput.Visibility = Visibility.Visible
-        End If
 
     End Sub
 
-    Private Sub BtnDonateOutput_Click(sender As Object, e As EventArgs) Handles BtnDonateOutput.Click
-        GeneratePotatoCode()
-    End Sub
+
     Private Sub BtnAboutUpdate_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnAboutUpdate.Click
         UpdateCheckByButton()
     End Sub
