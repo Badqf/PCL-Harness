@@ -8,7 +8,7 @@
 - `build.ps1`：通用编译脚本（自动找 vbc 与 .NET Framework 4.8 参考程序集）
 - `samples\HelloPlugin\`：最小插件（十行代码）
 - `samples\DemoPlugin\`：功能演示插件（事件钩子、设置项、卡片、文件/网络 API）
-- `LICENSE`：GPL-3.0
+- `LICENSE`：上游《PCL 分发有限许可》+《PCL 存储库合理使用指南》
 
 ## 三步上手
 
@@ -78,4 +78,6 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Project samples\DemoPlugin `
 
 ## 许可
 
-示例与指南随启动器一起以 GPL-3.0 发布（见 `LICENSE`）；你自己写的插件可以另选许可。
+示例与指南随启动器一起分发，沿用上游《PCL 分发有限许可》+《PCL 存储库合理使用指南》（见 `LICENSE`）。启动器本身是**第三方基于 PCL 的二次创作**，不隶属官方。
+
+插件通过引用启动器 exe 编译并在其进程内加载，属于同一程序的组成部分；按上游「公开源代码」的要求，**建议你的插件也公开源代码**，并同样给出龙腾猫跃的署名。若希望插件闭源分发，请先到上游 Discussions 确认，或改用进程外插件（v5 规划中）。
