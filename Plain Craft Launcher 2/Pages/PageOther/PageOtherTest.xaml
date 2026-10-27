@@ -29,6 +29,7 @@
                         <RowDefinition Height="32" />
                         <RowDefinition Height="32" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <TextBlock Text="下载地址" VerticalAlignment="Center" FontSize="13" />
@@ -45,6 +46,9 @@
                         <local:MyButton x:Name="BtnDownload" Text="开始下载" MinWidth="130" Height="30" ColorType="Highlight" Click="BtnDownload_Click" />
                         <local:MyButton x:Name="BtnOpenFolder" Text="打开文件夹" MinWidth="130" Height="30" Margin="12,0,0,0" Click="BtnOpenFolder_Click" />
                     </StackPanel>
+
+                    <local:MyLoading x:Name="LoadDownload" Grid.Row="4" Grid.ColumnSpan="3" HorizontalAlignment="Center"
+                                     Margin="0,14,0,0" Text="正在下载" ShowProgress="False" Visibility="Collapsed" />
                 </Grid>
             </local:MyCard>
 

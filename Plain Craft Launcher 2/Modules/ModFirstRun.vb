@@ -4,6 +4,7 @@ Imports System.Windows.Controls
 Imports System.Windows.Media
 Imports System.Windows.Shapes
 Imports Path = System.IO.Path
+Imports Registry = Microsoft.Win32.Registry
 
 ''' <summary>
 ''' 首次启动指引：PCL Harness 使用独立的配置与缓存目录（PCLHarness / %AppData%\PCLHarness），
@@ -17,6 +18,29 @@ Public Module ModFirstRun
     Public ReadOnly Property PathNewBase As String = Paths.BaseThenName
     ''' <summary>新数据目录（%AppData%\PCLHarness\）。</summary>
     Public ReadOnly Property PathNewAppData As String = Paths.AppDataThenName
+
+    ''' <summary>
+    ''' 把旧版（PCLDebug）的注册表设置一次性复制到本程序的独立根（PCLHarness），
+    ''' 这样 PCL Harness 与原版 PCL 同时运行时不会互相覆盖设置；只在独立根还没有值时执行。
+    ''' </summary>
+    Public Sub MigrateRegistry()
+        Try
+            Using NewKey = Registry.CurrentUser.CreateSubKey("Software\PCLHarness")
+                If NewKey Is Nothing OrElse NewKey.ValueCount > 0 Then Return
+                Using OldKey = Registry.CurrentUser.OpenSubKey("Software\PCLDebug")
+                    If OldKey Is Nothing Then Return
+                    For Each ValueName In OldKey.GetValueNames()
+                        Try
+                            NewKey.SetValue(ValueName, OldKey.GetValue(ValueName), OldKey.GetValueKind(ValueName))
+                        Catch
+                        End Try
+                    Next
+                End Using
+            End Using
+        Catch
+            '迁移失败不影响启动，设置会退回到默认值
+        End Try
+    End Sub
 
     Public Function IsFirstRun() As Boolean
         Return Not File.Exists(PathMarker)

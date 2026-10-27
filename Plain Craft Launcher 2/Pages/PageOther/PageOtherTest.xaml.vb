@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Diagnostics
 Imports System.Runtime.InteropServices
 
@@ -89,23 +89,103 @@ Public Class PageOtherTest
 
     ''' <summary>
     ''' 从指定网址下载文件。Folder 为空时下载到 PCLHarness\Download。
+    ''' 下载时在百宝箱卡片下方显示与 Mod 下载一致的进度（百分比、任务栏进度条），并禁用按钮防止重复点击。
+    ''' 若百宝箱页面还没创建过（例如插件调用），则退化为无进度的后台下载。
     ''' </summary>
     Public Shared Sub StartCustomDownload(Url As String, FileName As String, Optional Folder As String = Nothing)
+        If String.IsNullOrWhiteSpace(Url) Then
+            Hint("下载地址不能为空", HintType.Red)
+            Return
+        End If
+        Dim TargetFolder As String = If(String.IsNullOrWhiteSpace(Folder), Paths.BaseThenName & "Download", Folder)
+        If String.IsNullOrWhiteSpace(FileName) Then FileName = Url.AfterLast("/").BeforeFirst("?")
+        If String.IsNullOrWhiteSpace(FileName) Then FileName = "download.bin"
+        Dim Target As String
+        Try
+            Directory.CreateDirectory(TargetFolder)
+            Target = Path.Combine(TargetFolder, FileName)
+        Catch ex As Exception
+            Logger.Error(ex, "准备下载目录失败")
+            Hint("无法创建保存文件夹：" & ex.Message, HintType.Red)
+            Return
+        End Try
+        '与 Mod 下载使用同一套 LoaderDownload，因此百分比、速度与任务栏进度一致
+        Dim DownloadFile As New NetFile({Url}, Target)
+        Dim DownloadTask As New LoaderDownload($"自定义文件下载 {GetUuid()}#", New List(Of NetFile) From {DownloadFile})
+        Dim Page As PageOtherTest = FrmOtherTest
+        RunInUi(
+        Sub()
+            If Page IsNot Nothing Then
+                Page.BtnDownload.IsEnabled = False
+                Page.BtnDownload.Text = "下载中..."
+                Page.LoadDownload.State = DownloadTask
+                Page.LoadDownload.Text = $"正在下载：{FileName} - 0%"
+                Page.LoadDownload.Visibility = Visibility.Visible
+            End If
+        End Sub)
+        Hint($"开始下载：{FileName}")
         RunInThread(
         Sub()
+            '每 300ms 用 NetFile 的进度刷新一次文本，格式与 Mod 下载卡片一致（百分比 + 速度）
+            Dim ProgressThread As New Threading.Thread(
+                Sub()
+                    Dim LastDone As Long = 0
+                    Dim LastTime As Long = GetTimeMs()
+                    Dim LastSpeed As Long = 0
+                    Do While DownloadTask.State < LoadState.Finished
+                        Try
+                            Dim NowDone As Long = DownloadFile.DownloadDone
+                            Dim NowTime As Long = GetTimeMs()
+                            Dim Delta As Long = NowTime - LastTime
+                            If Delta >= 250 Then
+                                Dim CurrentSpeed As Long = CLng((NowDone - LastDone) * 1000.0 / Math.Max(Delta, 1))
+                                If CurrentSpeed > 0 Then LastSpeed = CurrentSpeed
+                                LastDone = NowDone
+                                LastTime = NowTime
+                            End If
+                            Dim Percent As Integer = CInt(Math.Floor(DownloadFile.Progress * 100))
+                            Dim SpeedText As String = If(LastSpeed > 0, $"{StringUtils.FormatByteSize(LastSpeed)}/s", "连接中")
+                            RunInUi(
+                            Sub()
+                                If Page IsNot Nothing Then Page.LoadDownload.Text = $"正在下载：{FileName} - {Percent}%（{SpeedText}）"
+                            End Sub)
+                        Catch
+                        End Try
+                        Threading.Thread.Sleep(300)
+                    Loop
+                End Sub)
+            ProgressThread.IsBackground = True
+            ProgressThread.Start()
             Try
-                If String.IsNullOrWhiteSpace(Url) Then Throw New Exception("下载地址不能为空")
-                Dim TargetFolder As String = If(String.IsNullOrWhiteSpace(Folder), Paths.BaseThenName & "Download", Folder)
-                Directory.CreateDirectory(TargetFolder)
-                If String.IsNullOrWhiteSpace(FileName) Then FileName = Url.AfterLast("/").BeforeFirst("?")
-                If String.IsNullOrWhiteSpace(FileName) Then FileName = "download.bin"
-                Dim Target As String = Path.Combine(TargetFolder, FileName)
-                Hint($"开始下载：{FileName}")
-                NetDownloadByLoader(Url, Target)
-                Hint($"下载完成：{FileName}", HintType.Green)
+                DownloadTask.WaitForExit()
+                Dim DoneSize As Long = DownloadFile.FileSize
+                If DoneSize < 0 Then
+                    '服务器未返回 Content-Length 时（分块传输），用落盘后的实际大小
+                    Try
+                        If File.Exists(Target) Then DoneSize = New FileInfo(Target).Length
+                    Catch
+                    End Try
+                End If
+                RunInUi(
+                Sub()
+                    If Page IsNot Nothing Then
+                        Page.LoadDownload.Visibility = Visibility.Collapsed
+                        Page.BtnDownload.IsEnabled = True
+                        Page.BtnDownload.Text = "开始下载"
+                    End If
+                    Hint($"下载完成：{FileName}（{StringUtils.FormatByteSize(DoneSize)}）", HintType.Green)
+                End Sub)
             Catch ex As Exception
                 Logger.Error(ex, "自定义下载失败：" & Url)
-                Hint("下载失败：" & ex.Message, HintType.Red)
+                RunInUi(
+                Sub()
+                    If Page IsNot Nothing Then
+                        Page.LoadDownload.Visibility = Visibility.Collapsed
+                        Page.BtnDownload.IsEnabled = True
+                        Page.BtnDownload.Text = "开始下载"
+                    End If
+                    Hint("下载失败：" & If(ex.InnerException?.Message, ex.Message), HintType.Red)
+                End Sub)
             End Try
         End Sub)
     End Sub
