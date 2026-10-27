@@ -261,6 +261,7 @@
     <Compile Include="Modules\ModFirstRun.vb" />
     <Compile Include="Modules\ModSecret.vb" />
     <Compile Include="Modules\ModUpnp.vb" />
+    <Compile Include="Modules\ModDialogFx.vb" />
     <Compile Include="Modules\ModIntro.vb" />
     <Compile Include="Modules\ModPlugin.vb" />
     <Compile Include="Pages\PageDownload\Resource\PageResource.xaml.vb">

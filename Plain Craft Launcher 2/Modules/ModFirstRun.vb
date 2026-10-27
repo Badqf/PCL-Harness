@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Media
@@ -474,6 +474,8 @@ Public Class FirstRunWindow
                                        End Select
                                    End Sub
         Content = Root
+        '与内置弹窗一致的淡入动画 + 主窗口背景调暗
+        ModDialogFx.RegisterDialog(Me, Root)
     End Sub
 
     ''' <summary>判断点击落点是否属于需要自己处理鼠标的控件。</summary>
@@ -500,13 +502,13 @@ Public Class FirstRunWindow
     Private Sub SkipAndClose(Reason As String)
         Logger.Info($"[首次启动] {Reason}")
         _Skipped = True
-        Close()
+        ModDialogFx.CloseAnimated(Me)
     End Sub
 
     Private Sub RunMigration()
         '迁移完成后同一个按钮改为关闭
         If MigrationDone Then
-            Close()
+            ModDialogFx.CloseAnimated(Me)
             Return
         End If
         Dim Selected As New List(Of ModFirstRun.MigrateItem)

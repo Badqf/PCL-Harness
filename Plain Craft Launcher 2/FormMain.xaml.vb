@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -412,13 +412,16 @@ Public Class FormMain
         AniStart()
         TimerMainStart()
         '首次启动指引（PCLHarness 独立配置目录 + 旧 PCL 数据迁移）；上次跳过且未改设置时再给一次机会
-        If ModFirstRun.NeedWizard() Then
-            RunInNewThread(
-                Sub()
-                    Threading.Thread.Sleep(900)
-                    RunInUi(Sub() ModFirstRun.ShowWizardIfNeeded())
-                End Sub, "FirstRun Wizard", ThreadPriority.BelowNormal)
-        End If
+        '关掉指引后再弹介绍页：两个弹窗不再同时冒出来（介绍页可在 设置 → 启动 里关掉）
+        RunInNewThread(
+            Sub()
+                Threading.Thread.Sleep(900)
+                RunInUi(
+                    Sub()
+                        ModFirstRun.ShowWizardIfNeeded()
+                        ModIntro.ShowIfNeeded()
+                    End Sub)
+            End Sub, "Startup Dialogs", ThreadPriority.BelowNormal)
         '加载池
         RunInNewThread(
         Sub()
@@ -466,8 +469,6 @@ Public Class FormMain
                         Logger.Error(ex, "加载插件失败", LogBehavior.None)
                     End Try
                 End Sub, "PluginLoad", ThreadPriority.BelowNormal)
-            'PCL Harness 介绍页（可在 设置 → 启动 中重新打开）
-            ModIntro.ShowIfNeeded()
             '插件加载失败时才提示（等插件线程扫完再报，避免被弹窗挡住）
             For i = 1 To 50
                 If ModPlugin.LoadDone Then Exit For

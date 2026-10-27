@@ -334,6 +334,9 @@ EndHint:
             If FrmMain.PanMsg.Children.Count > 0 Then
                 '弹窗中
                 FrmMain.PanMsg.Visibility = Visibility.Visible
+            ElseIf ModDialogFx.DimmedCount > 0 Then
+                '独立弹窗（首次启动指引 / 介绍页）正在使用背景遮罩，保持遮罩可见
+                FrmMain.PanMsg.Visibility = Visibility.Visible
             ElseIf WaitingMyMsgBox.TryDequeue(TargetMsgBox) Then
                 '没有弹窗，显示一个等待的弹窗
                 FrmMain.PanMsg.Visibility = Visibility.Visible
