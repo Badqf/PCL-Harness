@@ -14,6 +14,10 @@ Public Module ModFirstRun
 
     ''' <summary>首次启动标记文件，位于 PCLHarness 目录下。</summary>
     Public ReadOnly Property PathMarker As String = Paths.BaseThenName & "FirstRun.done"
+    ''' <summary>
+    ''' 上次点了「跳过」时写下的标记：下次启动若用户还没改过任何设置，会再给一次迁移机会。
+    ''' </summary>
+    Public ReadOnly Property PathSkip As String = Paths.BaseThenName & "FirstRun.skip"
     ''' <summary>新配置目录（exe 同级 PCLHarness\）。</summary>
     Public ReadOnly Property PathNewBase As String = Paths.BaseThenName
     ''' <summary>新数据目录（%AppData%\PCLHarness\）。</summary>
@@ -45,6 +49,78 @@ Public Module ModFirstRun
     Public Function IsFirstRun() As Boolean
         Return Not File.Exists(PathMarker)
     End Function
+
+    ''' <summary>
+    ''' 是否需要显示迁移指引：首次启动，或上次跳过后用户还没改过设置（再给一次机会）。
+    ''' </summary>
+    Public Function NeedWizard() As Boolean
+        Return IsFirstRun() OrElse File.Exists(PathSkip)
+    End Function
+
+    ''' <summary>
+    ''' 上次跳过、且此后没有改动过任何设置时返回 True（只给一次二次机会）。
+    ''' 若用户已经改过设置，说明已经在正常使用，就不再打扰。
+    ''' </summary>
+    Public Function ShouldShowAgain() As Boolean
+        Try
+            If Not File.Exists(PathSkip) Then Return False
+            Dim Touched As Boolean = False
+            For Each Line In File.ReadAllLines(PathSkip)
+                If String.Equals(Line.Trim(), "touched=1", StringComparison.Ordinal) Then Touched = True
+            Next
+            If Touched Then
+                Logger.Info("首次启动：上次跳过后已经改过设置，不再重复提示迁移，已清除跳过标记")
+                DeleteMark(PathSkip)
+                Return False
+            End If
+            Return True
+        Catch ex As Exception
+            Logger.Error(ex, "读取首次启动跳过标记失败", LogBehavior.None)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>记录「用户点了跳过」，等待下次启动的一次二次机会。</summary>
+    Public Sub MarkSkipped()
+        Try
+            Directory.CreateDirectory(Paths.BaseThenName)
+            File.WriteAllText(PathSkip, $"skipped={Now:yyyy-MM-dd HH:mm:ss}{vbCrLf}touched=0{vbCrLf}", New Text.UTF8Encoding(False))
+        Catch ex As Exception
+            Logger.Error(ex, "写入首次启动跳过标记失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>
+    ''' 用户改动任意设置时调用：把跳过标记标成「已动过设置」，下次启动不再提示迁移。
+    ''' </summary>
+    Public Sub NotifySettingsTouched()
+        Try
+            If Not File.Exists(PathSkip) Then Return
+            If File.ReadAllText(PathSkip).IndexOf("touched=1", StringComparison.Ordinal) >= 0 Then Return
+            '保留原来的「跳过时间」，只把 touched 改成 1
+            Dim SkippedAt As String = $"skipped={Now:yyyy-MM-dd HH:mm:ss}"
+            For Each Line In File.ReadAllLines(PathSkip)
+                If Line.Trim().StartsWith("skipped=", StringComparison.Ordinal) Then SkippedAt = Line.Trim()
+            Next
+            File.WriteAllText(PathSkip, SkippedAt & vbCrLf & "touched=1" & vbCrLf, New Text.UTF8Encoding(False))
+            Logger.Info("首次启动：用户已修改设置，之后不再提示数据迁移")
+        Catch ex As Exception
+            Logger.Error(ex, "更新首次启动跳过标记失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>清除跳过标记（迁移完成或二次机会已用掉）。</summary>
+    Public Sub ClearSkip()
+        DeleteMark(PathSkip)
+    End Sub
+
+    Private Sub DeleteMark(FilePath As String)
+        Try
+            If File.Exists(FilePath) Then File.Delete(FilePath)
+        Catch ex As Exception
+            Logger.Error(ex, $"删除标记文件失败：{FilePath}", LogBehavior.None)
+        End Try
+    End Sub
 
     Public Sub MarkDone()
         Try
@@ -166,10 +242,18 @@ Public Module ModFirstRun
 
     ''' <summary>
     ''' 首次启动时显示指引窗口。用户完成后写入标记，之后不再出现。
+    ''' 若上次是「跳过」且此后没改过设置，会再弹一次（二次机会），之后不再提示。
     ''' </summary>
     Public Sub ShowWizardIfNeeded()
-        If Not IsFirstRun() Then Return
-        Logger.Info("首次启动：显示配置目录与数据迁移指引")
+        Dim SecondChance As Boolean = False
+        If IsFirstRun() Then
+            Logger.Info("首次启动：显示配置目录与数据迁移指引")
+        ElseIf ShouldShowAgain() Then
+            SecondChance = True
+            Logger.Info("首次启动：上次点了跳过且之后没有改动设置，再显示一次迁移指引")
+        Else
+            Return
+        End If
         Dim Items = Detect()
         '自动化验证用：设置环境变量 PCL_FIRSTRUN_AUTORUN=1 时静默迁移全部存在项后退出，不弹窗
         If Environment.GetEnvironmentVariable("PCL_FIRSTRUN_AUTORUN") = "1" Then
@@ -181,20 +265,33 @@ Public Module ModFirstRun
                 Logger.Error(ex, "首次启动自动迁移失败", LogBehavior.None)
             End Try
             MarkDone()
+            ClearSkip()
             Return
         End If
         Dim Window As FirstRunWindow
         Try
-            Window = New FirstRunWindow(Items)
+            Window = New FirstRunWindow(Items, SecondChance)
         Catch ex As Exception
             Logger.Error(ex, "打开首次启动指引失败", LogBehavior.None)
             MarkDone()
+            ClearSkip()
             Return
         End Try
         If ModMain.FrmMain IsNot Nothing Then Window.Owner = ModMain.FrmMain
         Window.ShowDialog()
-        '无论完成还是跳过，都只提示一次
-        MarkDone()
+        If SecondChance Then
+            '二次机会只用一次：这次无论迁移还是跳过，都不再重复提示
+            MarkDone()
+            ClearSkip()
+        ElseIf Window.Skipped Then
+            '跳过：留一个标记，下次启动再问一次（若期间没改过设置）
+            MarkDone()
+            MarkSkipped()
+            Logger.Info("首次启动：已跳过，下次启动时若未改动设置会再提示一次")
+        Else
+            MarkDone()
+            ClearSkip()
+        End If
     End Sub
 
 End Module
@@ -209,8 +306,15 @@ Public Class FirstRunWindow
     Private ReadOnly LabResult As TextBlock
     Private ReadOnly BtnRun As MyButton
     Private MigrationDone As Boolean
+    Private _Skipped As Boolean = False
+    ''' <summary>用户点了「跳过」（或等价操作）关闭了窗口。</summary>
+    Public ReadOnly Property Skipped As Boolean
+        Get
+            Return _Skipped
+        End Get
+    End Property
 
-    Public Sub New(Items As List(Of ModFirstRun.MigrateItem))
+    Public Sub New(Items As List(Of ModFirstRun.MigrateItem), Optional SecondChance As Boolean = False)
         Me.Items = Items
         Title = "欢迎使用 PCL Harness"
         WindowStyle = WindowStyle.None
@@ -270,7 +374,9 @@ Public Class FirstRunWindow
             .Text = "这是 PCL Harness 的独立配置目录，不会和原版 PCL 互相覆盖：" & vbCrLf &
                     $"    配置与缓存：{ModFirstRun.PathNewBase}" & vbCrLf &
                     $"    用户数据：{ModFirstRun.PathNewAppData}" & vbCrLf &
-                    "如果以前用过 PCL，可以把它的设置、插件等迁移过来；没用过就直接跳过。"
+                    If(SecondChance,
+                       "上次你点了「跳过」。如果现在想迁移旧 PCL 的设置与插件，可以在下面勾选后点「迁移并进入」；这次关掉后就不会再提示了。",
+                       "如果以前用过 PCL，可以把它的设置、插件等迁移过来；没用过就直接跳过。")
         }
         Intro.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
         Main.Children.Add(Intro)
@@ -330,7 +436,7 @@ Public Class FirstRunWindow
         Main.Children.Add(LabResult)
 
         Dim Btns As New StackPanel With {.Orientation = Orientation.Horizontal, .HorizontalAlignment = HorizontalAlignment.Right, .Margin = New Thickness(0, 12, 0, 0)}
-        Dim BtnSkip As New MyButton With {.Text = "跳过", .Height = 30, .MinWidth = 84, .Margin = New Thickness(8, 0, 0, 0)}
+        Dim BtnSkip As New MyButton With {.Text = If(SecondChance, "不再提示", "跳过"), .Height = 30, .MinWidth = 84, .Margin = New Thickness(8, 0, 0, 0)}
         Dim BtnOpen As New MyButton With {.Text = "打开旧目录", .Height = 30, .MinWidth = 96, .Margin = New Thickness(8, 0, 0, 0)}
         BtnRun = New MyButton With {.Text = "迁移并进入", .Height = 30, .MinWidth = 104, .Margin = New Thickness(8, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
         If TargetItems.Count = 0 Then BtnRun.IsEnabled = False
@@ -340,8 +446,7 @@ Public Class FirstRunWindow
                                             RunMigration()
                                         End Sub
         AddHandler BtnSkip.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs)
-                                            Logger.Info("[首次启动] 点击跳过")
-                                            Close()
+                                            SkipAndClose("点击跳过")
                                         End Sub
         Btns.Children.Add(BtnOpen)
         Btns.Children.Add(BtnSkip)
@@ -361,9 +466,8 @@ Public Class FirstRunWindow
         AddHandler PreviewKeyDown, Sub(sender As Object, e As Input.KeyEventArgs)
                                        Select Case e.Key
                                            Case Input.Key.Escape
-                                               Logger.Info("[首次启动] 按下 Esc")
                                                e.Handled = True
-                                               Close()
+                                               SkipAndClose("按下 Esc")
                                            Case Input.Key.Enter
                                                e.Handled = True
                                                RunMigration()
@@ -393,6 +497,12 @@ Public Class FirstRunWindow
         End If
     End Sub
 
+    Private Sub SkipAndClose(Reason As String)
+        Logger.Info($"[首次启动] {Reason}")
+        _Skipped = True
+        Close()
+    End Sub
+
     Private Sub RunMigration()
         '迁移完成后同一个按钮改为关闭
         If MigrationDone Then
@@ -404,7 +514,7 @@ Public Class FirstRunWindow
             If Boxes(i).Checked Then Selected.Add(TargetItems(i))
         Next
         If Selected.Count = 0 Then
-            Close()
+            SkipAndClose("未勾选任何项目")
             Return
         End If
         BtnRun.IsEnabled = False

@@ -411,8 +411,8 @@ Public Class FormMain
         'Timer 启动
         AniStart()
         TimerMainStart()
-        '首次启动指引（PCLHarness 独立配置目录 + 旧 PCL 数据迁移）
-        If ModFirstRun.IsFirstRun() Then
+        '首次启动指引（PCLHarness 独立配置目录 + 旧 PCL 数据迁移）；上次跳过且未改设置时再给一次机会
+        If ModFirstRun.NeedWizard() Then
             RunInNewThread(
                 Sub()
                     Threading.Thread.Sleep(900)

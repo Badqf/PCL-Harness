@@ -62,6 +62,8 @@ Public Class SettingService
         Dim NewValue As String = DirectCast(sender, ISettingControl).GetCurrentSetting()
         If NewValue Is Nothing Then Return
         Settings.Set(Key, NewValue, Instance:=PageInstanceLeft.Instance)
+        '记录用户真的改过设置：首次启动被跳过时，下次启动就不再重复提示迁移
+        ModFirstRun.NotifySettingsTouched()
     End Sub
 
 End Class
