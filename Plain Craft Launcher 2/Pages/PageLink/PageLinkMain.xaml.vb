@@ -1556,6 +1556,124 @@ ForcedPass:
 
 #End Region
 
+#Region "联机诊断"
+
+    ''' <summary>
+    ''' 生成一份联机诊断报告，方便排查「为什么连不上」。
+    ''' </summary>
+    Private Sub BtnLinkDiag_Click() Handles BtnLinkDiag.Click
+        If Not BtnLinkDiag.IsEnabled Then Return
+        BtnLinkDiag.IsEnabled = False
+        RunInNewThread(
+        Sub()
+            Dim Report As String
+            Try
+                Report = BuildLinkDiagnosis()
+            Catch ex As Exception
+                Report = "生成诊断报告失败：" & vbCrLf & ex.Message
+                Logger.Error(ex, "生成联机诊断报告失败")
+            End Try
+            RunInUi(
+            Sub()
+                BtnLinkDiag.IsEnabled = True
+                MyMsgBox(Report, "联机诊断", "复制全部", "关闭",
+                         Button1Action:=Sub() ClipboardSet(Report, False))
+            End Sub)
+        End Sub, "Link Diagnosis")
+    End Sub
+
+    ''' <summary>
+    ''' 收集诊断信息。会做一次 TCP 探测，所以必须放在后台线程调用。
+    ''' </summary>
+    Private Function BuildLinkDiagnosis() As String
+        Dim Sb As New System.Text.StringBuilder()
+        Dim GamePort As Integer = 0
+        Dim HasPort As Boolean = Integer.TryParse(ServerPort, GamePort) AndAlso GamePort > 0
+        Dim SelfIp As String = If(IsTunMode, If(IsServerSide, TunHostIp, If(TunLocalIp, "尚未分配")), ModUpnp.GetLanIPv4())
+        Dim Target As Peer = GetTargetPeer()
+        Dim Others As List(Of Peer) = If(Peers, New List(Of Peer)).Where(Function(p) p.Type <> Peer.Types.Misc).ToList()
+
+        Sb.AppendLine("PCL Harness 联机诊断")
+        Sb.AppendLine($"时间：{Now:yyyy-MM-dd HH:mm:ss}")
+        Sb.AppendLine($"版本：{VersionBaseName}（VersionCode {VersionCode}）")
+        Sb.AppendLine()
+        Sb.AppendLine("— 房间 —")
+        Sb.AppendLine($"角色：{If(IsServerSide, "房主", "加入者")}")
+        Sb.AppendLine($"模式：{If(IsTunMode, "虚拟局域网（TUN）", If(IsDirectMode, "直连", "普通"))}")
+        Sb.AppendLine($"网络名：{If(String.IsNullOrEmpty(NetworkName), "尚未生成", NetworkName)}")
+        Sb.AppendLine($"游戏端口：{If(HasPort, GamePort.ToString(), "尚未确定")}")
+        Sb.AppendLine($"本机{(If(IsTunMode, "虚拟", ""))}地址：{SelfIp}:{If(HasPort, GamePort.ToString(), "?")}")
+        Sb.AppendLine($"EasyTier 监听端口：{If(DirectListenPort > 0, DirectListenPort.ToString(), "尚未分配")}（{If(DirectListenPort > 0 AndAlso IsLocalPortListening(DirectListenPort), "正在监听", "未监听")}）")
+        Sb.AppendLine()
+        Sb.AppendLine("— 本机 —")
+        Sb.AppendLine($"启动器权限：{If(IsAdmin(), "管理员", "普通用户" + If(IsTunMode, "（TUN 模式需要管理员，会触发 UAC）", ""))}")
+        Sb.AppendLine($"自己的 NAT 类型：{DescribeNat(NATType)}")
+        Sb.AppendLine($"最近一次 CLI 调用失败次数：{FailCount}")
+        Sb.AppendLine()
+        Sb.AppendLine("— 对端 —")
+        Sb.AppendLine($"房间人数：{PeopleCount}")
+        If Others.Count = 0 Then
+            Sb.AppendLine("暂无其他节点（房主在等待朋友加入，或加入者还没找到房主）")
+        Else
+            For Each Item As Peer In Others
+                Sb.AppendLine($"- {Item.Name}｜{If(Item.Relay, "经中继", "P2P 直连")}｜{Item.Ping:0.0} ms｜NAT {DescribeNat(Item.NATType)}")
+            Next
+        End If
+        Sb.AppendLine()
+        Sb.AppendLine("— 连通性 —")
+        If IsTunMode AndAlso HasPort Then
+            If IsServerSide Then
+                Sb.AppendLine($"本机 {GamePort} 端口：{If(IsLocalPortListening(GamePort), "有程序在监听（游戏已开房间）", "没有程序在监听（游戏还没开房间）")}")
+            Else
+                Sb.AppendLine($"到房主 {TunHostIp}:{GamePort} 的 TCP：{If(CanReachTcp(TunHostIp, GamePort, 1500), "可以连上", "连不上（1.5 秒超时，可能是房主没开房间，或隧道没通）")}")
+            End If
+        Else
+            Sb.AppendLine("非 TUN 模式，跳过虚拟网卡的连通性探测")
+        End If
+        Sb.AppendLine()
+        Sb.AppendLine("— 最近的内核日志 —")
+        Dim Lines As String() = LogHistory.ToArray()
+        If Lines.Length = 0 Then
+            Sb.AppendLine("（暂无）")
+        Else
+            For Each Line As String In Lines
+                Sb.AppendLine(Line)
+            Next
+        End If
+        Return Sb.ToString()
+    End Function
+
+    Private Shared Function DescribeNat(Nat As NATTypes) As String
+        Select Case Nat
+            Case NATTypes.Pending
+                Return "尚未获取"
+            Case NATTypes.Unknown
+                Return "未知（没有 STUN，或对端没报）"
+            Case NATTypes.OpenInternet
+                Return "公网直连"
+            Case NATTypes.NoPAT
+                Return "无 PAT"
+            Case NATTypes.FullCone
+                Return "全锥形"
+            Case NATTypes.Restricted
+                Return "受限锥形"
+            Case NATTypes.PortRestricted
+                Return "端口受限锥形"
+            Case NATTypes.Symmetric
+                Return "对称型（打洞容易失败）"
+            Case NATTypes.SymUdpFirewall
+                Return "对称型 + UDP 防火墙"
+            Case NATTypes.SymmetricEasyInc
+                Return "对称型（易增量）"
+            Case NATTypes.SymmetricEasyDec
+                Return "对称型（易减量）"
+            Case Else
+                Return $"{Nat}"
+        End Select
+    End Function
+
+#End Region
+
 
     '===============================
     '  联机地址（本机 / 外网 / 公网 IP）

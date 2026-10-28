@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 427 Then 'PCL Harness 3.4.5
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：联机页的完成界面加了「联机诊断」按钮，一键生成虚拟地址、监听端口、NAT 类型、与房主的连通性和最近内核日志，可整份复制"))
+                FeatureCount += 1
+                BugCount += 0
+            End If
+
             If LastVersion < 426 Then 'PCL Harness 3.4.4
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：升级到新版本后启动一定会弹「PCL Harness 已更新至 …」，不再被历史最高版本号记录跳过"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：启动检测更新后如果已是最新版，会提示「当前为最新版 x.x.x」"))
