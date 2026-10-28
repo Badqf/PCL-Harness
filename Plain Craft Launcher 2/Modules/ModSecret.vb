@@ -6,11 +6,12 @@ Friend Module ModSecret
     Public Const VersionBranchMain As String = "OpenSource"
     '在开源版的注册表与常规版的注册表隔离，以防数据冲突
     Public Const RegFolder As String = "PCLHarness"
-    '用于微软登录的 ClientId
-    '优先级：环境变量 PCL_MS_CLIENT_ID > PCL\Secrets.json 的 MsClientId
+    '用于微软登录的 ClientId（内置默认值，随启动器分发，陌生电脑无需配置）
+    '优先级：环境变量 PCL_MS_CLIENT_ID > PCL\Secrets.json 的 MsClientId > 内置默认值
+    Private Const BuiltinMsClientId As String = "ee041193-cb2f-471b-8a5b-561a8f3cf37c"
     Public ReadOnly Property OAuthClientId As String
         Get
-            Return SecretValue("MsClientId", "PCL_MS_CLIENT_ID")
+            Return SecretValue("MsClientId", "PCL_MS_CLIENT_ID", BuiltinMsClientId)
         End Get
     End Property
     'CurseForge API Key
@@ -27,13 +28,14 @@ Friend Module ModSecret
     ''' 读取可选凭据：优先环境变量，其次 exe 同级 PCL\Secrets.json。
     ''' 文件不存在或解析失败时返回空字符串，只在日志里留一条警告，不影响启动。
     ''' </summary>
-    Private Function SecretValue(JsonKey As String, EnvironmentKey As String) As String
+    Private Function SecretValue(JsonKey As String, EnvironmentKey As String, Optional Builtin As String = "") As String
         Dim FromEnvironment As String = Environment.GetEnvironmentVariable(EnvironmentKey)
         If Not String.IsNullOrWhiteSpace(FromEnvironment) Then Return FromEnvironment.Trim()
         If Not _SecretsLoaded Then LoadSecrets()
-        If _Secrets Is Nothing Then Return ""
+        If _Secrets Is Nothing Then Return Builtin
         Dim Token As Object = _Secrets(JsonKey)
-        Return If(Token Is Nothing, "", Token.ToString().Trim())
+        Dim FromFile As String = If(Token Is Nothing, "", Token.ToString().Trim())
+        Return If(FromFile = "", Builtin, FromFile)
     End Function
     Private _SecretsLoaded As Boolean = False
     Private _Secrets As Newtonsoft.Json.Linq.JObject = Nothing
@@ -361,23 +363,10 @@ Friend Module ModSecret
     ''' <summary>当前正在进行的更新下载任务；Nothing 表示没有。</summary>
     Private UpdateDownloadTask As LoaderDownload = Nothing
 
-    ' 下载期间定时续命左下角 Hint；下载结束或取消后停止。
-    Private UpdateHintTimer As Timers.Timer = Nothing
-
-    Private Sub StopUpdateHintTimer()
-        If UpdateHintTimer Is Nothing Then Return
-        Dim Timer As Timers.Timer = UpdateHintTimer
-        UpdateHintTimer = Nothing
-        Try
-            Timer.Stop()
-            Timer.Dispose()
-        Catch
-        End Try
-    End Sub
 
     ''' <summary>
-    ''' 把更新包作为普通下载任务放进任务栏：右下角会显示进度圆环，点进去能看到进度并手动取消。
-    ''' Manual=True 时下载完成后弹窗询问是否立即重启，否则静默等待退出启动器时替换。
+    ''' 把更新包作为普通下载任务放进任务栏：右下角显示进度圆环，点进去能看进度并手动取消。
+    ''' 左下角只提示一次；下载完成后静默等待，退出启动器时替换，下次打开即为新版本（不自动重启）。
     ''' </summary>
     Private Sub StartUpdateDownload(Info As UpdateInfo, Manual As Boolean)
         If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then Return
@@ -390,44 +379,14 @@ Friend Module ModSecret
         End Try
         Dim Downloader As New LoaderDownload($"PCL Harness {Info.Version} 更新", New List(Of NetFile) From {New NetFile(Info.DownloadUrls, Target)})
         Downloader.Show = True
-        Dim StartHint As String = $"正在下载新版本 PCL Harness {Info.Version}…… 可在右下角「任务管理」查看进度或取消"
-        Hint(StartHint)
-        StopUpdateHintTimer()
-        UpdateHintTimer = New Timers.Timer(1500) With {.AutoReset = True}
-        AddHandler UpdateHintTimer.Elapsed,
-            Sub()
-                If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then
-                    Hint(StartHint, HintType.Blue, Log:=False)
-                Else
-                    StopUpdateHintTimer()
-                End If
-            End Sub
-        UpdateHintTimer.Start()
-        Dim LastHintAt As DateTime = DateTime.MinValue
-        AddHandler Downloader.ProgressChanged,
-            Sub(NewProgress As Double, OldProgress As Double)
-                Dim Now As DateTime = DateTime.Now
-                If (Now - LastHintAt).TotalSeconds < 1.5 Then Return
-                LastHintAt = Now
-                Hint(StartHint)
-        StopUpdateHintTimer()
-        UpdateHintTimer = New Timers.Timer(1500) With {.AutoReset = True}
-        AddHandler UpdateHintTimer.Elapsed,
-            Sub()
-                If UpdateDownloadTask IsNot Nothing AndAlso UpdateDownloadTask.State = LoadState.Loading Then
-                    Hint(StartHint, HintType.Blue, Log:=False)
-                Else
-                    StopUpdateHintTimer()
-                End If
-            End Sub
-        UpdateHintTimer.Start()
-            End Sub
+        Logger.Info($"[Update] 开始{(If(Manual, "手动", "静默"))}下载 {Info.Version}（{Info.DownloadUrls.Count} 个下载源）")
+        '只在开始时提示一次；进度看右下角的圆环与任务管理，不再常驻左下角
+        Hint($"正在下载新版本 PCL Harness {Info.Version}…… 可在右下角「任务管理」查看进度或取消")
         AddHandler Downloader.OnStateChangedUi,
             Sub(L As LoaderBase, NewState As LoadState, OldState As LoadState)
                 Try
                     Select Case NewState
                         Case LoadState.Finished
-                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
                             If Not IO.File.Exists(Target) Then
                                 Logger.Warn($"[Update] 下载任务已结束，但没有找到更新文件：{Target}")
@@ -435,18 +394,9 @@ Friend Module ModSecret
                             End If
                             PendingUpdateExe = Target
                             PendingUpdateVersion = Info.Version
-                            Logger.Info($"[Update] 已{(If(Manual, "下载", "静默下载"))} {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换")
-                            If Manual Then
-                                If MyMsgBox($"新版本 {Info.Version} 已下载完成，是否立即重启并完成更新？", "更新就绪", "立即重启", "稍后") = 1 Then
-                                    ApplyDownloadedUpdate(Target)
-                                Else
-                                    Hint("新版本将在退出启动器时自动替换并重启", HintType.Green)
-                                End If
-                            Else
-                                Hint($"新版本 {Info.Version} 已下载完成，退出启动器时自动更新", HintType.Green)
-                            End If
+                            Logger.Info($"[Update] 已下载 {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换，下次启动生效")
+                            Hint($"新版本 {Info.Version} 已下载完成，退出启动器时静默替换；下次打开即为新版本", HintType.Green)
                         Case LoadState.Canceled
-                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
                             Try
                                 IO.File.Delete(Target)
@@ -455,7 +405,6 @@ Friend Module ModSecret
                             Logger.Info($"[Update] 已取消下载 {Info.Version}")
                             Hint("已取消下载新版本")
                         Case LoadState.Failed
-                            StopUpdateHintTimer()
                             UpdateDownloadTask = Nothing
                             Logger.Warn($"[Update] 下载新版本 {Info.Version} 失败")
                             Hint("下载新版本失败，可稍后在设置中手动重试", HintType.Red)
@@ -468,7 +417,6 @@ Friend Module ModSecret
         Downloader.Start()
         LoaderTaskbar.Add(Downloader)
     End Sub
-
     ''' <summary>设置项为「在有新版本时自动下载」：静默下载，退出启动器时替换并重启。</summary>
     Private Sub DownloadUpdateSilently(Info As UpdateInfo)
         Try
@@ -478,12 +426,12 @@ Friend Module ModSecret
         End Try
     End Sub
 
-    ''' <summary>退出启动器时应用已静默下载的更新（由 EndProgramForce 调用）。</summary>
+    ''' <summary>退出启动器时静默应用已下载的更新（由 EndProgramForce 调用）：只替换文件，不重启进程。</summary>
     Friend Sub ApplyPendingUpdateOnExit()
         If PendingUpdateExe = "" Then Return
         If Not IO.File.Exists(PendingUpdateExe) Then Return
         Try
-            Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PendingUpdateExe}"" ""True"""
+            Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PendingUpdateExe}"" ""False"""
             Logger.Info($"[Update] 退出时应用更新 {PendingUpdateVersion}：{Args}")
             StartProcess(PendingUpdateExe, Args)
         Catch ex As Exception
@@ -512,7 +460,7 @@ Friend Module ModSecret
         End Select
     End Sub
 
-    ''' <summary>下载新版本 exe（作为任务栏里的普通任务），完成后询问是否立即重启。</summary>
+    ''' <summary>下载新版本 exe（作为任务栏里的普通任务），完成后静默替换，下次启动即为新版本。</summary>
     Private Sub DownloadAndApplyUpdate(Info As UpdateInfo)
         Try
             StartUpdateDownload(Info, True)
@@ -522,23 +470,6 @@ Friend Module ModSecret
         End Try
     End Sub
 
-    ''' <summary>以 --update 参数启动新版本，然后退出当前进程。</summary>
-    Private Sub ApplyDownloadedUpdate(NewExePath As String)
-        Try
-            Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{NewExePath}"" ""True"""
-            Logger.Info($"[Update] 启动更新进程：{NewExePath} {Args}")
-            StartProcess(NewExePath, Args)
-            RunInNewThread(Sub()
-                Threading.Thread.Sleep(1200)
-                RunInUi(Sub()
-                    If FrmMain IsNot Nothing Then FrmMain.EndProgram(False)
-                End Sub)
-            End Sub, "UpdateQuit")
-        Catch ex As Exception
-            Logger.Error(ex, "[Update] 启动更新进程失败")
-            Hint("启动更新进程失败：" & ex.Message)
-        End Try
-    End Sub
 
     ''' <summary>把 Release 的 Markdown 粗略转成纯文本并截断。</summary>
     Private Function TrimMarkdown(Text As String, MaxLength As Integer) As String

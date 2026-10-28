@@ -11,6 +11,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 421 Then 'PCL Harness 3.3.1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "修复：微软登录的 Client ID 改为内置，陌生电脑无需再手动配置 Secrets.json"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：更新下载时左下角提示只出现一次，不再常驻（进度看右下角「任务管理」）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "调整：更新包下载完成后静默替换，退出启动器后下次打开即为新版本，不再自动重启"))
+                FeatureCount += 2
+                BugCount += 1
+            End If
                         If LastVersion < 420 Then 'PCL Harness 3.3.0
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "调整：个性化配色预设精简为 4 个（标准蓝 / 冰蓝 / 海蓝 / 靛青），按钮不再拥挤"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "移除：配色「渐变」滑条，主题固定为纯色（上游许可要求不得改变其他色相）"))
