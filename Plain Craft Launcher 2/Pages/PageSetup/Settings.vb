@@ -1,4 +1,4 @@
-Imports System.Security.Cryptography
+﻿Imports System.Security.Cryptography
 
 Public Class Settings
 
@@ -116,7 +116,7 @@ Public Class Settings
         New Setting("LinkCustomPeer", ""),
         New Setting("LinkDirectMode", True),
         New Setting("LinkTunMode", False),
-        New Setting("LinkAutoOpen", True),
+        New Setting("LinkJumpOnNextStart", False),
         New Setting("LinkLastPort", 0),
     New Setting("LinkAutoPublicIp", False),
     New Setting("LinkWriteAddressFile", True),

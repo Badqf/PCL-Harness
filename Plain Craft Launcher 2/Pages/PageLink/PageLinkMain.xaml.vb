@@ -108,12 +108,13 @@ Public Class PageLinkMain
     ''' 用指定端口直接开房（跳过输入框，供「上次端口」按钮使用）。
     ''' </summary>
     Public Sub CreateWithPort(Port As Integer)
+        '先记住端口：万一接下来要提权重启，重启后才能继续用这个端口
+        Settings.Set("LinkLastPort", Port)
         'TUN 模式需要管理员：没提权就先把启动器重启成管理员身份
         If Not EnsureAdminForTun() Then Return
         '基础信息
         IsServerSide = True
         ServerPort = Port
-        Settings.Set("LinkLastPort", Port) '记住端口，下次启动可以直接一键开房
         Dim GenerateRandomCode =
         Function() As String
             Dim Result As String = ""
@@ -130,24 +131,22 @@ Public Class PageLinkMain
         ChangeState(LinkStates.Loading)
     End Sub
 
-    '模式开关：TUN 勾选状态
+    '模式开关：勾选前先确认（在 PreviewChange 里拦，避免弹窗卡住勾选动画）
+    Private Sub ChkTunMode_PreviewChange(sender As Object, e As RouteEventArgs) Handles ChkTunMode.PreviewChange
+        If Not IsLoadedUi OrElse ChkTunMode.Checked Then Return '取消勾选不用确认
+        Dim Choice As Integer = MyMsgBox("开启虚拟局域网（TUN）模式？" & vbCrLf & vbCrLf &
+                                         "开启后，第一次创建或加入房间时启动器会自动以管理员身份重启，Windows 会弹出权限确认窗口，请点「是」。" & vbCrLf & vbCrLf &
+                                         "之后双方通过 10.114.114.x 虚拟地址互连，任意游戏、任意端口都能直接连。",
+                                         "虚拟局域网（TUN）", "开启", "取消")
+        If Choice <> 1 Then e.Handled = True '点了取消：拦住这次勾选
+    End Sub
+
     Private Sub ChkTunMode_Change(sender As Object, user As Boolean) Handles ChkTunMode.Change
-        If Not IsLoadedUi Then Return '初始化刷新时不要弹提示
+        If Not IsLoadedUi Then Return '初始化刷新时不要写设置
+        Settings.Set("LinkTunMode", ChkTunMode.Checked)
         If ChkTunMode.Checked Then
-            Dim Choice As Integer = MyMsgBox("开启虚拟局域网（TUN）模式？" & vbCrLf & vbCrLf &
-                                             "开启后，第一次创建或加入房间时启动器会自动以管理员身份重启，Windows 会弹出权限确认窗口，请点「是」。" & vbCrLf & vbCrLf &
-                                             "之后双方通过 10.114.114.x 虚拟地址互连，任意游戏、任意端口都能直接连。",
-                                             "虚拟局域网（TUN）", "开启", "取消")
-            If Choice = 1 Then '第一个按钮「开启」
-                Settings.Set("LinkTunMode", True)
-                Hint("已开启 TUN 模式，创建/加入房间时会自动提权重启启动器", HintType.Green)
-            Else
-                IsLoadedUi = False
-                ChkTunMode.Checked = False
-                IsLoadedUi = True
-            End If
+            Hint("已开启 TUN 模式，创建/加入房间时会自动提权重启启动器", HintType.Green)
         Else
-            Settings.Set("LinkTunMode", False)
             Hint("已关闭 TUN 模式，仅使用直连", HintType.Blue, False)
         End If
     End Sub
@@ -1119,10 +1118,11 @@ ForcedPass:
         Dim Choice As Integer = MyMsgBox(
             "TUN 模式需要管理员权限，启动器现在会以管理员身份重启。" & vbCrLf & vbCrLf &
             "重启时 Windows 会弹出「是否允许此应用对你的设备进行更改」，请点「是」；点了「否」的话这次联机就会取消。" & vbCrLf & vbCrLf &
-            "重启不会丢掉你刚才的选择，重启完成后直接再点一次「创建房间」或「加入房间」即可。",
+            $"重启不会丢掉你刚才的选择：会自动回到联机页，直接点「用上次端口 {Settings.Get(Of Integer)("LinkLastPort")} 直接开房」即可。",
             "即将以管理员身份重启", "继续", "取消")
         If Choice <> 1 Then Return False '只有第一个按钮「继续」才提权重启
         Logger.Info("TUN 模式需要管理员权限，正在以管理员身份重启启动器")
+        Settings.Set("LinkJumpOnNextStart", True) '重启后自动跳回联机页，只需要这一次
         Hint("正在以管理员身份重启启动器，请在弹窗里点「是」……", HintType.Blue)
         '不能直接 start 提权后的新实例：PCL 是单实例程序，新实例一启动就会把老实例置顶然后自己退出。
         '所以借一个提权的 cmd 等几秒（等当前实例彻底退出、互斥体释放），再由它启动启动器，子进程继承管理员权限。

@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 433 Then 'PCL Harness 3.4.11
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：TUN 提权重启后现在会自动跳回联机页，并且「用上次端口直接开房」按钮能正常显示和使用（重启前就会记住端口）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：设置页去掉「启动时自动打开联机页」开关，改成只有提权重启后自动跳转一次"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：TUN 开关的确认框不再卡住勾选动画"))
+                FeatureCount += 2
+                BugCount += 1
+            End If
             If LastVersion < 432 Then 'PCL Harness 3.4.10
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：联机主界面加了「虚拟局域网（TUN）模式」开关，勾选后会提示将自动以管理员身份重启，并在重启前告诉你要在 UAC 窗口点「是」"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：启动时会自动进入联机页（可在设置里关闭），并把上次用的端口做成「用上次端口直接开房」按钮"))
@@ -579,10 +586,11 @@ Public Class FormMain
                         Else
                             ModIntro.ShowIfNeeded()
                         End If
-                        '上次用过联机：直接进联机页，省去自己点（可在 设置 → 联机 里关闭）
-                        If Settings.Get(Of Boolean)("LinkAutoOpen") AndAlso Settings.Get(Of Integer)("LinkLastPort") >= 1024 _
-                            AndAlso PageCurrent = PageType.Launch Then
-                            PageChange(PageType.Link)
+                        '只有刚才因为 TUN 需要管理员权限而重启过，才自动跳回联机页（一次性）
+                        If Settings.Get(Of Boolean)("LinkJumpOnNextStart") Then
+                            Settings.Set("LinkJumpOnNextStart", False)
+                            If PageCurrent = PageType.Launch Then PageChange(PageType.Link)
+                            Logger.Info("[Link] 提权重启完成，自动跳转到联机页")
                         End If
                     End Sub)
             End Sub, "Startup Dialogs", ThreadPriority.BelowNormal)
