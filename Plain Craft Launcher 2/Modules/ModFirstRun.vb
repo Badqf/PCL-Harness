@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Media
@@ -239,33 +239,84 @@ Public Module ModFirstRun
     End Sub
 
     ''' <summary>
-    ''' 首次启动时显示指引窗口。用户完成后写入标记，之后不再出现。
-    ''' 若上次是「跳过」且此后没改过设置，会再弹一次（二次机会），之后不再提示。
+    ''' 自动迁移的结果：本次启动是否迁移过、迁移了哪些项、复制/跳过/失败计数。
+    ''' 由 <see cref="AutoMigrateOnStartup"/> 在启动早期写，<see cref="ShowWizardIfNeeded"/> 只用它显示结果页。
     ''' </summary>
-    Public Sub ShowWizardIfNeeded()
-        Dim SecondChance As Boolean = False
-        If IsFirstRun() Then
-            Logger.Info("首次启动：显示配置目录与数据迁移指引")
-        ElseIf ShouldShowAgain() Then
-            SecondChance = True
-            Logger.Info("首次启动：上次点了跳过且之后没有改动设置，再显示一次迁移指引")
-        Else
-            Return
-        End If
-        Dim Items = Detect()
-        '自动化验证用：设置环境变量 PCL_FIRSTRUN_AUTORUN=1 时静默迁移全部存在项后退出，不弹窗
-        If Environment.GetEnvironmentVariable("PCL_FIRSTRUN_AUTORUN") = "1" Then
+    Private LastAutoMigrated As Boolean
+    Private LastAutoItems As List(Of MigrateItem)
+    Private LastAutoResult As (Copied As Integer, Skipped As Integer, Failed As Integer)
+
+    ''' <summary>
+    ''' 首次启动：把旧 PCL 的数据**自动**迁移到独立目录（不询问、不用勾选，旧文件保持不动，只补缺失项）。
+    ''' 必须在读取设置之前调用（<c>Application.xaml.vb</c> 里紧跟日志初始化之后），
+    ''' 这样迁移过来的 Setup.ini 在本次启动就生效，而不是下次启动才生效。
+    ''' 返回 True 表示本次确实迁移过，之后由 <see cref="ShowWizardIfNeeded"/> 弹一次结果页。
+    ''' </summary>
+    Public Function AutoMigrateOnStartup() As Boolean
+        LastAutoMigrated = False
+        Try
+            If Not IsFirstRun() Then Return False
+            Dim Items As List(Of MigrateItem) = Detect()
+            Dim Picked As List(Of MigrateItem) = Items.Where(Function(I) I.Exists).ToList()
+            If Picked.Count = 0 Then
+                '没有旧数据：不打扰，只写标记（独立目录的说明由介绍页负责）
+                Logger.Info("首次启动：旧 PCL 目录里没有可迁移的数据，跳过迁移")
+                MarkDone()
+                ClearSkip()
+                Return False
+            End If
+            Dim Result As (Copied As Integer, Skipped As Integer, Failed As Integer)
             Try
-                Dim Picked = Items.Where(Function(I) I.Exists).ToList()
-                Dim Result = Run(Picked)
-                Logger.Info($"首次启动自动迁移：复制 {Result.Copied}，跳过 {Result.Skipped}，失败 {Result.Failed}")
+                Result = Run(Picked)
             Catch ex As Exception
                 Logger.Error(ex, "首次启动自动迁移失败", LogBehavior.None)
+                MarkDone()
+                ClearSkip()
+                Return False
             End Try
+            LastAutoItems = Items
+            LastAutoResult = Result
+            LastAutoMigrated = True
+            Logger.Info($"首次启动：已自动迁移旧 PCL 数据（复制 {Result.Copied}，跳过 {Result.Skipped}，失败 {Result.Failed}），旧数据未删除也未修改")
             MarkDone()
             ClearSkip()
+            Return True
+        Catch ex As Exception
+            Logger.Error(ex, "首次启动自动迁移出错", LogBehavior.None)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' 主窗口出现后调用：自动迁移已在启动早期做完，这里只弹一次结果页说明搬了什么；
+    ''' 老版本遗留的「跳过」标记仍走一次手动确认（此时新配置可能已经有值，不能自动覆盖）。
+    ''' </summary>
+    Public Sub ShowWizardIfNeeded()
+        If Not LastAutoMigrated Then
+            '老版本遗留的二次机会：保留手动确认，避免覆盖用户已经在用的新设置
+            If Not IsFirstRun() AndAlso ShouldShowAgain() Then
+                Logger.Info("首次启动：上次点了跳过且之后没有改动设置，再显示一次迁移指引")
+                ShowManualWizard(True)
+            End If
             Return
         End If
+        '自动化验证用：设置环境变量 PCL_FIRSTRUN_AUTORUN=1 时不弹结果页
+        If Environment.GetEnvironmentVariable("PCL_FIRSTRUN_AUTORUN") = "1" Then Return
+        Dim Window As FirstRunWindow
+        Try
+            Window = New FirstRunWindow(LastAutoItems, False, True)
+        Catch ex As Exception
+            Logger.Error(ex, "打开首次启动结果页失败", LogBehavior.None)
+            Return
+        End Try
+        Window.SetAutoResult(LastAutoResult)
+        If ModMain.FrmMain IsNot Nothing Then Window.Owner = ModMain.FrmMain
+        Window.ShowDialog()
+    End Sub
+
+    ''' <summary>手动迁移窗口（仅用于老版本「跳过」标记的二次机会）。</summary>
+    Private Sub ShowManualWizard(SecondChance As Boolean)
+        Dim Items = Detect()
         Dim Window As FirstRunWindow
         Try
             Window = New FirstRunWindow(Items, SecondChance)
@@ -282,7 +333,6 @@ Public Module ModFirstRun
             MarkDone()
             ClearSkip()
         ElseIf Window.Skipped Then
-            '跳过：留一个标记，下次启动再问一次（若期间没改过设置）
             MarkDone()
             MarkSkipped()
             Logger.Info("首次启动：已跳过，下次启动时若未改动设置会再提示一次")
@@ -305,6 +355,8 @@ Public Class FirstRunWindow
     Private ReadOnly BtnRun As MyButton
     Private MigrationDone As Boolean
     Private _Skipped As Boolean = False
+    ''' <summary>本次是「已自动迁移完」的结果页：不提供勾选与跳过。</summary>
+    Private ReadOnly IsAutoDone As Boolean
     ''' <summary>用户点了「跳过」（或等价操作）关闭了窗口。</summary>
     Public ReadOnly Property Skipped As Boolean
         Get
@@ -312,9 +364,10 @@ Public Class FirstRunWindow
         End Get
     End Property
 
-    Public Sub New(Items As List(Of ModFirstRun.MigrateItem), Optional SecondChance As Boolean = False)
+    Public Sub New(Items As List(Of ModFirstRun.MigrateItem), Optional SecondChance As Boolean = False, Optional AutoDone As Boolean = False)
         Me.Items = Items
-        Title = "欢迎使用 PCL Harness"
+        IsAutoDone = AutoDone
+        Title = If(AutoDone, "旧数据已迁移", "欢迎使用 PCL Harness")
         WindowStyle = WindowStyle.None
         AllowsTransparency = True
         Background = Brushes.Transparent
@@ -354,7 +407,7 @@ Public Class FirstRunWindow
         Root.Child = Layout
 
         Dim TitleText As New TextBlock With {
-            .Text = "欢迎使用 PCL Harness",
+            .Text = If(AutoDone, "已自动迁移旧 PCL 的数据", "欢迎使用 PCL Harness"),
             .FontSize = 18,
             .Margin = New Thickness(2, 0, 0, 7)
         }
@@ -372,15 +425,17 @@ Public Class FirstRunWindow
             .Text = "这是 PCL Harness 的独立配置目录，不会和原版 PCL 互相覆盖：" & vbCrLf &
                     $"    配置与缓存：{ModFirstRun.PathNewBase}" & vbCrLf &
                     $"    用户数据：{ModFirstRun.PathNewAppData}" & vbCrLf &
-                    If(SecondChance,
-                       "上次你点了「跳过」。如果现在想迁移旧 PCL 的设置，可以在下面勾选后点「迁移并进入」；这次关掉后就不会再提示了。",
-                       "如果以前用过 PCL，可以把它的设置等迁移过来；没用过就直接跳过。")
+                    If(AutoDone,
+                       "旧 PCL 的数据已经自动迁移过来了（旧文件保持原样，没有删除也没有改动）。下面这些是本次迁移的内容：",
+                       If(SecondChance,
+                          "上次你点了「跳过」。如果现在想迁移旧 PCL 的设置，可以在下面勾选后点「迁移并进入」；这次关掉后就不会再提示了。",
+                          "如果以前用过 PCL，可以把它的设置等迁移过来；没用过就直接跳过。"))
         }
         Intro.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushGray2")
         Main.Children.Add(Intro)
 
         Dim HeadTitle As New TextBlock With {
-            .Text = "可迁移的内容",
+            .Text = If(AutoDone, "已迁移的内容", "可迁移的内容"),
             .FontSize = 14,
             .FontWeight = FontWeights.SemiBold,
             .Margin = New Thickness(1, 6, 1, 4)
@@ -393,6 +448,7 @@ Public Class FirstRunWindow
             If Not Item.Exists Then Continue For
             Dim Box As New MyCheckBox With {.Text = "", .VerticalAlignment = VerticalAlignment.Top, .Margin = New Thickness(0, 3, 0, 3)}
             Box.Checked = True
+            If AutoDone Then Box.IsEnabled = False '结果页只展示，不允许再改
             Dim Row As New Grid With {.Margin = New Thickness(0, 1, 0, 1)}
             Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(30)})
             Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
@@ -436,8 +492,15 @@ Public Class FirstRunWindow
         Dim Btns As New StackPanel With {.Orientation = Orientation.Horizontal, .HorizontalAlignment = HorizontalAlignment.Right, .Margin = New Thickness(0, 12, 0, 0)}
         Dim BtnSkip As New MyButton With {.Text = If(SecondChance, "不再提示", "跳过"), .Height = 30, .MinWidth = 84, .Margin = New Thickness(8, 0, 0, 0)}
         Dim BtnOpen As New MyButton With {.Text = "打开旧目录", .Height = 30, .MinWidth = 96, .Margin = New Thickness(8, 0, 0, 0)}
-        BtnRun = New MyButton With {.Text = "迁移并进入", .Height = 30, .MinWidth = 104, .Margin = New Thickness(8, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
-        If TargetItems.Count = 0 Then BtnRun.IsEnabled = False
+        BtnRun = New MyButton With {.Text = If(AutoDone, "完成", "迁移并进入"), .Height = 30, .MinWidth = 104, .Margin = New Thickness(8, 0, 0, 0), .ColorType = MyButton.ColorState.Highlight}
+        If AutoDone Then
+            '结果页：没有跳过与勾选，关掉即可
+            BtnSkip.Visibility = Visibility.Collapsed
+            MigrationDone = True
+            LabResult.Visibility = Visibility.Visible
+        ElseIf TargetItems.Count = 0 Then
+            BtnRun.IsEnabled = False
+        End If
         AddHandler BtnOpen.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs) OpenLegacyFolder()
         AddHandler BtnRun.Click, Sub(sender As Object, e As Input.MouseButtonEventArgs)
                                             Logger.Info("[首次启动] 点击迁移/完成")
@@ -465,7 +528,12 @@ Public Class FirstRunWindow
                                        Select Case e.Key
                                            Case Input.Key.Escape
                                                e.Handled = True
-                                               SkipAndClose("按下 Esc")
+                                               If MigrationDone Then
+                                                   '结果页按 Esc 只是关闭，不算跳过
+                                                   ModDialogFx.CloseAnimated(Me)
+                                               Else
+                                                   SkipAndClose("按下 Esc")
+                                               End If
                                            Case Input.Key.Enter
                                                e.Handled = True
                                                RunMigration()
@@ -474,6 +542,13 @@ Public Class FirstRunWindow
         Content = Root
         '与内置弹窗一致的淡入动画 + 主窗口背景调暗
         ModDialogFx.RegisterDialog(Me, Root)
+    End Sub
+
+    ''' <summary>结果页用：把自动迁移的结果写进窗口。</summary>
+    Public Sub SetAutoResult(Result As (Copied As Integer, Skipped As Integer, Failed As Integer))
+        LabResult.Text = $"已自动迁移：复制 {Result.Copied} 项，跳过 {Result.Skipped} 项" &
+                         If(Result.Failed > 0, $"，失败 {Result.Failed} 项（详见日志）", "") &
+                         "。旧数据没有被删除或修改；迁移来的设置本次启动即生效。"
     End Sub
 
     ''' <summary>判断点击落点是否属于需要自己处理鼠标的控件。</summary>

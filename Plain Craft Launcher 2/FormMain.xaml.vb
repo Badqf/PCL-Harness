@@ -11,6 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 424 Then 'PCL Harness 3.4.2
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "变更：首次启动改为自动迁移旧 PCL 数据，不再需要逐项勾选"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "变更：迁移完只弹一次结果页，列出本次复制了哪些内容；旧文件不删除、不修改"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：旧 PCL 目录里没有数据时不再弹迁移窗口"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
+
             If LastVersion < 423 Then 'PCL Harness 3.4.1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：TUN 模式完成页直接显示「虚拟地址 10.114.114.1:端口」，LAN/公网地址自动收起"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：TUN 模式状态条显示直连/中继、RTT、双方 NAT 类型，鼠标悬停延迟图标可看详情"))
