@@ -118,6 +118,14 @@
                             FontSize="15" LineHeight="19" MaxWidth="400" TextWrapping="Wrap" Foreground="{StaticResource ColorBrushGray3}" />
                     </Grid>
                 </local:MyCard>
+                <StackPanel Grid.Column="1" Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
+                    <local:MyCheckBox x:Name="ChkTunMode" Height="22" Text="虚拟局域网（TUN）模式"
+                        ToolTip="勾选后双方会在 10.114.114.x 虚拟网段里互相访问，任意游戏、任意端口都能连。&#xa;需要管理员权限：第一次创建/加入房间时启动器会自动以管理员身份重启，请在 UAC 窗口点「是」。" />
+                    <TextBlock x:Name="LabTunModeTip" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" Opacity="0.55"
+                        Text="（需要管理员权限，会自动重启启动器）" />
+                </StackPanel>
+                <local:MyButton x:Name="BtnLastPort" Grid.Column="1" Grid.Row="5" HorizontalAlignment="Center" Margin="0,58,0,0"
+                    Padding="12,4" Visibility="Collapsed" ToolTip="用上次的端口直接开房，省去重新输入" />
             </Grid>
             <Grid x:Name="PanFinish" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="300">
                 <Grid.RowDefinitions>
@@ -172,21 +180,21 @@
                                 </Grid.RowDefinitions>
                                 <TextBlock Grid.Row="0" Grid.Column="0" x:Name="LabAddrLanLabel" Text="本机地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" />
                                 <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LabAddrLan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                <local:MyButton Grid.Row="0" Grid.Column="2" x:Name="BtnAddrLanCopy" Text="复制" Padding="8,3" Margin="8,0,0,0" />
+                                <local:MyButton Grid.Row="0" Grid.Column="2" x:Name="BtnAddrLanCopy" Text="复制" Padding="10,3" MinWidth="54" Margin="8,0,0,0" />
                                 <TextBlock Grid.Row="1" Grid.Column="0" x:Name="LabAddrWanLabel" Text="外网地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" x:Name="LabAddrWan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
-                                <local:MyButton Grid.Row="1" Grid.Column="2" x:Name="BtnAddrWanCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
+                                <local:MyButton Grid.Row="1" Grid.Column="2" x:Name="BtnAddrWanCopy" Text="复制" Padding="10,3" MinWidth="54" Margin="8,4,0,0" />
                                 <TextBlock Grid.Row="2" Grid.Column="0" x:Name="LabAddrPublicLabel" Text="公网 IP" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" x:Name="LabAddrPublic" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
-                                <local:MyButton Grid.Row="2" Grid.Column="2" x:Name="BtnAddrPublicCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
+                                <local:MyButton Grid.Row="2" Grid.Column="2" x:Name="BtnAddrPublicCopy" Text="复制" Padding="10,3" MinWidth="54" Margin="8,4,0,0" />
                                 <StackPanel x:Name="PanAddrDetect" Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,0">
-                                    <local:MyButton x:Name="BtnDetectIp" Text="检测公网 IP" Padding="10,4" />
+                                    <local:MyButton x:Name="BtnDetectIp" Text="检测公网 IP" Padding="10,3" MinWidth="96" />
                                     <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11.5" Opacity="0.62" TextWrapping="Wrap" MaxWidth="330"
                                                Text="公网 IP 只在本机显示与写入本机文件，不会上传；截图分享前请先打码。" />
                                 </StackPanel>
                             </Grid>
-                        </StackPanel>                        <local:MyButton x:Name="BtnFinishCopy" Grid.Column="4" Grid.Row="4" Margin="0,0,15,0" Text="复制邀请码" Padding="13,8" ColorType="Highlight" />
-                        <local:MyButton x:Name="BtnFinishExit" Grid.Column="5" Grid.Row="4" Text="退出" Padding="13,8" />
+                        </StackPanel>                        <local:MyButton x:Name="BtnFinishCopy" Grid.Column="4" Grid.Row="4" Margin="0,0,15,0" Text="复制邀请码" Padding="12,5" MinWidth="92" ColorType="Highlight" />
+                        <local:MyButton x:Name="BtnFinishExit" Grid.Column="5" Grid.Row="4" Text="退出" Padding="12,5" MinWidth="76" />
                     </Grid>
                 </local:MyCard>
                 <local:MyCard Grid.Row="4" HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="8">
@@ -225,7 +233,7 @@
                                 Data="m346.4,692.8c-92.5,0-179.5-36-244.9-101.5C36,525.9,0,438.9,0,346.4S36,166.9,101.5,101.5C166.9,36,253.9,0,346.4,0s179.5,36,244.9,101.5c65.4,65.4,101.5,152.4,101.5,244.9s-36,179.5-101.5,244.9c-65.4,65.4-152.4,101.5-244.9,101.5Zm0-645.1c-164.7,0-298.7,134-298.7,298.7s134,298.7,298.7,298.7,298.7-134,298.7-298.7S511.1,47.7,346.4,47.7Zm13.8,473.4c-14.5,0-28.2-9.8-28.2-24.2V207.9c0-14.5,11.8-26.2,26.2-26.2h78.9c57.9,0,105.1,47.1,105.1,105.1s-47.1,105.1-105.1,105.1h-52.6v105.1c0,14.5-9.8,24.2-24.2,24.2Zm24.2-181.7h52.6c29,0,52.6-23.6,52.6-52.6s-20-49.2-46.5-52.3h-.4s-5.3-.4-5.3-.4h-53v105.2Zm-158.8,181.7c-14.5,0-28.2-9.8-28.2-24.2V207.9c0-14.5,11.8-26.2,26.2-26.2s26.2,11.8,26.2,26.2v289c0,14.5-9.8,24.2-24.2,24.2Z" />
                             <TextBlock x:Name="LabFinishIp" IsHitTestVisible="False" Text="6.0.0.1:12345" VerticalAlignment="Center" Foreground="{StaticResource ColorBrushGray1}" Margin="0,0.5,13,0" />
                         </StackPanel>
-                        <local:MyButton x:Name="BtnLinkDiag" Text="联机诊断" Padding="10,4" Margin="10,0,3,0"
+                        <local:MyButton x:Name="BtnLinkDiag" Text="联机诊断" Padding="9,3" Margin="10,0,3,0" MinWidth="72"
                                         ToolTip="生成一份诊断报告：本机虚拟地址、监听端口、NAT 类型、与房主的连通性、最近的联机内核日志"
                                         ToolTipService.InitialShowDelay="200" />
                     </StackPanel>

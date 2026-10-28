@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 432 Then 'PCL Harness 3.4.10
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：联机主界面加了「虚拟局域网（TUN）模式」开关，勾选后会提示将自动以管理员身份重启，并在重启前告诉你要在 UAC 窗口点「是」"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：启动时会自动进入联机页（可在设置里关闭），并把上次用的端口做成「用上次端口直接开房」按钮"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：联机页按钮大小统一，「联机诊断」按钮改小；联机设置页精简，去掉贡献节点等无用入口，只保留 P2P 直连"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
             If LastVersion < 431 Then 'PCL Harness 3.4.9
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：开启 TUN 模式后创建/加入房间时，启动器会自动以管理员身份重启，联机模块直接继承管理员权限——不再出现「只有安装虚拟网卡时弹了一次 UAC」这种半吊子状态"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：联机诊断里的启动器权限说明同步更新"))
@@ -571,6 +578,11 @@ Public Class FormMain
                             '已经弹过更新日志，介绍页留到下次启动，避免又被盖住
                         Else
                             ModIntro.ShowIfNeeded()
+                        End If
+                        '上次用过联机：直接进联机页，省去自己点（可在 设置 → 联机 里关闭）
+                        If Settings.Get(Of Boolean)("LinkAutoOpen") AndAlso Settings.Get(Of Integer)("LinkLastPort") >= 1024 _
+                            AndAlso PageCurrent = PageType.Launch Then
+                            PageChange(PageType.Link)
                         End If
                     End Sub)
             End Sub, "Startup Dialogs", ThreadPriority.BelowNormal)
