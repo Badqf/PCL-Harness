@@ -1,4 +1,4 @@
-﻿<local:MyPageRight
+<local:MyPageRight
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:PCL" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -170,16 +170,16 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="本机地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="0" Grid.Column="0" x:Name="LabAddrLanLabel" Text="本机地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" />
                                 <TextBlock Grid.Row="0" Grid.Column="1" x:Name="LabAddrLan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                 <local:MyButton Grid.Row="0" Grid.Column="2" x:Name="BtnAddrLanCopy" Text="复制" Padding="8,3" Margin="8,0,0,0" />
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="外网地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock Grid.Row="1" Grid.Column="0" x:Name="LabAddrWanLabel" Text="外网地址" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" x:Name="LabAddrWan" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
                                 <local:MyButton Grid.Row="1" Grid.Column="2" x:Name="BtnAddrWanCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="公网 IP" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" x:Name="LabAddrPublicLabel" Text="公网 IP" FontSize="12.5" Foreground="{StaticResource ColorBrushGray2}" VerticalAlignment="Center" Margin="0,4,0,0" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" x:Name="LabAddrPublic" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,4,0,0" />
                                 <local:MyButton Grid.Row="2" Grid.Column="2" x:Name="BtnAddrPublicCopy" Text="复制" Padding="8,3" Margin="8,4,0,0" />
-                                <StackPanel Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,0">
+                                <StackPanel x:Name="PanAddrDetect" Grid.Row="3" Grid.ColumnSpan="3" Orientation="Horizontal" Margin="0,8,0,0">
                                     <local:MyButton x:Name="BtnDetectIp" Text="检测公网 IP" Padding="10,4" />
                                     <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11.5" Opacity="0.62" TextWrapping="Wrap" MaxWidth="330"
                                                Text="公网 IP 只在本机显示与写入本机文件，不会上传；截图分享前请先打码。" />

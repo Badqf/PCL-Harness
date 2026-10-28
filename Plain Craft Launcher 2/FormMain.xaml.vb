@@ -11,6 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 423 Then 'PCL Harness 3.4.1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：TUN 模式完成页直接显示「虚拟地址 10.114.114.1:端口」，LAN/公网地址自动收起"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：TUN 模式状态条显示直连/中继、RTT、双方 NAT 类型，鼠标悬停延迟图标可看详情"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：区分「网络没通」和「游戏端口没开」——房主没开房间、朋友连不上时给出具体提示"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
+
             If LastVersion < 422 Then 'PCL Harness 3.4.0
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：联机「虚拟局域网（TUN）模式」，任意游戏、任意端口都能直接连（需要管理员权限）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：TUN 模式下自动创建虚拟网卡，房主固定 10.114.114.1，加入者自动分配 10.114.114.2~254"))

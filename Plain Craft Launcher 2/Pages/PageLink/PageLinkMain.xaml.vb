@@ -1,4 +1,4 @@
-﻿Imports System.Collections.ObjectModel
+Imports System.Collections.ObjectModel
 Imports System.Globalization
 Imports System.Net.Sockets
 Imports System.Reflection
@@ -508,6 +508,10 @@ Public Class PageLinkMain
     Private Shared TunLogFile As String = Nothing
     Private Shared TunLogOffset As Long = 0
     Private Shared TunLogThread As Threading.Thread = Nothing
+    ''' <summary>TUN 模式下「游戏端口是否已经能被对端连上」的探测结果。</summary>
+    Private TunPortOk As Boolean = False
+    ''' <summary>TUN 端口探测的节流计数（每 3 秒探一次，避免每秒建连接）。</summary>
+    Private TunProbeCounter As Integer = 0
 
 #Region "加载"
 
@@ -1137,7 +1141,7 @@ ForcedPass:
             End If
             Threading.Thread.Sleep(250)
         Next
-        Panic("虚拟网卡创建超时", $"15 秒内没有检测到虚拟网卡地址 {Expect}。" & vbCrLf & "请确认系统提示里允许了管理员权限，并允许联机模块通过防火墙。" & vbCrLf & vbCrLf & "近期日志：" & vbCrLf & String.Join(vbCrLf, LogHistory))
+        Panic("虚拟网卡创建超时", $"15 秒内没有检测到虚拟网卡地址 {Expect}。" & vbCrLf & "请确认系统提示里允许了管理员权限，并允许联机模块通过防火墙。如果装了 ZeroTier、Radmin VPN 等虚拟网卡软件，先退出它们再试。" & vbCrLf & vbCrLf & "近期日志：" & vbCrLf & String.Join(vbCrLf, LogHistory))
     End Sub
 
     Private Function TunAdapterReady(Expect As String) As Boolean
@@ -1366,6 +1370,23 @@ ForcedPass:
     '每秒或进入页面时触发
     Private Sub Update() Handles Me.Loaded
         If LinkState <> LinkStates.Finished Then Return
+        'TUN：每 3 秒探一次「游戏端口是否已经通了」，结果给 UI 用（探测本身不占 UI 线程）
+        If IsTunMode Then
+            TunProbeCounter += 1
+            If TunProbeCounter >= 3 Then
+                TunProbeCounter = 0
+                Dim GamePort As Integer = 0
+                If Integer.TryParse(ServerPort, GamePort) AndAlso GamePort > 0 Then
+                    Try
+                        TunPortOk = If(IsServerSide,
+                            IsLocalPortListening(GamePort),
+                            CanReachTcp(TunHostIp, GamePort, 700))
+                    Catch ex As Exception
+                        Logger.Warn(ex, "探测 TUN 游戏端口失败")
+                    End Try
+                End If
+            End If
+        End If
         '重新获取信息
         SyncLock RefreshPeerLoader.LockState
             If RefreshPeerLoader.State <> LoadState.Loading Then RefreshPeerLoader.Start(IsForceRestart:=True)
@@ -1379,7 +1400,9 @@ ForcedPass:
                 'Ping
                 Dim Ping As Double = GetPeerPing()
                 Dim Connecting As Boolean = Ping Mod 500 = 0 OrElse $"{Ping:0.0}" = "1.0" OrElse FailCount > 0
-                If Connecting Then
+                If IsTunMode AndAlso PeopleCount <= 1 Then
+                    LabFinishPing.Text = "等待连接"
+                ElseIf Connecting Then
                     LabFinishPing.Text = "连接优化中"
                 Else
                     LabFinishPing.Text = If(Ping >= 10, $"{Ping:0} ms", $"{Ping:0.0} ms")
@@ -1390,6 +1413,10 @@ ForcedPass:
                 '  提示条
                 '------------------------
                 HintFinish.Visibility = Visibility.Collapsed
+                If IsTunMode Then
+                    UpdateTunStatus(Connecting)
+                    Return 'TUN 模式使用自己的状态提示，不再走中继/NAT 那套判断
+                End If
                 If IsServerSide Then Return '服务端没有需要显示的提示
                 If Connecting Then Return '连接稳定过程中不显示提示
                 '中继提示
@@ -1460,6 +1487,73 @@ ForcedPass:
         Panic("联机模块已崩溃", "近期日志：" & vbCrLf & LogHistory.Join(vbCrLf))
     End Sub
 
+    ''' <summary>
+    ''' TUN 模式的状态提示：连了几个人、直连还是中继、游戏端口通没通。
+    ''' 作用是把「房间建好了」和「朋友真的能进游戏」区分开。
+    ''' </summary>
+    Private Sub UpdateTunStatus(Connecting As Boolean)
+        Dim Others As List(Of Peer) = If(Peers, New List(Of Peer)).Where(Function(p) p.Type <> Peer.Types.Misc).ToList()
+        Dim RelayCount As Integer = Others.Where(Function(p) p.Relay).Count()
+        Dim Target As Peer = GetTargetPeer()
+        Dim GamePort As Integer = 0
+        Dim HasPort As Boolean = Integer.TryParse(ServerPort, GamePort) AndAlso GamePort > 0
+        '工具提示：连接方式 + RTT + 双方 NAT
+        If Target Is Nothing Then
+            BtnFinishPing.ToolTip = "正在等待对端……"
+        Else
+            Dim NatPart As String = If($"{NATType}" = "Unknown" AndAlso $"{Target.NATType}" = "Unknown", "", $" · NAT {NATType} / {Target.NATType}")
+            BtnFinishPing.ToolTip = $"{If(RelayCount > 0, "经中继", "P2P 直连")} · RTT {Target.Ping:0.0} ms{NatPart}"
+        End If
+        If IsServerSide Then
+            If Others.Count = 0 Then
+                HintFinish.Text = $"等待朋友加入 · 虚拟地址 {TunHostIp}:{GamePort}"
+                HintFinish.Theme = MyHint.Themes.Blue
+            ElseIf HasPort AndAlso Not TunPortOk Then
+                HintFinish.Text = $"已连上 {Others.Count} 位朋友，但游戏端口 {GamePort} 还没开放：进游戏后点「对局域网开放」即可"
+                HintFinish.Theme = MyHint.Themes.Yellow
+            Else
+                HintFinish.Text = $"已连上 {Others.Count} 位朋友 · {If(RelayCount > 0, $"{RelayCount} 位走中继", "P2P 直连")} · 游戏端口 {GamePort} 已开放"
+                HintFinish.Theme = MyHint.Themes.Blue
+            End If
+        Else
+            If Connecting Then Return
+            If Target Is Nothing Then
+                HintFinish.Text = "已进入虚拟局域网，正在等待房主出现……"
+                HintFinish.Theme = MyHint.Themes.Blue
+            ElseIf HasPort AndAlso Not TunPortOk Then
+                HintFinish.Text = $"已进入虚拟局域网，但房主的游戏端口 {GamePort} 还没开放（等房主进游戏开房间）"
+                HintFinish.Theme = MyHint.Themes.Yellow
+            Else
+                HintFinish.Text = $"已连上房主 {TunHostIp}:{GamePort} · {If(Target.Relay, "经中继", "P2P 直连")} · {Target.Ping:0} ms"
+                HintFinish.Theme = MyHint.Themes.Blue
+            End If
+        End If
+        HintFinish.Visibility = Visibility.Visible
+    End Sub
+
+    ''' <summary>本机是否有 TCP 端口在监听（房主侧判断「游戏开没开」）。</summary>
+    Private Shared Function IsLocalPortListening(Port As Integer) As Boolean
+        Try
+            Return Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(Function(e) e.Port = Port)
+        Catch ex As Exception
+            Logger.Warn(ex, "检测本机端口监听失败")
+            Return True '检测失败时不要误报「游戏没开」
+        End Try
+    End Function
+
+    ''' <summary>在超时内尝试建立 TCP 连接（加入者侧判断「房主游戏端口通没通」）。</summary>
+    Private Shared Function CanReachTcp(Host As String, Port As Integer, TimeoutMs As Integer) As Boolean
+        Try
+            Using Client As New Net.Sockets.TcpClient()
+                Dim TryConnect As Threading.Tasks.Task = Client.ConnectAsync(Host, Port)
+                If Not TryConnect.Wait(TimeoutMs) Then Return False
+                Return Client.Connected
+            End Using
+        Catch ex As Exception
+            Return False
+        End Try
+    End Function
+
 #End Region
 
 
@@ -1476,6 +1570,27 @@ ForcedPass:
             Return
         End If
         PanAddress.Visibility = Visibility.Visible
+        If IsTunMode Then
+            'TUN：唯一该发给朋友的是虚拟地址，LAN/公网地址在虚拟网络里没有意义
+            LabAddrLanLabel.Text = "虚拟地址"
+            LabAddrLan.Text = $"{TunHostIp}:{ServerPort}"
+            LabAddrWanLabel.Visibility = Visibility.Collapsed
+            LabAddrWan.Visibility = Visibility.Collapsed
+            BtnAddrWanCopy.Visibility = Visibility.Collapsed
+            LabAddrPublicLabel.Visibility = Visibility.Collapsed
+            LabAddrPublic.Visibility = Visibility.Collapsed
+            BtnAddrPublicCopy.Visibility = Visibility.Collapsed
+            PanAddrDetect.Visibility = Visibility.Collapsed
+            Return
+        End If
+        LabAddrLanLabel.Text = "本机地址"
+        LabAddrWanLabel.Visibility = Visibility.Visible
+        LabAddrWan.Visibility = Visibility.Visible
+        BtnAddrWanCopy.Visibility = Visibility.Visible
+        LabAddrPublicLabel.Visibility = Visibility.Visible
+        LabAddrPublic.Visibility = Visibility.Visible
+        BtnAddrPublicCopy.Visibility = Visibility.Visible
+        PanAddrDetect.Visibility = Visibility.Visible
         Dim LanIp As String = ModUpnp.GetLanIPv4()
         If String.IsNullOrEmpty(LanIp) Then LanIp = "127.0.0.1"
         LabAddrLan.Text = $"{LanIp}:{DirectListenPort}"
@@ -1492,7 +1607,7 @@ ForcedPass:
 
     Private Sub BtnAddrLanCopy_Click() Handles BtnAddrLanCopy.Click
         ClipboardSet(LabAddrLan.Text, False)
-        Hint("已复制本机地址")
+        Hint(If(IsTunMode, "已复制虚拟地址", "已复制本机地址"))
     End Sub
 
     Private Sub BtnAddrWanCopy_Click() Handles BtnAddrWanCopy.Click
