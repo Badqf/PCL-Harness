@@ -631,6 +631,9 @@ Public Class PageLinkMain
 
     '3. 启动联机模块
     Private Sub InitLaunch(Task As LoaderTask(Of Integer, Integer))
+        '每次开房间重新探测 NAT（换网络后旧结果就不准了）
+        NatProbeResult = Nothing
+        NatProbeStarted = False
         '解压文件
         UpdateLoadingPage("正在解压联机模块……", "解压联机模块")
         If FileUtils.Exists(PathEasyTier & "EasyTier.zip") Then
@@ -1551,8 +1554,9 @@ ForcedPass:
         If Target Is Nothing Then
             BtnFinishPing.ToolTip = "正在等待对端……"
         Else
-            Dim NatPart As String = If($"{NATType}" = "Unknown" AndAlso $"{Target.NATType}" = "Unknown", "", $" · NAT {NATType} / {Target.NATType}")
-            BtnFinishPing.ToolTip = $"{If(RelayCount > 0, "经中继", "P2P 直连")} · RTT {Target.Ping:0.0} ms{NatPart}"
+            Dim SelfNat As String = GetSelfNatDescription()
+            Dim PeerNat As String = If($"{Target.NATType}" = "Unknown" OrElse $"{Target.NATType}" = "Pending", "", $" / 对方 {DescribeNat(Target.NATType)}")
+            BtnFinishPing.ToolTip = $"{If(RelayCount > 0, "经中继", "P2P 直连")} · RTT {Target.Ping:0.0} ms · NAT {SelfNat}{PeerNat}"
         End If
         If IsServerSide Then
             If Others.Count = 0 Then
@@ -1681,6 +1685,118 @@ ForcedPass:
         Return FindFreePorts(Count, Excludes)
     End Function
 
+    ''' <summary>
+    ''' 自己测一次 NAT 类型。
+    ''' 直连模式下我们给 EasyTier 传了 --stun-servers ""（不去连公共服务器），
+    ''' 它就不会做 STUN，nat_type 永远是 Unknown，所以这里自己发 STUN 绑定请求：
+    ''' 问两个不同的 STUN 服务器，看它们各自看到的公网映射。
+    ''' 端口一致 → 锥形 NAT（能打洞）；端口不一致 → 对称型（打洞容易失败）。
+    ''' </summary>
+    Private Shared Function ProbeNatByStun() As String
+        Dim Servers As String() = {"stun.miwifi.com:3478", "stun.hitv.com:3478", "stun.cloudflare.com:3478", "stun.l.google.com:19302"}
+        Dim Mapped As New List(Of String)
+        For Each Server As String In Servers
+            Dim One As String = TryStunQuery(Server)
+            If One IsNot Nothing AndAlso Not Mapped.Contains(One) Then Mapped.Add(One)
+            If Mapped.Count >= 2 Then Exit For
+        Next
+        If Mapped.Count = 0 Then Return "未知（STUN 服务器都没有响应，可能是 UDP 被封或网络限制）"
+        If Mapped.Count = 1 Then Return $"锥形 NAT 或公网直连（只拿到一份映射 {Mapped(0)}，没做交叉验证）"
+        Dim PortA As String = Mapped(0).Split(":"c).Last()
+        Dim PortB As String = Mapped(1).Split(":"c).Last()
+        If PortA = PortB Then
+            Return $"锥形 NAT（两个服务器看到同一个映射 {Mapped(0)}，多数情况能打洞）"
+        Else
+            Return $"对称型 NAT（两个服务器看到不同映射 {Mapped(0)} / {Mapped(1)}，打洞容易失败，建议由房主做端口映射）"
+        End If
+    End Function
+
+    ''' <summary>
+    ''' 向一个 STUN 服务器发 Binding Request，返回它看到的公网映射（IP:端口）。
+    ''' 失败返回 Nothing。
+    ''' </summary>
+    Private Shared Function TryStunQuery(Server As String) As String
+        Try
+            Dim Parts As String() = Server.Split(":"c)
+            Dim Host As String = Parts(0)
+            Dim Port As Integer = If(Parts.Length > 1, CInt(Parts(1)), 3478)
+            Using Client As New Net.Sockets.UdpClient()
+                Client.Client.ReceiveTimeout = 1200
+                Client.Connect(Host, Port)
+                Dim TxId As Byte() = Guid.NewGuid().ToByteArray() '取前 12 字节当事务号
+                Dim Request(19) As Byte
+                Request(0) = 0 : Request(1) = 1 'Binding Request
+                Request(2) = 0 : Request(3) = 0 '长度 0
+                Request(4) = &H21 : Request(5) = &H12 : Request(6) = &HA4 : Request(7) = &H42 'Magic Cookie
+                Array.Copy(TxId, 0, Request, 8, 12)
+                Client.Send(Request, Request.Length)
+                Dim Remote As New Net.IPEndPoint(Net.IPAddress.Any, 0)
+                Dim Response As Byte() = Client.Receive(Remote)
+                If Response.Length < 20 Then Return Nothing
+                If Response(0) <> 1 OrElse Response(1) <> 1 Then Return Nothing '必须是 Binding Success Response（0x0101）
+                For i As Integer = 0 To 11
+                    If Response(8 + i) <> TxId(i) Then Return Nothing '事务号对不上，忽略
+                Next
+                Dim Limit As Integer = Math.Min(Response.Length, 20 + (CInt(Response(2)) << 8) + Response(3))
+                Dim Offset As Integer = 20
+                Do While Offset + 4 <= Limit
+                    Dim AttrType As Integer = (CInt(Response(Offset)) << 8) + Response(Offset + 1)
+                    Dim AttrLen As Integer = (CInt(Response(Offset + 2)) << 8) + Response(Offset + 3)
+                    Dim ValueStart As Integer = Offset + 4
+                    If ValueStart + AttrLen > Response.Length Then Exit Do
+                    If (AttrType = &H20 OrElse AttrType = &H1) AndAlso AttrLen >= 8 AndAlso Response(ValueStart + 1) = 1 Then
+                        'XOR-MAPPED-ADDRESS（0x0020）或 MAPPED-ADDRESS（0x0001），只处理 IPv4
+                        Dim MappedPort As Integer = (CInt(Response(ValueStart + 2)) << 8) + Response(ValueStart + 3)
+                        If AttrType = &H20 Then MappedPort = MappedPort Xor &H2112
+                        Dim Mask As Byte() = If(AttrType = &H20, New Byte() {&H21, &H12, &HA4, &H42}, New Byte() {0, 0, 0, 0})
+                        Dim IpBytes(3) As Byte
+                        For k As Integer = 0 To 3
+                            IpBytes(k) = Response(ValueStart + 4 + k) Xor Mask(k)
+                        Next
+                        Return $"{New Net.IPAddress(IpBytes)}:{MappedPort}"
+                    End If
+                    Offset = ValueStart + AttrLen + ((4 - (AttrLen Mod 4)) Mod 4)
+                Loop
+            End Using
+        Catch ex As Exception
+            '探测失败不记日志，避免每次进房间都刷一片
+        End Try
+        Return Nothing
+    End Function
+
+    ''' <summary>后台 NAT 探测的结果，供状态条与诊断共用。</summary>
+    Private NatProbeResult As String = Nothing
+    Private NatProbeStarted As Boolean = False
+
+    ''' <summary>
+    ''' 当 EasyTier 没给出有效 NAT 类型时，后台补一次 STUN 探测（只做一次，不阻塞 UI）。
+    ''' </summary>
+    Private Sub EnsureNatProbe()
+        If NatProbeStarted Then Return
+        If NATType <> NATTypes.Unknown AndAlso NATType <> NATTypes.Pending Then Return
+        NatProbeStarted = True
+        RunInNewThread(
+        Sub()
+            NatProbeResult = ProbeNatByStun()
+            Logger.Info($"NAT 探测结果：{NatProbeResult}")
+        End Sub)
+    End Sub
+
+    ''' <summary>
+    ''' 自己的 NAT 类型描述：优先用 EasyTier 报的，没报就退回自己探测的结果。
+    ''' WaitProbe=True 时在调用线程里直接把 STUN 探测做完（诊断报告用，已在后台线程）。
+    ''' </summary>
+    Private Function GetSelfNatDescription(Optional WaitProbe As Boolean = False) As String
+        If NATType <> NATTypes.Unknown AndAlso NATType <> NATTypes.Pending Then Return DescribeNat(NATType)
+        If NatProbeResult Is Nothing AndAlso WaitProbe Then
+            NatProbeResult = ProbeNatByStun()
+            NatProbeStarted = True
+            Logger.Info($"NAT 探测结果：{NatProbeResult}")
+        End If
+        EnsureNatProbe()
+        Return If(NatProbeResult, "检测中……")
+    End Function
+
 #End Region
 
 #Region "联机诊断"
@@ -1734,7 +1850,7 @@ ForcedPass:
         Sb.AppendLine()
         Sb.AppendLine("— 本机 —")
         Sb.AppendLine($"启动器权限：{If(IsAdmin(), "管理员", "普通用户" + If(IsTunMode, "（TUN 模式需要管理员，会触发 UAC）", ""))}")
-        Sb.AppendLine($"自己的 NAT 类型：{DescribeNat(NATType)}")
+        Sb.AppendLine($"自己的 NAT 类型：{GetSelfNatDescription(WaitProbe:=True)}")
         Sb.AppendLine($"最近一次 CLI 调用失败次数：{FailCount}")
         Sb.AppendLine()
         Sb.AppendLine("— 对端 —")

@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 430 Then 'PCL Harness 3.4.8
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：联机诊断里的「自己的 NAT 类型」不再永远显示「未知」——直连模式关掉了 EasyTier 的 STUN，现在启动器自己做 STUN 探测，能判断是锥形 NAT 还是对称型 NAT"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：每次开房间重新探测 NAT，换网络后不会沿用旧结果"))
+                FeatureCount += 1
+                BugCount += 1
+            End If
+
             If LastVersion < 429 Then 'PCL Harness 3.4.7
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：直连邀请现在会同时带上外网地址和局域网地址，外网的朋友也能直接加入，不再只给一条连不上的内网地址"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：跨网络加入失败时，会明确提示「邀请里只有内网地址」，并告诉房主该怎么开 UPnP 或端口映射"))

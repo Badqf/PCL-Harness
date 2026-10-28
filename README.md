@@ -2,7 +2,7 @@
 
 基于 [Plain Craft Launcher 2 开源版](https://github.com/Meloong-Git/PCL)（上游版本 2.14.0.0）二次开发的自编版启动器，在保留原版功能的基础上加入独立配置目录、主题系统、插件系统与联机直连等扩展。
 
-- 当前版本：**3.4.7**
+- 当前版本：**3.4.8**
 - 上游基线：PCL 2.14.0.0（2026-10-16 发布）
 - 反馈 / 问题：<https://github.com/Badqf/PCL-Harness/issues>
 - 插件开发文档：[PLUGIN-DEV.md](PLUGIN-DEV.md)
