@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 431 Then 'PCL Harness 3.4.9
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：开启 TUN 模式后创建/加入房间时，启动器会自动以管理员身份重启，联机模块直接继承管理员权限——不再出现「只有安装虚拟网卡时弹了一次 UAC」这种半吊子状态"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：联机诊断里的启动器权限说明同步更新"))
+                FeatureCount += 1
+                BugCount += 1
+            End If
+
             If LastVersion < 430 Then 'PCL Harness 3.4.8
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：联机诊断里的「自己的 NAT 类型」不再永远显示「未知」——直连模式关掉了 EasyTier 的 STUN，现在启动器自己做 STUN 探测，能判断是锥形 NAT 还是对称型 NAT"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：每次开房间重新探测 NAT，换网络后不会沿用旧结果"))

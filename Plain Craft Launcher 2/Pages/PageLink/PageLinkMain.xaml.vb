@@ -100,6 +100,8 @@ Public Class PageLinkMain
             ValidateRules:=New Collection(Of Validate) From {New ValidateInteger(1024, 65535)},
             HintText:="端口号")
         If Port Is Nothing Then Return
+        'TUN 模式需要管理员：没提权就先把启动器重启成管理员身份
+        If Not EnsureAdminForTun() Then Return
         '基础信息
         IsServerSide = True
         ServerPort = Port
@@ -168,6 +170,8 @@ Public Class PageLinkMain
         End If
         Code = FixCodeFormat(Code)
         Logger.Info($"实际使用的邀请码：{Code}")
+        'TUN 模式需要管理员：没提权就先把启动器重启成管理员身份
+        If Not EnsureAdminForTun() Then Return
         '基础信息
         IsServerSide = False
         ServerPort = Code.Substring(1, 4).Upper.ConvertRadix(16, 10)
@@ -1050,6 +1054,44 @@ ForcedPass:
     End Function
 
     ''' <summary>
+    ''' TUN 模式需要管理员权限。启动器本身没提权时，直接以管理员身份重启启动器，
+    ''' 让联机模块、防火墙、网卡操作统统继承管理员权限，避免「网卡装好了但后续操作没权限」。
+    ''' 返回 False 表示已经开始重启流程，调用方应当直接返回。
+    ''' </summary>
+    Private Function EnsureAdminForTun() As Boolean
+        If Not IsTunMode OrElse IsAdmin() Then Return True
+        Logger.Info("TUN 模式需要管理员权限，正在以管理员身份重启启动器")
+        Hint("TUN 模式需要管理员权限，正在以管理员身份重启启动器……", HintType.Blue)
+        '不能直接 start 提权后的新实例：PCL 是单实例程序，新实例一启动就会把老实例置顶然后自己退出。
+        '所以借一个提权的 cmd 等几秒（等当前实例彻底退出、互斥体释放），再由它启动启动器，子进程继承管理员权限。
+        Dim StartCmd As String = "/c ping -n 4 127.0.0.1 >nul & start """" """ & PathExe & """"
+        Dim Info As New ProcessStartInfo With {
+            .FileName = "cmd.exe",
+            .Arguments = StartCmd,
+            .UseShellExecute = True,
+            .Verb = "runas",
+            .WindowStyle = ProcessWindowStyle.Hidden
+        }
+        Try
+            Process.Start(Info)
+        Catch ex As ComponentModel.Win32Exception
+            If ex.NativeErrorCode = 1223 Then
+                Panic("需要管理员权限", "虚拟局域网（TUN）模式需要管理员权限，但你在 UAC 提示里点了「否」。" & vbCrLf & vbCrLf &
+                      "请重新创建房间并在系统提示时选「是」；如果不想每次都被询问，可以右键启动器 →「属性」→「兼容性」→ 勾选「以管理员身份运行此程序」。")
+                Return False
+            End If
+            Throw
+        End Try
+        '立刻退出当前实例，把位置让给提权后的新实例
+        RunInNewThread(
+        Sub()
+            Threading.Thread.Sleep(400)
+            RunInUi(Sub() FrmMain.Close())
+        End Sub)
+        Return False
+    End Function
+
+    ''' <summary>
     ''' 启动进程。
     ''' </summary>
     Private Sub ProcessStart(Arguments As String)
@@ -1068,8 +1110,7 @@ ForcedPass:
             .StandardErrorEncoding = Encoding.UTF8
         }
         Logger.Info($"正在启动 EasyTier：{Arguments}")
-        '先按普通权限启动；若因为缺少虚拟网卡驱动而退出，再提示提权
-        If Not IsAdmin() Then Logger.Info("当前没有管理员权限；联机模块若因虚拟网卡失败，将提示提权")
+        If IsTunMode Then Logger.Info("TUN 模式：当前启动器已有管理员权限，联机模块直接继承，不会再弹 UAC")
         ProcessCore = New Process With {.StartInfo = Info}
         Dim LogLineHandler =
         Sub(sender As Object, e As DataReceivedEventArgs, Handle As AutoResetEvent)
@@ -1849,7 +1890,7 @@ ForcedPass:
         Sb.AppendLine($"EasyTier 监听端口：{If(DirectListenPort > 0, DirectListenPort.ToString(), "尚未分配")}（{If(DirectListenPort > 0 AndAlso IsLocalPortListening(DirectListenPort), "正在监听", "未监听")}）")
         Sb.AppendLine()
         Sb.AppendLine("— 本机 —")
-        Sb.AppendLine($"启动器权限：{If(IsAdmin(), "管理员", "普通用户" + If(IsTunMode, "（TUN 模式需要管理员，会触发 UAC）", ""))}")
+        Sb.AppendLine($"启动器权限：{If(IsAdmin(), "管理员", "普通用户（TUN 模式会自动以管理员身份重启启动器）")}")
         Sb.AppendLine($"自己的 NAT 类型：{GetSelfNatDescription(WaitProbe:=True)}")
         Sb.AppendLine($"最近一次 CLI 调用失败次数：{FailCount}")
         Sb.AppendLine()
