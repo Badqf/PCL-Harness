@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 428 Then 'PCL Harness 3.4.6
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：在装有 Hyper-V、WSL、Docker 的电脑上创建房间时，联机模块可能因为端口被系统预留而报「监听端口失败」并崩溃"))
+                FeatureCount += 0
+                BugCount += 1
+            End If
+
             If LastVersion < 427 Then 'PCL Harness 3.4.5
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：联机页的完成界面加了「联机诊断」按钮，一键生成虚拟地址、监听端口、NAT 类型、与房主的连通性和最近内核日志，可整份复制"))
                 FeatureCount += 1

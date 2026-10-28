@@ -668,17 +668,17 @@ Public Class PageLinkMain
         Task.Progress = 0.13
         '获取空闲端口
         UpdateLoadingPage("正在启动联机模块……", "启动联机模块")
-        Dim FreePorts = FindFreePorts(5, ServerPort)
+        Dim FreePorts = PickBindablePorts(5, ServerPort)
         ClientPort = FreePorts(0)
         RPCPort = FreePorts(1)
-        Dim ListenersPort As Integer = FreePorts(2) '它会占用【当前、当前 +1、当前 +2】共三个端口
+        Dim ListenersPort As Integer = PickBindablePorts(3)(0) '它会占用【当前、当前 +1、当前 +2】共三个端口
         '获取启动参数
         Dim Arguments As String = ServerConfig("Link")("Argument")
         If IsTunMode Then Arguments = Arguments.Replace("--no-tun", "").Replace("  ", " ").Trim()
         Arguments += $" --network-name={NetworkName} --network-secret={NetworkSecret} --rpc-portal {RPCPort} --private-mode true"
         If IsDirectMode Then
             '直连模式：只用 TCP + UDP 监听，且禁止 STUN 与中继
-            DirectListenPort = FindFreePorts(1, 11010)(0)
+            DirectListenPort = PickBindablePorts(1, 11010)(0)
             Arguments += $" --listeners tcp://0.0.0.0:{DirectListenPort} udp://0.0.0.0:{DirectListenPort}"
             Arguments += " --p2p-only true --stun-servers """""
             If IsTunMode Then Arguments += " --enable-udp-broadcast-relay true"
@@ -731,6 +731,27 @@ Public Class PageLinkMain
         '等待连接（直连模式的房主只负责监听，不需要等任何人）
         If IsDirectMode AndAlso IsServerSide Then
             If IsTunMode Then WaitTunReady() Else Thread.Sleep(1200)
+            '核心如果因为端口被占用/被系统预留（os error 10048）退出，自动换端口重来
+            Dim Retry As Integer = 0
+            Do While Retry < 2 AndAlso Not WaitPortListening(DirectListenPort, 3000)
+                Retry += 1
+                Dim OldPort As Integer = DirectListenPort
+                DirectListenPort = PickBindablePorts(1, 11010, OldPort)(0)
+                Logger.Warn($"监听端口 {OldPort} 没能启动，换用 {DirectListenPort} 重试（第 {Retry} 次）")
+                Arguments = Arguments.Replace($"--listeners tcp://0.0.0.0:{OldPort} udp://0.0.0.0:{OldPort}",
+                                              $"--listeners tcp://0.0.0.0:{DirectListenPort} udp://0.0.0.0:{DirectListenPort}")
+                Dim NewEndpoint As String = Nothing, NewReason As String = ""
+                If ModUpnp.TryMapPort(DirectListenPort, NewEndpoint, NewReason) Then DirectPublicEndpoint = NewEndpoint
+                ProcessStop()
+                Thread.Sleep(300)
+                ProcessStart(Arguments)
+                If IsTunMode Then WaitTunReady() Else Thread.Sleep(1200)
+            Loop
+            If Not IsLocalPortListening(DirectListenPort) Then
+                Panic("监听端口失败",
+                      $"联机模块没法监听端口 {DirectListenPort}。{vbCrLf}常见原因：这个端口被系统预留（Hyper-V、WSL、Docker 会预留端口段）或被别的程序占着。{vbCrLf}已经自动换过 {Retry} 次端口还是不行，建议重启电脑后再试。{vbCrLf}近期日志：{vbCrLf}{LogHistory.Join(vbCrLf)}")
+                Exit Sub
+            End If
             Task.Progress = 1
             Exit Sub
         End If
@@ -1552,6 +1573,64 @@ ForcedPass:
         Catch ex As Exception
             Return False
         End Try
+    End Function
+
+    ''' <summary>
+    ''' 这个端口在本机能否真正绑定（TCP + UDP）。
+    ''' 只查「有没有程序在监听」不够：Hyper-V、WSL、Docker 会预留整段端口，
+    ''' 这些端口查不到监听者，但绑定会失败（os error 10048），EasyTier 一旦踩中就直接退出。
+    ''' </summary>
+    Private Shared Function CanBindPort(Port As Integer) As Boolean
+        Try
+            Dim Listener As New Net.Sockets.TcpListener(Net.IPAddress.Any, Port)
+            Listener.Start()
+            Listener.Stop()
+        Catch ex As Exception
+            Return False
+        End Try
+        Try
+            Using Client As New Net.Sockets.UdpClient(Port)
+            End Using
+        Catch ex As Exception
+            Return False
+        End Try
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' 等端口进入监听状态，最多等 TimeoutMs，避免核心刚启动就被判失败。
+    ''' </summary>
+    Private Shared Function WaitPortListening(Port As Integer, TimeoutMs As Integer) As Boolean
+        Dim Watch As Diagnostics.Stopwatch = Diagnostics.Stopwatch.StartNew()
+        Do
+            If IsLocalPortListening(Port) Then Return True
+            If Watch.ElapsedMilliseconds >= TimeoutMs Then Return False
+            Thread.Sleep(100)
+        Loop
+    End Function
+
+    ''' <summary>
+    ''' 挑一组连续编号、且本机真的能绑定的端口。
+    ''' </summary>
+    Private Shared Function PickBindablePorts(Count As Integer, ParamArray Excludes As Integer()) As List(Of Integer)
+        Dim Used As New List(Of Integer)
+        Try
+            Used.AddRange(GetUsedPorts())
+        Catch ex As Exception
+            Logger.Warn(ex, "获取占用端口列表失败，改用绑定测试")
+        End Try
+        Used.AddRange(Excludes)
+        Dim StartPort As Integer = RandomInteger(20000, 30000)
+        For Offset As Integer = 0 To 19000
+            Dim First As Integer = StartPort + Offset
+            If First + Count - 1 > 65535 Then Exit For
+            Dim Range = Enumerable.Range(First, Count)
+            If Range.Any(Function(p) Used.Contains(p)) Then Continue For
+            If Range.Any(Function(p) Not CanBindPort(p)) Then Continue For
+            Return Range.ToList()
+        Next
+        '兜底：退回上游的实现
+        Return FindFreePorts(Count, Excludes)
     End Function
 
 #End Region
