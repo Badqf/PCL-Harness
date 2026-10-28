@@ -1,4 +1,4 @@
-﻿Imports System.Collections.ObjectModel
+Imports System.Collections.ObjectModel
 Imports System.Windows.Interop
 Imports System.Windows.Threading
 
@@ -837,7 +837,7 @@ NextFile:
         '基础
         Text = Text.Replace("{pcl_version}", Replacer(VersionBaseName))
         Text = Text.Replace("{pcl_version_code}", Replacer(VersionCode))
-        Text = Text.Replace("{pcl_version_branch}", Replacer(BuildTypeDisplay))
+        Text = Text.Replace("{pcl_version_branch}", Replacer("PCL Harness"))
         Text = Text.Replace("{pcl_build_type}", Replacer(BuildType.ToString))
         Text = Text.Replace("{pcl_branch}", Replacer(VersionBranchMain))
         Text = Text.Replace("{identify}", Replacer(Identify))

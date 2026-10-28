@@ -11,6 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 425 Then 'PCL Harness 3.4.3
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：启动时检测更新会弹出「正在检测更新……」提示，且开始检测的等待时间明显缩短"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：静默更新后启动不再闪出黑色命令行窗口；「PCL Harness 已更新至 …」弹窗恢复显示"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "调整：更新提示里的「稍后」只本次运行内生效；对外版本名统一显示为 PCL Harness（关于页保留「自编版」）"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
+
             If LastVersion < 424 Then 'PCL Harness 3.4.2
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "变更：首次启动改为自动迁移旧 PCL 数据，不再需要逐项勾选"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "变更：迁移完只弹一次结果页，列出本次复制了哪些内容；旧文件不删除、不修改"))
@@ -347,7 +355,7 @@ Public Class FormMain
         '输出更新日志
         RunInNewThread(
         Sub()
-            If MyMsgBox(Content, "PCL 已更新至" & VersionDisplay, "确定", "完整更新日志") = 2 Then
+            If MyMsgBox(Content, "PCL Harness 已更新至 " & VersionBaseName, "确定", "完整更新日志") = 2 Then
                 OpenWebsite("https://github.com/Badqf/PCL-Harness/releases/latest")
             End If
         End Sub, "UpdateLog Output")
@@ -668,6 +676,22 @@ Public Class FormMain
         End If
         '输出更新日志
         If LastVersionCode <= 0 Then Return
+        '静默替换过：不管「最高版本号」记录如何，都保证弹一次更新日志
+        Dim AppliedTag As String = PathTemp & "Update\Applied.txt"
+        Dim AppliedVersion As String = ""
+        Try
+            If IO.File.Exists(AppliedTag) Then AppliedVersion = IO.File.ReadAllText(AppliedTag).Trim()
+        Catch
+        End Try
+        If AppliedVersion <> "" Then
+            Try
+                IO.File.Delete(AppliedTag)
+            Catch
+            End Try
+            Logger.Info($"[Update] 检测到静默替换标记（上次版本 {AppliedVersion}），展示更新日志")
+            ShowUpdateLog(LastVersionCode)
+            Return
+        End If
         If HighestVersionCode >= VersionCode Then Return
         ShowUpdateLog(HighestVersionCode)
     End Sub

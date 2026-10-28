@@ -94,7 +94,7 @@ Public Class PageSetupSystem
         If ComboSystemUpdate.SelectedIndex <> 3 Then Return
         If MyMsgBox("若选择此项，即使在启动器将来出现严重问题时，你也无法获取更新并获得修复。" & vbCrLf &
                     "例如，如果官方修改了登录方式，从而导致现有启动器无法登录，你可能就会因为无法更新而无法开始游戏。" & vbCrLf & vbCrLf &
-                    "一般选择 仅在有重大漏洞更新时显示提示 就可以让你尽量不受打扰了。" & vbCrLf &
+                    "一般选择 只在手动点「检查更新」时提示 就可以让你尽量不受打扰了。" & vbCrLf &
                     "除非你在制作服务器整合包，或时常手动更新启动器，否则极度不推荐选择此项！", "警告", "我知道我在做什么", "取消", IsWarn:=True) = 2 Then
             If e.RemovedItems.Count > 0 Then ComboSystemUpdate.SelectedItem = e.RemovedItems(0)
         End If
@@ -104,15 +104,14 @@ Public Class PageSetupSystem
     End Sub
     ''' <summary>
     ''' 启动器是否已经是最新版？
-    ''' 若返回 Nothing，则代表无更新缓存文件或出错。
+    ''' 若返回 Nothing，则代表还没成功查过更新（或出错）。
     ''' </summary>
     Public Shared Function IsLauncherNewest() As Boolean?
         Try
-            '确认服务器公告是否正常
-            Dim ServerContent As String = If(FileUtils.TryReadAsString(PathTemp & "Cache\Notice.cfg"), "")
-            If ServerContent.Split("|").Count < 3 Then Return Nothing
-            '确认是否为最新
-            Return ServerContent.Split("|")(If(BuildType = BuildTypes.Release, 2, 1)) <= VersionCode
+            '用最近一次真实的更新检查结果判断，不再依赖早已不下载的 Notice.cfg
+            Dim Latest As String = ModSecret.LatestCheckedVersion
+            If String.IsNullOrWhiteSpace(Latest) Then Return Nothing
+            Return McUtils.CompareVersion(Latest, VersionBaseName) <= 0
         Catch ex As Exception
             Logger.Error(ex, "确认启动器更新失败")
             Return Nothing

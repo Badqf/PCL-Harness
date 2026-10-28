@@ -1,4 +1,4 @@
-﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
+'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -260,8 +260,11 @@ Friend Module ModSecret
     ''' <summary>更新信息 API 地址（加速源优先，官方兜底）。</summary>
     Private Function UpdateApiUrls() As List(Of String)
         Dim Result As New List(Of String)
-        Dim EnvUrl As String = Environment.GetEnvironmentVariable("PCL_UPDATE_JSON_URL")
-        If Not String.IsNullOrWhiteSpace(EnvUrl) Then Result.Add(EnvUrl)
+        '只有显式打开调试开关时才认环境变量，避免被外部脚本悄悄指向别的更新源
+        If IsDebugUpdate() Then
+            Dim EnvUrl As String = Environment.GetEnvironmentVariable("PCL_UPDATE_JSON_URL")
+            If Not String.IsNullOrWhiteSpace(EnvUrl) Then Result.Add(EnvUrl)
+        End If
         Result.Add($"{UpdateGhproxyPrefix}https://api.github.com/repos/{UpdateRepo}/releases/latest")
         Result.Add($"https://api.github.com/repos/{UpdateRepo}/releases/latest")
         Return Result
@@ -291,6 +294,7 @@ Friend Module ModSecret
                     End If
                 Next
                 If String.IsNullOrWhiteSpace(Info.Version) Then Throw New Exception("JSON 缺少 tag_name")
+                LatestCheckedVersion = Info.Version
                 Logger.Info($"[Update] 已从 {Url} 获取最新版本 {Info.Version}（下载源 {Info.DownloadUrls.Count} 个）")
                 Return Info
             Catch ex As Exception
@@ -339,12 +343,13 @@ Friend Module ModSecret
         End If
         Dim Silent As Boolean = (Mode = 0) '在有新版本时自动下载：静默下载，退出时替换
         RunInNewThread(Sub()
-            Threading.Thread.Sleep(6000)
+            Threading.Thread.Sleep(1200)
+            RunInUi(Sub() Hint("正在检测更新……", HintType.Blue, False))
             Try
                 Dim Info As UpdateInfo = FetchUpdateInfo()
                 If Info Is Nothing Then Return
                 If Not IsNewerVersion(Info.Version) Then Return
-                If Settings.Get(Of String)("SystemIgnoredUpdate") = Info.Version AndAlso Not IsDebugUpdate() Then Return
+                If SnoozedUpdateVersion = Info.Version AndAlso Not IsDebugUpdate() Then Return
                 If Silent Then
                     DownloadUpdateSilently(Info)
                 Else
@@ -355,6 +360,12 @@ Friend Module ModSecret
             End Try
         End Sub, "UpdateAutoCheck", Threading.ThreadPriority.BelowNormal)
     End Sub
+
+    ''' <summary>上一次成功查到的线上最新版本号；没有查过则是空字符串。</summary>
+    Friend LatestCheckedVersion As String = ""
+
+    ''' <summary>本次运行中点过「稍后」的版本：不写设置，重启后照常提示。</summary>
+    Private SnoozedUpdateVersion As String = ""
 
     ''' <summary>已在后台静默下载、等待退出时应用的更新包。</summary>
     Private PendingUpdateExe As String = ""
@@ -433,6 +444,13 @@ Friend Module ModSecret
         Try
             Dim Args As String = $"--update {Process.GetCurrentProcess().Id} ""{PathExe}"" ""{PendingUpdateExe}"" ""False"""
             Logger.Info($"[Update] 退出时应用更新 {PendingUpdateVersion}：{Args}")
+            '写标记：新版本启动时据此弹一次「PCL Harness 已更新至…」
+            Try
+                IO.Directory.CreateDirectory(PathTemp & "Update")
+                IO.File.WriteAllText(PathTemp & "Update\Applied.txt", VersionBaseName)
+            Catch ex As Exception
+                Logger.Warn(ex, "[Update] 写入静默替换标记失败")
+            End Try
             StartProcess(PendingUpdateExe, Args)
         Catch ex As Exception
             Logger.Error(ex, "[Update] 退出时启动更新进程失败")
@@ -456,7 +474,8 @@ Friend Module ModSecret
             Case 2
                 OpenWebsite(If(Info.HtmlUrl = "", $"https://github.com/{UpdateRepo}/releases/latest", Info.HtmlUrl))
             Case Else
-                Settings.Set("SystemIgnoredUpdate", Info.Version)
+                '「稍后」只本次运行内不再提示，不写设置；下次启动还会照常提醒
+                SnoozedUpdateVersion = Info.Version
         End Select
     End Sub
 
@@ -532,9 +551,17 @@ Friend Module ModSecret
             Catch
             End Try
         Finally
-            '删除更新器自身副本（稍等本进程退出后再删）
+            '删除更新器自身副本（稍等本进程退出后再删）；全程隐藏窗口，避免闪出黑框
             Try
-                StartProcess("cmd.exe", $"/c ping -n 3 127.0.0.1 >nul & del /f /q ""{NewFileName}""")
+                Dim CmdPath As String = IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe")
+                Dim CmdInfo As New ProcessStartInfo With {
+                    .FileName = CmdPath,
+                    .Arguments = $"/c ping -n 3 127.0.0.1 >nul & del /f /q ""{NewFileName}""",
+                    .UseShellExecute = False,
+                    .CreateNoWindow = True,
+                    .WindowStyle = ProcessWindowStyle.Hidden
+                }
+                Process.Start(CmdInfo)
             Catch
             End Try
         End Try
