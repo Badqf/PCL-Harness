@@ -6,11 +6,30 @@ Public Class FormMain
 #Region "基础"
 
     '更新日志
+    ''' <summary>待展示的「已更新至…」弹窗对应的旧版本号；-1 表示没有。</summary>
+    Private Shared PendingUpdateLogVersion As Integer = -1
+
+    ''' <summary>展示待处理的更新日志（需在主线程调用）。返回是否展示过。</summary>
+    Private Shared Function ShowPendingUpdateLog() As Boolean
+        If PendingUpdateLogVersion < 0 Then Return False
+        Dim FromVersion As Integer = PendingUpdateLogVersion
+        PendingUpdateLogVersion = -1
+        If FrmMain IsNot Nothing Then FrmMain.ShowUpdateLog(FromVersion)
+        Return True
+    End Function
+
     Private Sub ShowUpdateLog(LastVersion As Integer)
         Dim FeatureCount As Integer = 0, BugCount As Integer = 0
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 426 Then 'PCL Harness 3.4.4
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：升级到新版本后启动一定会弹「PCL Harness 已更新至 …」，不再被历史最高版本号记录跳过"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：启动检测更新后如果已是最新版，会提示「当前为最新版 x.x.x」"))
+                FeatureCount += 2
+                BugCount += 1
+            End If
+
             If LastVersion < 425 Then 'PCL Harness 3.4.3
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：启动时检测更新会弹出「正在检测更新……」提示，且开始检测的等待时间明显缩短"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：静默更新后启动不再闪出黑色命令行窗口；「PCL Harness 已更新至 …」弹窗恢复显示"))
@@ -514,7 +533,12 @@ Public Class FormMain
                 RunInUi(
                     Sub()
                         ModFirstRun.ShowWizardIfNeeded()
-                        ModIntro.ShowIfNeeded()
+                        '更新日志放到介绍页之前：介绍页是独立窗口，会把弹窗盖住（3.4.3 反馈「看不到更新了什么」）
+                        If ShowPendingUpdateLog() Then
+                            '已经弹过更新日志，介绍页留到下次启动，避免又被盖住
+                        Else
+                            ModIntro.ShowIfNeeded()
+                        End If
                     End Sub)
             End Sub, "Startup Dialogs", ThreadPriority.BelowNormal)
         '加载池
@@ -675,25 +699,18 @@ Public Class FormMain
             Logger.Info("已重置 JVM 参数设置")
         End If
         '输出更新日志
+        '只要版本号真的变了就弹一次（不再看「最高版本号」——那个记录会被同版本的其它运行提前拉高，
+        '导致静默更新后反而不弹）；更新说明按「旧版本号 → 当前版本号」这段来取。
         If LastVersionCode <= 0 Then Return
-        '静默替换过：不管「最高版本号」记录如何，都保证弹一次更新日志
         Dim AppliedTag As String = PathTemp & "Update\Applied.txt"
-        Dim AppliedVersion As String = ""
-        Try
-            If IO.File.Exists(AppliedTag) Then AppliedVersion = IO.File.ReadAllText(AppliedTag).Trim()
-        Catch
-        End Try
-        If AppliedVersion <> "" Then
+        If IO.File.Exists(AppliedTag) Then
             Try
                 IO.File.Delete(AppliedTag)
             Catch
             End Try
-            Logger.Info($"[Update] 检测到静默替换标记（上次版本 {AppliedVersion}），展示更新日志")
-            ShowUpdateLog(LastVersionCode)
-            Return
         End If
-        If HighestVersionCode >= VersionCode Then Return
-        ShowUpdateLog(HighestVersionCode)
+        Logger.Info($"[Update] 版本号 {LastVersionCode} → {VersionCode}，稍后展示更新日志")
+        PendingUpdateLogVersion = LastVersionCode
     End Sub
     Private Sub DowngradeSub(LastVersionCode As Integer)
         Logger.Info($"版本号从 {LastVersionCode} 降低到 {VersionCode}")

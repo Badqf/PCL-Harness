@@ -348,7 +348,10 @@ Friend Module ModSecret
             Try
                 Dim Info As UpdateInfo = FetchUpdateInfo()
                 If Info Is Nothing Then Return
-                If Not IsNewerVersion(Info.Version) Then Return
+                If Not IsNewerVersion(Info.Version) Then
+                    RunInUi(Sub() Hint($"当前为最新版 {VersionBaseName}", HintType.Blue, False))
+                    Return
+                End If
                 If SnoozedUpdateVersion = Info.Version AndAlso Not IsDebugUpdate() Then Return
                 If Silent Then
                     DownloadUpdateSilently(Info)
