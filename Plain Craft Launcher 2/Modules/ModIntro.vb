@@ -1,4 +1,4 @@
-﻿'PCL Harness 介绍页
+'PCL Harness 介绍页
 '在启动时展示本启动器与原版 PCL2 的区别与能力，可在 设置 → 启动 中重新打开
 Imports System.Windows
 Imports System.Windows.Controls
@@ -77,7 +77,7 @@ Public Module ModIntro
 
             AddHead(Main, "和原版 PCL2 的区别")
             AddItem(Main, "独立配置目录", "数据统一放在 PCLHarness 文件夹，与原版 PCL 互不覆盖；首次启动可一键迁移旧设置与插件。")
-            AddItem(Main, "外观可切换", "深色 / 浅色外观；主色调限定在蓝色系（合规要求），另有 8 个预设一键切换。")
+            AddItem(Main, "外观可切换", "深色 / 浅色外观；主色调限定在蓝色系（合规要求），另有 4 个预设一键切换。")
             AddItem(Main, "不依赖官方服务", "移除在线更新与联网通知；下载与联机都有本地 / 镜像路线。")
             AddItem(Main, "插件框架（API v5）", "事件总线、强类型设置、日志分级、权限白名单与 sha256 校验；可添加页面、顶栏入口与设置项。")
             AddItem(Main, "联机可完全直连", "P2P 直连：房主把「地址|邀请码」发给朋友即可，公网可用 UPnP 自动映射。")

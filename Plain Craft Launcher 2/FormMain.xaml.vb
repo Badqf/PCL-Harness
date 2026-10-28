@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -11,6 +11,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 422 Then 'PCL Harness 3.4.0
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：联机「虚拟局域网（TUN）模式」，任意游戏、任意端口都能直接连（需要管理员权限）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：TUN 模式下自动创建虚拟网卡，房主固定 10.114.114.1，加入者自动分配 10.114.114.2~254"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：TUN 模式不再需要端口映射，路由器只需放行 EasyTier 监听端口，游戏内直接填虚拟 IP"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
+
             If LastVersion < 421 Then 'PCL Harness 3.3.1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "修复：微软登录的 Client ID 改为内置，陌生电脑无需再手动配置 Secrets.json"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：更新下载时左下角提示只出现一次，不再常驻（进度看右下角「任务管理」）"))

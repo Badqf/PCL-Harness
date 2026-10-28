@@ -325,9 +325,11 @@ Public Class PageLinkMain
         If IsServerSide Then
             LabFinishTitle.Text = "已创建房间"
             If IsDirectMode Then
-                Dim Tip As String = If(String.IsNullOrEmpty(DirectPublicEndpoint),
+                Dim Tip As String = If(IsTunMode,
+                    $"虚拟局域网（TUN）已启用：让朋友在游戏里连接 {TunHostIp}:{ServerPort}。路由器只需放行 EasyTier 监听端口 {DirectListenPort}（UPnP 会自动尝试）。",
+                    If(String.IsNullOrEmpty(DirectPublicEndpoint),
                     "同一局域网的电脑可以直接连；公网需要路由器开启 UPnP 或手动端口映射。",
-                    $"外网地址（UPnP 已自动映射）：{DirectPublicEndpoint}")
+                    $"外网地址（UPnP 已自动映射）：{DirectPublicEndpoint}"))
                 LabFinishDesc.Text = $"直连模式已开启，把下面这串发给朋友：{vbCrLf}{GetDirectInvite()}{vbCrLf}{Tip}"
                 RefreshAddressPanel()
                 If Settings.Get(Of Boolean)("LinkAutoPublicIp") AndAlso String.IsNullOrEmpty(DirectPublicIp) Then DetectPublicIpCore()
@@ -347,7 +349,11 @@ Public Class PageLinkMain
             LabFinishPort.Text = ServerPort
         Else
             LabFinishTitle.Text = "已加入房间"
-            LabFinishDesc.Text = $"在多人游戏页面的最下方就能找到联机房间！{vbCrLf}注意：使用离线登录时不要手动输入 IP！"
+            If IsTunMode Then
+                LabFinishDesc.Text = $"已加入虚拟局域网！{vbCrLf}在游戏里直接连接：{TunHostIp}:{ServerPort}"
+            Else
+                LabFinishDesc.Text = $"在多人游戏页面的最下方就能找到联机房间！{vbCrLf}注意：使用离线登录时不要手动输入 IP！"
+            End If
             PanAddress.Visibility = Visibility.Collapsed
             BtnFinishExit.Text = "离开"
             BtnFinishPing.ToolTip = "与房主的延迟"
@@ -484,6 +490,24 @@ Public Class PageLinkMain
     Private DirectPublicIp As String = Nothing
     ''' <summary>公网 IP 的来源描述（路由器 UPnP 或 HTTPS 查询）。</summary>
     Private DirectPublicIpSource As String = Nothing
+
+    ''' <summary>
+    ''' 是否启用虚拟局域网（TUN）模式：需要管理员权限，双方通过虚拟 IP 互联，可支持任意游戏与端口。
+    ''' 必须在直连模式基础上启用。
+    ''' </summary>
+    Public ReadOnly Property IsTunMode As Boolean
+        Get
+            Return IsDirectMode AndAlso Settings.Get(Of Boolean)("LinkTunMode")
+        End Get
+    End Property
+    ''' <summary>房主在虚拟局域网中的固定 IP。</summary>
+    Private Const TunHostIp As String = "10.114.114.1"
+    ''' <summary>加入者在虚拟局域网中的本机 IP。</summary>
+    Private TunLocalIp As String = Nothing
+    ''' <summary>TUN 提权启动时，联机模块控制台输出写入的文件。</summary>
+    Private Shared TunLogFile As String = Nothing
+    Private Shared TunLogOffset As Long = 0
+    Private Shared TunLogThread As Threading.Thread = Nothing
 
 #Region "加载"
 
@@ -646,27 +670,42 @@ Public Class PageLinkMain
         Dim ListenersPort As Integer = FreePorts(2) '它会占用【当前、当前 +1、当前 +2】共三个端口
         '获取启动参数
         Dim Arguments As String = ServerConfig("Link")("Argument")
+        If IsTunMode Then Arguments = Arguments.Replace("--no-tun", "").Replace("  ", " ").Trim()
         Arguments += $" --network-name={NetworkName} --network-secret={NetworkSecret} --rpc-portal {RPCPort} --private-mode true"
         If IsDirectMode Then
             '直连模式：只用 TCP + UDP 监听，且禁止 STUN 与中继
             DirectListenPort = FindFreePorts(1, 11010)(0)
             Arguments += $" --listeners tcp://0.0.0.0:{DirectListenPort} udp://0.0.0.0:{DirectListenPort}"
             Arguments += " --p2p-only true --stun-servers """""
+            If IsTunMode Then Arguments += " --enable-udp-broadcast-relay true"
             Logger.Info($"直连模式监听端口：{DirectListenPort}")
         Else
             Arguments += $" --listeners {ListenersPort}"
         End If
         Dim HostName = If(IsServerSide, "Server-", "Client-") & Identify.GetStableHashCode().ConvertRadix(36).TrimStart("-"c).EnsureLength("0", 6)
         If IsServerSide Then
-            Arguments += $" -i 10.114.114.114 --hostname={HostName} --tcp-whitelist={ServerPort} --udp-whitelist={ServerPort}"
+            If IsTunMode Then
+                Arguments += $" -i {TunHostIp}/24 --hostname={HostName} --tcp-whitelist=0 --udp-whitelist=0"
+                Logger.Info($"TUN 模式：房主虚拟 IP {TunHostIp}")
+            Else
+                Arguments += $" -i 10.114.114.114 --hostname={HostName} --tcp-whitelist={ServerPort} --udp-whitelist={ServerPort}"
+            End If
         Else
-            Arguments += $" -d --hostname={HostName} --tcp-whitelist=0 --udp-whitelist=0"
-            '端口转发
-            ClientAddress = $"localhost:{ClientPort}"
-            Arguments += $" --port-forward tcp://[{IPAddress.IPv6Loopback}]:{ClientPort}/10.114.114.114:{ServerPort}"
-            Arguments += $" --port-forward udp://[{IPAddress.IPv6Loopback}]:{ClientPort}/10.114.114.114:{ServerPort}"
-            Arguments += $" --port-forward tcp://{IPAddress.Loopback}:{ClientPort}/10.114.114.114:{ServerPort}"
-            Arguments += $" --port-forward udp://{IPAddress.Loopback}:{ClientPort}/10.114.114.114:{ServerPort}"
+            If IsTunMode Then
+                Dim GameRnd As New Random()
+                TunLocalIp = $"10.114.114.{GameRnd.Next(2, 255)}"
+                Arguments += $" -i {TunLocalIp}/24 --hostname={HostName} --tcp-whitelist=0 --udp-whitelist=0"
+                ClientAddress = $"{TunHostIp}:{ServerPort}"
+                Logger.Info($"TUN 模式：加入者虚拟 IP {TunLocalIp}，游戏内连接 {ClientAddress}")
+            Else
+                Arguments += $" -d --hostname={HostName} --tcp-whitelist=0 --udp-whitelist=0"
+                '端口转发
+                ClientAddress = $"localhost:{ClientPort}"
+                Arguments += $" --port-forward tcp://[{IPAddress.IPv6Loopback}]:{ClientPort}/10.114.114.114:{ServerPort}"
+                Arguments += $" --port-forward udp://[{IPAddress.IPv6Loopback}]:{ClientPort}/10.114.114.114:{ServerPort}"
+                Arguments += $" --port-forward tcp://{IPAddress.Loopback}:{ClientPort}/10.114.114.114:{ServerPort}"
+                Arguments += $" --port-forward udp://{IPAddress.Loopback}:{ClientPort}/10.114.114.114:{ServerPort}"
+            End If
         End If
         For Each Peer As String In RawPeers
             Arguments += $" -p=""{Peer}"""
@@ -687,7 +726,7 @@ Public Class PageLinkMain
         Task.Progress = 0.15
         '等待连接（直连模式的房主只负责监听，不需要等任何人）
         If IsDirectMode AndAlso IsServerSide Then
-            Thread.Sleep(1200)
+            If IsTunMode Then WaitTunReady() Else Thread.Sleep(1200)
             Task.Progress = 1
             Exit Sub
         End If
@@ -738,6 +777,7 @@ Public Class PageLinkMain
             End If
         Loop Until Task.IsCanceled
         If Task.IsCanceled Then Throw New OperationCanceledException
+        If IsTunMode Then WaitTunReady()
         '等待连接稳定，最多 5s
         If IsServerSide Then Return
         UpdateLoadingPage("连接优化中……", "优化连接")
@@ -861,6 +901,7 @@ ForcedPass:
     ''' </summary>
     Public Shared Sub ProcessStop()
         Try
+            StopTunLogPump()
             '关闭未捕获的进程
             For Each ProcessObject In Process.GetProcesses
                 If ProcessObject.Id = ProcessCore?.Id Then Continue For
@@ -955,6 +996,10 @@ ForcedPass:
     ''' 启动进程。
     ''' </summary>
     Private Sub ProcessStart(Arguments As String)
+        If IsTunMode AndAlso Not IsAdmin() Then
+            ProcessStartElevated(Arguments)
+            Return
+        End If
         Dim Info = New ProcessStartInfo With {
             .FileName = PathEasyTier & "联机模块.exe",
             .Arguments = Arguments,
@@ -1005,6 +1050,110 @@ ForcedPass:
         End If
     End Sub
     Private LogHistory As New Queue(Of String)(10)
+
+    ''' <summary>
+    ''' TUN 模式需要管理员权限创建虚拟网卡。用 cmd 包装一层并把输出写进文件再回读，
+    ''' 既保留 ProcessLogLine 的解析，也不用给启动器本体提权。
+    ''' </summary>
+    Private Sub ProcessStartElevated(Arguments As String)
+        Dim ExePath As String = PathEasyTier & "联机模块.exe"
+        TunLogFile = PathEasyTier & "link-console.log"
+        TunLogOffset = 0
+        Try
+            IO.File.Delete(TunLogFile)
+        Catch
+        End Try
+        Dim ScriptPath As String = PathEasyTier & "link-elevated.cmd"
+        Dim Script As String = "@echo off" & vbCrLf &
+            "chcp 65001 >nul" & vbCrLf &
+            "cd /d ""%~dp0""" & vbCrLf &
+            """" & ExePath & """ " & Arguments & " > """ & TunLogFile & """ 2>&1" & vbCrLf
+        IO.File.WriteAllText(ScriptPath, Script, New UTF8Encoding(False))
+        Dim Info As New ProcessStartInfo With {
+            .FileName = "cmd.exe",
+            .Arguments = "/c """"" & ScriptPath & """""",
+            .UseShellExecute = True,
+            .Verb = "runas",
+            .WindowStyle = ProcessWindowStyle.Hidden,
+            .WorkingDirectory = PathEasyTier
+        }
+        Logger.Info($"正在以管理员权限启动 EasyTier（TUN 模式）：{Arguments}")
+        Try
+            ProcessCore = Process.Start(Info)
+        Catch ex As ComponentModel.Win32Exception
+            If ex.NativeErrorCode = 1223 Then
+                Panic("需要管理员权限", "虚拟局域网（TUN）模式需要管理员权限来创建虚拟网卡，但你在 UAC 提示里点了「否」。" & vbCrLf & vbCrLf & "请重新创建房间，并在系统提示时选择「是」。")
+                Return
+            End If
+            Throw
+        End Try
+        StartTunLogPump()
+    End Sub
+
+    Private Sub StartTunLogPump()
+        TunLogThread = New Threading.Thread(
+            Sub()
+                While ProcessCore IsNot Nothing AndAlso Not ProcessCore.HasExited
+                    Try
+                        If TunLogFile IsNot Nothing AndAlso IO.File.Exists(TunLogFile) Then
+                            Using Fs As New IO.FileStream(TunLogFile, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.ReadWrite)
+                                Fs.Seek(TunLogOffset, IO.SeekOrigin.Begin)
+                                Using Reader As New IO.StreamReader(Fs, Encoding.UTF8)
+                                    Dim Text As String = Reader.ReadToEnd()
+                                    TunLogOffset = Fs.Position
+                                    For Each Line As String In Text.Split({ControlChars.Cr, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+                                        ProcessLogLine(Line)
+                                    Next
+                                End Using
+                            End Using
+                        End If
+                    Catch ex As Exception
+                        Logger.Warn(ex, "读取提权联机模块输出失败")
+                    End Try
+                    Threading.Thread.Sleep(300)
+                End While
+            End Sub) With {.IsBackground = True, .Name = "联机模块日志回读"}
+        TunLogThread.Start()
+    End Sub
+
+    Private Shared Sub StopTunLogPump()
+        TunLogFile = Nothing
+        TunLogOffset = 0
+        TunLogThread = Nothing
+    End Sub
+
+    ''' <summary>等待虚拟网卡就绪：轮询本机是否已分配到 10.114.114.x 地址。</summary>
+    Private Sub WaitTunReady()
+        Dim Expect As String = If(IsServerSide, TunHostIp, TunLocalIp)
+        UpdateLoadingPage("正在创建虚拟网卡……", "等待虚拟网卡")
+        For i As Integer = 1 To 60
+            If TunAdapterReady(Expect) Then
+                Logger.Info($"虚拟网卡已就绪：{Expect}")
+                Return
+            End If
+            If ProcessCore Is Nothing OrElse ProcessCore.HasExited Then
+                Panic("虚拟网卡创建失败", "联机模块在创建虚拟网卡前就退出了。" & vbCrLf & "常见原因：UAC 提权被拒绝、缺少 wintun.dll、或被安全软件拦截。" & vbCrLf & vbCrLf & "近期日志：" & vbCrLf & String.Join(vbCrLf, LogHistory))
+                Return
+            End If
+            Threading.Thread.Sleep(250)
+        Next
+        Panic("虚拟网卡创建超时", $"15 秒内没有检测到虚拟网卡地址 {Expect}。" & vbCrLf & "请确认系统提示里允许了管理员权限，并允许联机模块通过防火墙。" & vbCrLf & vbCrLf & "近期日志：" & vbCrLf & String.Join(vbCrLf, LogHistory))
+    End Sub
+
+    Private Function TunAdapterReady(Expect As String) As Boolean
+        If String.IsNullOrEmpty(Expect) Then Return False
+        Try
+            For Each Nic As System.Net.NetworkInformation.NetworkInterface In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                If Nic.OperationalStatus <> System.Net.NetworkInformation.OperationalStatus.Up Then Continue For
+                For Each Addr As System.Net.NetworkInformation.UnicastIPAddressInformation In Nic.GetIPProperties().UnicastAddresses
+                    If Addr.Address.AddressFamily = Net.Sockets.AddressFamily.InterNetwork AndAlso Addr.Address.ToString() = Expect Then Return True
+                Next
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "检测虚拟网卡失败")
+        End Try
+        Return False
+    End Function
 
 #End Region
 
@@ -1290,8 +1439,8 @@ ForcedPass:
             ChangeState(LinkStates.Waiting)
             Return
         End If
-        '广播联机房间端口
-        If Not IsServerSide Then
+        '广播联机房间端口（TUN 模式下走虚拟网卡直连，不需要本机端口广播）
+        If Not IsServerSide AndAlso Not IsTunMode Then
             Try
                 Static BroadcastSocket As New Socket(SocketType.Dgram, ProtocolType.Udp)
                 BroadcastSocket.SendTo(
