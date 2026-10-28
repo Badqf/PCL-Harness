@@ -134,15 +134,29 @@ Public Class PageLinkMain
     Public Sub JoinInternal(Code As String)
         If Code Is Nothing Then Return
         Code = Code.Between("【", "】").Trim() '从完整消息中提取
-        '直连邀请：房主地址|邀请码
+        '直连邀请：房主地址|邀请码（地址可以是用逗号分开的多个，外网在前、局域网在后）
         DirectPeerAddress = Nothing
+        DirectPeerAddresses.Clear()
         If Code.Contains("|") Then
             Dim Parts = Code.Split("|"c)
-            If Parts.Length <> 2 OrElse Not Parts(0).Contains(":") Then
+            If Parts.Length <> 2 Then
                 Hint("直连邀请格式不对，应为「房主IP:端口|邀请码」", HintType.Red)
                 Return
             End If
-            DirectPeerAddress = Parts(0).Trim
+            For Each Address In Parts(0).Split(","c)
+                Dim One = Address.Trim()
+                If One.Length = 0 Then Continue For
+                If Not One.Contains(":") Then
+                    Hint("直连邀请格式不对，应为「房主IP:端口|邀请码」", HintType.Red)
+                    Return
+                End If
+                DirectPeerAddresses.Add(One)
+            Next
+            If DirectPeerAddresses.Count = 0 Then
+                Hint("直连邀请格式不对，应为「房主IP:端口|邀请码」", HintType.Red)
+                Return
+            End If
+            DirectPeerAddress = String.Join(",", DirectPeerAddresses)
             Code = Parts(1).Trim
             Logger.Info($"使用直连模式，房主地址：{DirectPeerAddress}")
         End If
@@ -328,8 +342,8 @@ Public Class PageLinkMain
                 Dim Tip As String = If(IsTunMode,
                     $"虚拟局域网（TUN）已启用：让朋友在游戏里连接 {TunHostIp}:{ServerPort}。路由器只需放行 EasyTier 监听端口 {DirectListenPort}（UPnP 会自动尝试）。",
                     If(String.IsNullOrEmpty(DirectPublicEndpoint),
-                    "同一局域网的电脑可以直接连；公网需要路由器开启 UPnP 或手动端口映射。",
-                    $"外网地址（UPnP 已自动映射）：{DirectPublicEndpoint}"))
+                    "没有映射到公网，这条邀请只能在同一局域网里用；要留给外网的朋友，得让路由器开 UPnP 或手动做端口映射。",
+                    $"已经带上外网地址 {DirectPublicEndpoint}，外网的朋友也能直接加入（前一个地址优先，后一个给同一局域网用）。"))
                 LabFinishDesc.Text = $"直连模式已开启，把下面这串发给朋友：{vbCrLf}{GetDirectInvite()}{vbCrLf}{Tip}"
                 RefreshAddressPanel()
                 If Settings.Get(Of Boolean)("LinkAutoPublicIp") AndAlso String.IsNullOrEmpty(DirectPublicIp) Then DetectPublicIpCore()
@@ -409,13 +423,17 @@ Public Class PageLinkMain
 
     ''' <summary>
     ''' 直连模式下发给朋友的完整内容：房主地址|邀请码。
-    ''' 非直连模式或加入者返回普通邀请码。
+    ''' 外网地址（UPnP 映射成功时）排在前面，这样不在同一局域网的朋友也能直接用；
+    ''' 局域网地址附在后面，同局域网时更稳。
     ''' </summary>
     Private Function GetDirectInvite() As String
         If Not IsDirectMode OrElse Not IsServerSide Then Return GetInviteCode()
+        Dim Addresses As New List(Of String)
+        If Not String.IsNullOrEmpty(DirectPublicEndpoint) Then Addresses.Add(DirectPublicEndpoint)
         Dim LanIp As String = ModUpnp.GetLanIPv4()
         If String.IsNullOrEmpty(LanIp) Then LanIp = "127.0.0.1"
-        Return $"{LanIp}:{DirectListenPort}|{GetInviteCode()}"
+        Addresses.Add($"{LanIp}:{DirectListenPort}")
+        Return $"{String.Join(",", Addresses.Distinct())}|{GetInviteCode()}"
     End Function
 
 
@@ -475,7 +493,11 @@ Public Class PageLinkMain
         End Get
     End Property
     ''' <summary>
-    ''' 直连模式下加入者填写的房主地址（IP:端口）。
+    ''' 直连模式下加入者拿到的房主地址列表（IP:端口），可能同时包含外网与局域网。
+    ''' </summary>
+    Private ReadOnly DirectPeerAddresses As New List(Of String)
+    ''' <summary>
+    ''' 直连模式下加入者填写的房主地址（IP:端口），多个地址用逗号连接，仅用于日志与展示。
     ''' </summary>
     Private DirectPeerAddress As String = Nothing
     ''' <summary>
@@ -647,8 +669,11 @@ Public Class PageLinkMain
                     Panic("缺少房主地址", "直连模式需要「房主地址|邀请码」格式的邀请，请向房主重新索要。")
                     Return
                 End If
-                RawPeers.Add($"tcp://{DirectPeerAddress}")
-                RawPeers.Add($"udp://{DirectPeerAddress}")
+                '邀请里可能同时带外网与局域网地址，逐个尝试（外网在前）
+                For Each Address In DirectPeerAddresses
+                    RawPeers.Add($"tcp://{Address}")
+                    RawPeers.Add($"udp://{Address}")
+                Next
             End If
             Logger.Info($"直连模式：{(If(IsServerSide, "房主仅监听", "连接 " & String.Join("、", RawPeers)))}")
         Else
@@ -792,7 +817,11 @@ Public Class PageLinkMain
                         Panic("无法启动联机模块", "近期日志：" & vbCrLf & LogHistory.Join(vbCrLf))
                     Case 0 'CLI 有返回，但未连接到任何节点
                         If IsDirectMode Then
-                            Panic("无法连接到节点", $"没有连上邀请码里的地址。请确认：{vbCrLf}- 房主的电脑和端口 {ServerPort} 可以访问（房主需放行防火墙）{vbCrLf}- 你在同一局域网，或房主已做端口映射{vbCrLf}- 邀请码没有输错、房间还没关闭")
+                            Dim LanOnly As Boolean = DirectPeerAddresses.Count > 0 AndAlso DirectPeerAddresses.All(Function(a) IsPrivateEndpoint(a))
+                            Dim Extra As String = If(LanOnly,
+                                $"{vbCrLf}{vbCrLf}注意：这条邀请里只有内网地址（{DirectPeerAddress}），只能和房主在同一个局域网时使用。{vbCrLf}如果你们不在同一个网络，需要房主那边的路由器开 UPnP 或手动做端口映射，重新创建房间后再把新邀请发给你。",
+                                "")
+                            Panic("无法连接到节点", $"没有连上邀请码里的地址（{DirectPeerAddress}）。请确认：{vbCrLf}- 房主的电脑和端口 {ServerPort} 可以访问（房主需放行防火墙）{vbCrLf}- 邀请里的地址和端口没有被路由器挡住{vbCrLf}- 邀请码没有输错、房间还没关闭{Extra}")
                         Else
                             Panic("无法连接到节点", $"当前没开直连模式，联机需要通过中继节点 {String.Join("、", RawPeers)}，而这些节点目前连不上。{vbCrLf}{vbCrLf}建议：设置 → 联机 → 勾选「打开直连模式」，然后用邀请码直连（不需要中继节点）。")
                         End If
@@ -1573,6 +1602,25 @@ ForcedPass:
         Catch ex As Exception
             Return False
         End Try
+    End Function
+
+    ''' <summary>
+    ''' 判断「IP:端口」是不是内网地址（10/8、172.16/12、192.168/16、127/8、169.254/16）。
+    ''' 邀请里只有内网地址时，跨网络是连不上的，得在报错里直接说清楚。
+    ''' </summary>
+    Private Shared Function IsPrivateEndpoint(Endpoint As String) As Boolean
+        If String.IsNullOrEmpty(Endpoint) Then Return True
+        Dim Host As String = Endpoint.Split(":"c).FirstOrDefault()
+        If String.IsNullOrEmpty(Host) Then Return True
+        Dim Ip As Net.IPAddress = Nothing
+        If Not Net.IPAddress.TryParse(Host, Ip) Then Return False
+        Dim Bytes = Ip.GetAddressBytes()
+        If Bytes.Length <> 4 Then Return Ip.IsIPv6LinkLocal OrElse Ip.IsIPv6SiteLocal
+        If Bytes(0) = 10 OrElse Bytes(0) = 127 Then Return True
+        If Bytes(0) = 192 AndAlso Bytes(1) = 168 Then Return True
+        If Bytes(0) = 172 AndAlso Bytes(1) >= 16 AndAlso Bytes(1) <= 31 Then Return True
+        If Bytes(0) = 169 AndAlso Bytes(1) = 254 Then Return True
+        Return False
     End Function
 
     ''' <summary>

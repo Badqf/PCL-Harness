@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 429 Then 'PCL Harness 3.4.7
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：直连邀请现在会同时带上外网地址和局域网地址，外网的朋友也能直接加入，不再只给一条连不上的内网地址"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：跨网络加入失败时，会明确提示「邀请里只有内网地址」，并告诉房主该怎么开 UPnP 或端口映射"))
+                FeatureCount += 1
+                BugCount += 1
+            End If
+
             If LastVersion < 428 Then 'PCL Harness 3.4.6
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：在装有 Hyper-V、WSL、Docker 的电脑上创建房间时，联机模块可能因为端口被系统预留而报「监听端口失败」并崩溃"))
                 FeatureCount += 0
