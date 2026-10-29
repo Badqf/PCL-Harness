@@ -345,3 +345,5 @@ MaskFiles/
 
 # 上游发布补丁包（不进版本库）
 patches/
+
+*_wpftmp.vbproj
