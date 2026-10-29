@@ -113,6 +113,7 @@ Public Module ModPlugin
         End Property
         Public ReadOnly Property StatusText As String
             Get
+                If IsPluginFused(Me) Then Return $"已熔断（连续失败 {FuseThreshold} 次，已自动禁用）：" & [Error]
                 If Not String.IsNullOrEmpty([Error]) Then Return "加载失败：" & [Error]
                 If Loaded Then Return "已启用并加载"
                 If Enabled AndAlso Not HasDll Then Return "已启用（仅清单，未加载代码）"
@@ -325,6 +326,74 @@ Public Module ModPlugin
         End Try
     End Sub
 
+    ' ================= API v6 第二梯队：崩溃熔断 =================
+
+    ''' <summary>同一个插件连续失败多少次后自动禁用（熔断）。</summary>
+    Public Const FuseThreshold As Integer = 3
+
+    Private ReadOnly FuseLock As New Object
+    Private ReadOnly FuseCounts As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>插件当前的连续失败次数。</summary>
+    Public Function PluginFailCount(Info As PluginInfo) As Integer
+        If Info Is Nothing Then Return 0
+        SyncLock FuseLock
+            Dim Count As Integer = 0
+            If FuseCounts.TryGetValue(Info.Id, Count) Then Return Count
+        End SyncLock
+        Return 0
+    End Function
+
+    ''' <summary>插件是否已经因为连续失败被自动禁用。</summary>
+    Public Function IsPluginFused(Info As PluginInfo) As Boolean
+        If Info Is Nothing Then Return False
+        Return Not Info.Enabled AndAlso PluginFailCount(Info) >= FuseThreshold
+    End Function
+
+    ''' <summary>把插件的连续失败计数清零（用户重新启用时调用）。</summary>
+    Public Sub ResetPluginFailures(Info As PluginInfo)
+        If Info Is Nothing Then Return
+        SyncLock FuseLock
+            FuseCounts.Remove(Info.Id)
+        End SyncLock
+    End Sub
+
+    ''' <summary>
+    ''' 记录一次插件失败（加载、事件处理、界面回调都算）。
+    ''' 连续失败达到 FuseThreshold 次时自动禁用该插件并弹出提示，返回 True 表示这一次刚好熔断。
+    ''' </summary>
+    Public Function NotePluginFailure(Info As PluginInfo, Where As String, Ex As Exception) As Boolean
+        If Info Is Nothing Then Return False
+        Dim Reason As String = If(Ex Is Nothing, "", If(Ex.GetBaseException().Message, Ex.Message))
+        Dim Count As Integer
+        SyncLock FuseLock
+            FuseCounts.TryGetValue(Info.Id, Count)
+            Count += 1
+            FuseCounts(Info.Id) = Count
+        End SyncLock
+        Info.AddEvent($"失败 {Count}/{FuseThreshold}（{Where}）：{Reason}")
+        PluginDevLog.Warn(Info.DisplayName, $"失败 {Count}/{FuseThreshold}（{Where}）：{Reason}")
+        Try
+            Logger.Error(If(Ex, New Exception(Reason)), $"插件失败（{Where}）{Count}/{FuseThreshold}：{Info.DisplayName}", LogBehavior.None)
+        Catch
+            '日志失败不影响熔断
+        End Try
+        If Count < FuseThreshold Then Return False
+        '连续失败达到阈值：熔断
+        Info.[Error] = $"连续 {Count} 次出错，已自动禁用（最近一次：{Where}）：{Reason}"
+        Info.AddEvent("已熔断：连续失败达到阈值，插件被自动禁用")
+        Try
+            SetEnabled(Info, False)
+        Catch exc As Exception
+            Logger.Error(exc, "熔断插件时出错：" & Info.DisplayName, LogBehavior.None)
+        End Try
+        Try
+            RunInUi(Sub() ModMain.Hint($"插件「{Info.DisplayName}」连续出错 {Count} 次，已自动禁用；可在插件页重新启用。", HintType.Red, True))
+        Catch exc As Exception
+            Logger.Error(exc, "提示插件熔断时出错", LogBehavior.None)
+        End Try
+        Return True
+    End Function
     ''' <summary>
     ''' 加载单个插件。
     ''' </summary>
@@ -388,6 +457,7 @@ Public Module ModPlugin
             Info.[Error] = ex.GetBaseException().Message
             Info.AddEvent("加载失败：" & ex.GetBaseException().Message)
             Logger.Error(ex, "加载插件失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "加载", ex) '连续失败会自动熔断
         End Try
     End Sub
 
@@ -429,6 +499,7 @@ Public Module ModPlugin
         If Info Is Nothing Then Return
         Info.Enabled = Value
         If Value Then
+            ResetPluginFailures(Info) '用户重新启用就是重新计数，熔断状态解除
             LoadOne(Info)
         Else
             If Info.Loaded AndAlso Info.Instance IsNot Nothing Then
@@ -622,6 +693,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件页面失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
         Try
             Dim Navs = Ui.GetNavItems()
@@ -636,6 +708,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件入口失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
         Try
             Dim Sets = Ui.GetSettings()
@@ -649,6 +722,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件设置失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
         If Not TypeOf Info.Instance Is IPclPluginUi2 Then Return
         Dim Ui2 = CType(Info.Instance, IPclPluginUi2)
@@ -663,6 +737,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件主页卡片失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
         Try
             Dim Cards = Ui2.GetSettingsCards()
@@ -675,6 +750,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件设置卡片失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
         Try
             Dim Widgets = Ui2.GetStatusWidgets()
@@ -687,6 +763,7 @@ Public Module ModPlugin
             End If
         Catch ex As Exception
             Logger.Error(ex, "读取插件状态栏组件失败：" & Info.DisplayName, LogBehavior.None)
+            NotePluginFailure(Info, "读取界面", ex)
         End Try
     End Sub
 
@@ -1347,6 +1424,9 @@ Public Module ModPlugin
     ''' 支持优先级（数值大的先执行）、一次性订阅（执行后自动移除）与异步分发。
     ''' </summary>
     Public Class PluginEventBus
+        '属于哪个插件（用于把处理器异常计入该插件的熔断计数）
+        Friend Property OwnerInfo As ModPlugin.PluginInfo
+
         Private Class Subscription
             Public Handler As [Delegate]
             Public Priority As Integer
@@ -1431,6 +1511,7 @@ Public Module ModPlugin
                     Executed += 1
                 Catch ex As Exception
                     PluginDevLog.Error("事件总线", $"处理 {EventName} 时出错：{ex.GetBaseException().Message}")
+                    If OwnerInfo IsNot Nothing Then NotePluginFailure(OwnerInfo, "事件" & EventName, ex)
                     Logger.Error(ex, "插件事件处理失败：" & EventName, LogBehavior.None)
                 End Try
                 If Item.OnlyOnce Then
@@ -1909,6 +1990,7 @@ Public Class PluginHost
         Me.Info = Info
         Me.Services = New PluginServiceAccessor(If(Info.Id, Info.DisplayName))
         Me.Tasks = New PluginTaskManager(If(Info.Id, Info.DisplayName))
+        Me.Events.OwnerInfo = Info
     End Sub
 
     ''' <summary>API v6：在开发日志里记一条信息（会显示在插件页的开发模式控制台）。</summary>

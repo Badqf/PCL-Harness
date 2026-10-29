@@ -1,4 +1,4 @@
-﻿Imports System.Linq
+Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -11,7 +11,7 @@ Imports System.Windows.Media
 ''' </summary>
 Public Class PagePlugin
 
-    ''' <summary>当前分区：0 插件管理 / 1 扩展点 / 2 开发说明 / 3 开发模式。</summary>
+    ''' <summary>当前分区：0 插件管理 / 1 插件设置 / 2 开发说明 / 3 控制台。</summary>
     Public SectionIndex As Integer = 0
 
     Private IsRebuilding As Boolean
@@ -151,13 +151,13 @@ Public Class PagePlugin
         RefreshManageRows()
     End Sub
 
-    ' ================= 开发模式（API v6）：实时日志 + 命令回显 =================
+    ' ================= 控制台（API v6）：实时日志 + 命令回显 =================
 
     Private DevTimer As System.Windows.Threading.DispatcherTimer
     Private DevLogBox As MyTextBox
 
     Private Sub BuildDevMode()
-        Dim Card = NewCard("开发模式")
+        Dim Card = NewCard("控制台")
         Dim Body As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
         Body.Children.Add(MkHint("实时显示插件事件、服务注册、后台任务和宿主调用。支持的命令：help / events / plugins / services / tasks / emit 事件名 / clear"))
 
@@ -173,7 +173,7 @@ Public Class PagePlugin
             .TextWrapping = TextWrapping.NoWrap,
             .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             .HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            .Height = 420,
+            .Height = 260,
             .VerticalContentAlignment = VerticalAlignment.Top,
             .FontFamily = New Media.FontFamily("Consolas, Microsoft YaHei UI"),
             .FontSize = 12,
@@ -314,59 +314,71 @@ Public Class PagePlugin
             ManageListBody.Children.Add(MkHint($"没有匹配「{ManageSearch}」的插件，换个关键词试试。"))
             Return
         End If
-        Dim GridList As New Grid
-        GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(300)})
-        GridList.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
-        For i = 0 To Shown.Count - 1
-            GridList.RowDefinitions.Add(New RowDefinition With {.Height = GridLength.Auto})
-            BuildPluginRow(GridList, i, Shown(i))
+        For Each Info In Shown
+            ManageListBody.Children.Add(BuildPluginCard(Info))
         Next
-        ManageListBody.Children.Add(GridList)
     End Sub
 
-    Private Sub BuildPluginRow(Table As Grid, RowIndex As Integer, Info As ModPlugin.PluginInfo)
-        '左：名称 + 作者/状态 + 描述
-        Dim Left As New StackPanel With {.Margin = New Thickness(0, 8, 24, 8), .VerticalAlignment = VerticalAlignment.Center}
+    ''' <summary>把一个插件渲染成一张卡片（仿 Mod 管理的卡片式列表）。</summary>
+    Private Function BuildPluginCard(Info As ModPlugin.PluginInfo) As MyCard
+        Dim Card As New MyCard With {.Margin = New Thickness(0, 0, 0, 10)}
+        Dim GridMain As New Grid With {.Margin = New Thickness(18, 14, 18, 14)}
+        GridMain.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+        GridMain.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+
+        ' ---- 左：名称 / 作者 / 状态 / 说明 ----
+        Dim Left As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 0, 16, 0)}
+
         Dim LineName As New StackPanel With {.Orientation = Orientation.Horizontal}
-        LineName.Children.Add(New TextBlock With {.Text = Info.DisplayName, .FontSize = 13.5, .FontWeight = FontWeights.SemiBold, .VerticalAlignment = VerticalAlignment.Center})
+        LineName.Children.Add(New TextBlock With {.Text = If(Info.DisplayName, ""), .FontSize = 14.5, .FontWeight = FontWeights.SemiBold, .VerticalAlignment = VerticalAlignment.Center})
         If Not String.IsNullOrWhiteSpace(Info.Version) Then
-            LineName.Children.Add(New TextBlock With {.Text = "  v" & Info.Version, .FontSize = 11.5, .Margin = New Thickness(6, 0, 0, 1), .VerticalAlignment = VerticalAlignment.Center, .Foreground = Res("ColorBrushGray2")})
+            LineName.Children.Add(New TextBlock With {.Text = "v" & Info.Version, .FontSize = 11.5, .Margin = New Thickness(8, 2, 0, 0), .VerticalAlignment = VerticalAlignment.Center, .Foreground = Res("ColorBrushGray2")})
         End If
         Left.Children.Add(LineName)
 
-        Dim LineMeta As New TextBlock With {.FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 2, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300}
-        LineMeta.Inlines.Add(New Run("作者：" & If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)))
-        LineMeta.Inlines.Add(New Run("　·　" & Info.StatusText))
+        Dim LineMeta As New TextBlock With {.FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap}
+        LineMeta.Inlines.Add(New Run(If(String.IsNullOrWhiteSpace(Info.Author), "未知作者", Info.Author)))
+        LineMeta.Inlines.Add(New Run("　·　"))
+        LineMeta.Inlines.Add(New Run(Info.StatusText) With {.Foreground = If(IsPluginFused(Info) OrElse Not String.IsNullOrEmpty(Info.[Error]), Res("ColorBrushRed"), Res("ColorBrushGray2"))})
         Left.Children.Add(LineMeta)
 
         If Not String.IsNullOrWhiteSpace(Info.Description) Then
-            Left.Children.Add(New TextBlock With {.Text = Info.Description, .FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
+            Left.Children.Add(New TextBlock With {.Text = Info.Description, .FontSize = 12, .Margin = New Thickness(0, 5, 0, 0), .TextWrapping = TextWrapping.Wrap, .Foreground = Res("ColorBrushGray2")})
         End If
 
         Dim MetaExtra As New List(Of String)
         If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
+        If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
         If MetaExtra.Count > 0 Then
-            Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxWidth = 300})
+            Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
-        Table.SetRow(Left, RowIndex)
-        Table.SetColumn(Left, 0)
-        Table.Children.Add(Left)
 
-        '右：启停复选框
-        Dim Right As New StackPanel With {.Orientation = Orientation.Horizontal, .VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 8, 0, 8)}
-        Dim Chk As New MyCheckBox With {.VerticalAlignment = VerticalAlignment.Center, .Margin = New Thickness(0, 0, 12, 0)}
+        If Not String.IsNullOrEmpty(Info.[Error]) Then
+            Left.Children.Add(New TextBlock With {.Text = Info.[Error], .FontSize = 11.5, .Foreground = Res("ColorBrushRed"), .Margin = New Thickness(0, 5, 0, 0), .TextWrapping = TextWrapping.Wrap})
+        End If
+
+        Dim LastEvents As New List(Of String)
+        SyncLock Info.Events
+            LastEvents = Info.Events.Skip(Math.Max(0, Info.Events.Count - 3)).ToList()
+        End SyncLock
+        If LastEvents.Count > 0 Then
+            Left.Children.Add(New TextBlock With {.Text = String.Join(vbCrLf, LastEvents), .FontSize = 10.5, .Foreground = Res("ColorBrushGray3"), .Margin = New Thickness(0, 6, 0, 0), .TextWrapping = TextWrapping.Wrap, .MaxHeight = 46, .TextTrimming = TextTrimming.CharacterEllipsis})
+        End If
+
+        Grid.SetColumn(Left, 0)
+        GridMain.Children.Add(Left)
+
+        ' ---- 右：开关 + 按钮 ----
+        Dim Right As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right}
+        Dim Chk As New MyCheckBox With {.VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right}
         Chk.Text = If(Info.Enabled, "已启用", "已禁用")
         Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
                                    Try
                                        ModPlugin.SetEnabled(Info, Value)
-                                       If Value Then
-                                           Hint(Info.DisplayName & " 已启用，重启后生效！", HintType.Green)
-                                       Else
-                                           Hint(Info.DisplayName & " 已禁用，重启后生效！", HintType.Blue)
-                                       End If
+                                       Hint(Info.DisplayName & If(Value, " 已启用", " 已禁用"), If(Value, HintType.Green, HintType.Blue))
                                    Catch ex As Exception
                                        Logger.Error(ex, "切换插件状态失败", LogBehavior.Toast)
                                    End Try
@@ -375,13 +387,35 @@ Public Class PagePlugin
                                End Sub
         Right.Children.Add(Chk)
 
+        Dim PanBtn As New StackPanel With {.Orientation = Orientation.Vertical, .HorizontalAlignment = HorizontalAlignment.Right, .Margin = New Thickness(0, 8, 0, 0)}
+        If Not String.IsNullOrWhiteSpace(Info.Folder) AndAlso IO.Directory.Exists(Info.Folder) Then
+            PanBtn.Children.Add(MkButtonSmall("打开文件夹", Sub()
+                                                     Try
+                                                         Process.Start("explorer.exe", """" & Info.Folder & """")
+                                                     Catch ex As Exception
+                                                         Logger.Error(ex, "打开插件文件夹失败", LogBehavior.Toast)
+                                                     End Try
+                                                 End Sub))
+        End If
+        If Info.Events.Count > 0 Then
+            PanBtn.Children.Add(MkButtonSmall("事件记录", Sub()
+                                                     Dim Lines As String
+                                                     SyncLock Info.Events
+                                                         Lines = String.Join(vbCrLf, Info.Events.Skip(Math.Max(0, Info.Events.Count - 20)))
+                                                     End SyncLock
+                                                     MyMsgBox(Lines, "插件事件：" & Info.DisplayName, "确定")
+                                                 End Sub))
+        End If
+        If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
 
-        Table.SetRow(Right, RowIndex)
-        Table.SetColumn(Right, 1)
-        Table.Children.Add(Right)
-    End Sub
+        Grid.SetColumn(Right, 1)
+        GridMain.Children.Add(Right)
 
-    ' ================= 分区二：扩展点（每个插件一张可展开卡片） =================
+        Card.Children.Add(GridMain)
+        Return Card
+    End Function
+
+    ' ================= 分区二：插件设置（每个插件一张可展开卡片） =================
 
     Private ExtendSearch As String = ""
     Private ExtendFilter As Integer = 0 '0 全部 / 1 已启用 / 2 已禁用
@@ -451,7 +485,7 @@ Public Class PagePlugin
 
         Dim Shown = Owners.Where(Function(o) ExtendMatches(o)).ToList()
         If Shown.Count = 0 Then
-            Dim CardEmpty = NewCard("插件扩展点")
+            Dim CardEmpty = NewCard("插件设置")
             Dim Body As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
             If Owners.Count = 0 Then
                 Body.Children.Add(MkHint("当前没有任何插件注册扩展点。"))
@@ -711,18 +745,20 @@ Public Class PagePlugin
         AddDocText(Body, "Host.Services.Register(Of 接口)(实现) 让插件之间互相调用，插件卸载时自动注销；Host.Tasks.Run(""任务名"", Sub(Ctx) ... End Sub) 跑后台任务，Ctx.Report(进度, 说明) 会显示在任务管理器里，用户可取消（Ctx.ThrowIfCancelled）。")
         AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase   '已实现全部接口，按需 Overrides" & vbCrLf & "End Class")
 
-        AddDocTitle(Body, "开发模式（v6）")
-        AddDocText(Body, "插件页左侧「开发模式」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容。")
+        AddDocTitle(Body, "控制台（v6）")
+        AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
         AddDocTitle(Body, "设置值读写")
         AddDocCode(Body, "Dim Value = ModPlugin.GetSetting(Host.Info, ""Key"", 默认值)" & vbCrLf & "ModPlugin.SetSetting(Host.Info, ""Key"", 新值)")
 
-        AddDocTitle(Body, "v5 新增（当前版本）")
+        AddDocText(Body, "同一个插件连续出错 3 次（加载失败、事件处理抛异常、界面扩展点抛异常都算）会自动禁用，并在插件列表里标成「已熔断」；重新勾选启用即清零重试。")
+
+        AddDocTitle(Body, "v5 新增（历史版本）")
         AddDocCode(Body, "{""minApiVersion"": 5," & vbCrLf & " ""sha256"": ""DLL 的 SHA-256""," & vbCrLf & " ""permissions"": {" & vbCrLf & "   ""net"": {""hosts"": [""api.github.com"", ""*.example.com""]}," & vbCrLf & "   ""files"": {""read"": [""Downloads/""], ""write"": [""PCLHarness/PluginOut/""]}}}")
         AddDocText(Body, "permissions 写成对象可以做细化：net.hosts 是允许访问的域名（支持 *. 前缀通配与 *），files.read / files.write 是允许读写的路径（插件自己的数据目录始终可访问）。sha256 用于 DLL 完整性校验，与 plugin.json 不一致时拒绝加载；minApiVersion 高于启动器支持的版本时也会拒绝加载并提示更新。")
-        AddDocCode(Body, "Host.Events.On(""页面切换"", New Action(Of String, String)(Sub(Page, SubType) Host.LogInfo(Page) End Sub))" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
+        AddDocCode(Body, "Host.Events.On(""页面切换"", Sub(Page As Integer, SubType As Integer) Host.LogInfo($""{Page}/{SubType}"") End Sub, Priority:=10)" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
         AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
         AddDocTitle(Body, "示例")
-        AddDocText(Body, "完整示例见发布包 samples/DemoPlugin（DemoPlugin.vb + build.ps1），包含自定义页面、标题栏入口与两个设置项。编译：把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可。编译注意：源码存 UTF-8（自拼命令行要加 /codepage:65001，否则中文乱码）；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine（samples 里的 build.ps1 已处理这两项）。")
+        AddDocText(Body, "两个完整示例都在发布包里：samples/V6Demo（当前版本，演示服务注册、优先级事件、一次性事件、后台任务）与 samples/DemoPlugin（v5 示例，演示自定义页面、标题栏入口与两个设置项）。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
 
         Body.Margin = New Thickness(25, 40, 25, 20)
         Card.Children.Add(Body)
@@ -734,6 +770,13 @@ Public Class PagePlugin
     Private Function NewCard(Title As String) As MyCard
         Dim Card As New MyCard With {.Title = Title, .Margin = New Thickness(0, 0, 0, 15)}
         Return Card
+    End Function
+
+    ''' <summary>插件卡片右侧的小按钮（比工具条按钮更紧凑）。</summary>
+    Private Function MkButtonSmall(Text As String, Action As Action) As MyButton
+        Dim Btn As New MyButton With {.Text = Text, .Height = 26, .Padding = New Thickness(12, 0, 12, 0), .Margin = New Thickness(0, 6, 0, 0), .VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right}
+        If Action IsNot Nothing Then AddHandler Btn.Click, Sub(sender As Object, e As RoutedEventArgs) Action.Invoke()
+        Return Btn
     End Function
 
     Private Sub AddPlainRow(Table As Grid, RowIndex As Integer, Name As String, Value As String)

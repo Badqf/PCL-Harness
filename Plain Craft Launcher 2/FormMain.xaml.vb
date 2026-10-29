@@ -23,6 +23,15 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 439 Then 'PCL Harness 3.6.0
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件连续出错 3 次会自动禁用，并在列表里标记「已熔断」，重新启用即清零重试"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件管理改成卡片式布局，每个插件一块，显示作者、状态、权限、依赖与最近事件，并提供「打开文件夹」「事件记录」"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件页左侧分区改名为「插件管理 / 插件设置 / 控制台 / 开发说明」，开发说明固定在最底部"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：控制台日志框缩短，命令按钮不再被挤出窗口；开发说明补充 v6 事件、服务、任务、熔断与示例说明"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：插件的事件总线收不到「页面切换」事件（之前只在代码里广播，真实导航没有触发）"))
+                FeatureCount += 4
+                BugCount += 1
+            End If
             If LastVersion < 438 Then 'PCL Harness 3.5.1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：开发模式改成插件页左侧独立的分区，不再和插件列表挤在一起"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：开发模式的控制台日志从顶部开始向下填充，并始终滚动到最新一行"))
@@ -1669,7 +1678,6 @@ Public Class FormMain
                     CType(FrmOtherLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
-            ModPlugin.RaisePageChanged(CInt(Stack.Page), CInt(SubType))
         Else
             '切换到次页面
             Select Case Stack.Page
@@ -1678,7 +1686,6 @@ Public Class FormMain
                     CType(FrmInstanceLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
-            ModPlugin.RaisePageChanged(CInt(Stack.Page), CInt(SubType))
         End If
     End Sub
     ''' <summary>
@@ -1899,6 +1906,7 @@ Public Class FormMain
 #End Region
 
             Logger.Info($"切换主要页面：{Stack.Page}, {SubType}")
+            ModPlugin.RaisePageChanged(CInt(Stack.Page), CInt(SubType)) 'API v6：任何入口切页都广播一次'
             '页面切换事件由 ModPlugin.RaisePageChanged 统一广播（API v6 起事件总线也走同一条路径）
         Catch ex As Exception
             Logger.Error(ex, $"切换主要页面失败（ID {PageCurrent.Page}）")
