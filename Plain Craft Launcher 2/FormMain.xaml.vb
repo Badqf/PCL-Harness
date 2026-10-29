@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 434 Then 'PCL Harness 3.4.12
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：微软正版登录正式可用——AppID 已通过 Mojang 审核，登录页不再提示「审核中」"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：正版登录失败时的提示改为按真实原因说明（账号没买 Java 版 / 代码输错了账号等）"))
+                FeatureCount += 2
+                BugCount += 0
+            End If
             If LastVersion < 433 Then 'PCL Harness 3.4.11
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：TUN 提权重启后现在会自动跳回联机页，并且「用上次端口直接开房」按钮能正常显示和使用（重启前就会记住端口）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：设置页去掉「启动时自动打开联机页」开关，改成只有提权重启后自动跳转一次"))

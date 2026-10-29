@@ -1,4 +1,4 @@
-﻿Public Class PageLoginMs
+Public Class PageLoginMs
 
     ''' <summary>
     ''' 刷新页面显示的所有信息。
@@ -28,10 +28,13 @@
         If String.IsNullOrWhiteSpace(OAuthClientId) Then
             LabMsNotWired.Text = "尚未配置微软登录客户端 ID：请在 PCLHarness\Secrets.json 中填写 MsClientId，或设置环境变量 PCL_MS_CLIENT_ID。也可以先使用「离线登录」或「第三方登录」。"
             LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
+            LabMsNotWired.Visibility = Visibility.Visible
         Else
-            LabMsNotWired.Text = "微软正版登录暂不可用：本应用的 AppID 仍在 Mojang 审核中，审核通过后才能登录。" & vbCrLf &
-                                 "可先使用「离线登录」或「第三方登录」。"
-            LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
+            'AppID 已通过 Mojang 审核并加入白名单（2026-10），登录流程默认可用
+            LabMsNotWired.Text = "使用正版微软账号登录：点「登录」后按提示在浏览器里输入屏幕上的代码即可。" & vbCrLf &
+                                 "登录成功后会自动记住账号，下次启动无需重复操作。"
+            LabMsNotWired.Foreground = CType(FindResource("ColorBrushGray3"), System.Windows.Media.Brush)
+            LabMsNotWired.Visibility = Visibility.Visible
         End If
 End Sub
     Private Sub ComboAccounts_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboAccounts.SelectionChanged

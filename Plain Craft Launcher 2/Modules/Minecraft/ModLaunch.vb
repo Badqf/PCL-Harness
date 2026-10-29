@@ -1,4 +1,4 @@
-﻿Public Module ModLaunch
+Public Module ModLaunch
 
 #Region "开始"
 
@@ -1041,14 +1041,16 @@ Retry:
                 Throw New Exception("$登录尝试太过频繁，请等待几分钟后再试！")
             ElseIf ex.StatusCode = HttpStatusCode.Forbidden Then
                 If ex.Response IsNot Nothing AndAlso ex.Response.Contains("Invalid app registration") Then
-                    'Minecraft 只允许在 Mojang 审核通过的 Client ID 上登录，与网络/IP 无关
-                    Logger.Warn(ex, "微软登录第 4 步汇报 403（Client ID 未通过 Mojang 审核）")
-                    Throw New Exception("$Minecraft 拒绝了本次登录：当前 Azure 应用的 Client ID 还没有通过 Mojang 的 AppID 审核。" & vbCrLf &
-                                        "请到 https://aka.ms/AppRegInfo 提交申请，审核通过后再试。" & vbCrLf &
-                                        "未审核时无论换什么网络都会失败，与 IP、VPN 无关。")
+                    '该分支只在 AppID 未通过 Mojang 审核时出现（3.4.12 起本应用已通过审核，正常不会再走到这里）
+                    Logger.Warn(ex, "微软登录第 4 步汇报 403（Client ID 未被 Minecraft 服务接受）")
+                    Throw New Exception("$Minecraft 拒绝了这个版本的登录请求（Invalid app registration）。" & vbCrLf &
+                                        "本应用已通过 Mojang 的 AppID 审核，正常不会出现此提示；如果一直失败，请到 GitHub 反馈。" & vbCrLf &
+                                        "与你的网络、IP、VPN 无关，换网络也不会解决。")
                 End If
                 Logger.Warn(ex, "微软登录第 4 步汇报 403")
-                Throw New Exception("$当前 IP 的登录尝试异常。" & vbCrLf & "如果你使用了 VPN 或加速器，请把它们关掉或更换节点后再试！")
+                Throw New Exception("$Minecraft 拒绝了这个账号的登录（403）。" & vbCrLf &
+                                    "常见原因：这个微软账号没有购买 Minecraft Java 版，或还没有迁移到微软账号；" & vbCrLf &
+                                    "也可能是浏览器里输入的代码用错了账号。请确认后重新登录。")
             ElseIf ex.StatusCode = HttpStatusCode.ServiceUnavailable Then
                 Logger.Warn(ex, "微软登录第 4 步汇报 503")
                 Throw New Exception("$Mojang 服务器出现问题，请稍后再试。" & vbCrLf & "你的网络是正常的，PCL 也是正常的，是 Mojang 出问题了……")
