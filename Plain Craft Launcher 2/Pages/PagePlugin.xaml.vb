@@ -1,4 +1,4 @@
-﻿Imports System.Linq
+Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -339,7 +339,7 @@ Public Class PagePlugin
         Dim LineMeta As New TextBlock With {.FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 3, 0, 0), .TextWrapping = TextWrapping.Wrap}
         LineMeta.Inlines.Add(New Run(If(String.IsNullOrWhiteSpace(Info.Author), "未知作者", Info.Author)))
         LineMeta.Inlines.Add(New Run("　·　"))
-        LineMeta.Inlines.Add(New Run(Info.StatusText) With {.Foreground = If(IsPluginFused(Info) OrElse Not String.IsNullOrEmpty(Info.[Error]), Res("ColorBrushRed"), Res("ColorBrushGray2"))})
+        LineMeta.Inlines.Add(New Run(Info.StatusText) With {.Foreground = If(IsPluginFused(Info) OrElse Not String.IsNullOrEmpty(Info.[Error]), Res("ColorBrushRedLight"), Res("ColorBrushGray2"))})
         Left.Children.Add(LineMeta)
 
         If Not String.IsNullOrWhiteSpace(Info.Description) Then
@@ -354,8 +354,12 @@ Public Class PagePlugin
             Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
 
+        Dim FailCount As Integer = ModPlugin.PluginFailCount(Info)
         If Not String.IsNullOrEmpty(Info.[Error]) Then
-            Left.Children.Add(New TextBlock With {.Text = Info.[Error], .FontSize = 11.5, .Foreground = Res("ColorBrushRed"), .Margin = New Thickness(0, 5, 0, 0), .TextWrapping = TextWrapping.Wrap})
+            Left.Children.Add(New TextBlock With {.Text = Info.[Error], .FontSize = 11.5, .Foreground = Res("ColorBrushRedLight"), .Margin = New Thickness(0, 5, 0, 0), .TextWrapping = TextWrapping.Wrap})
+        If FailCount > 0 Then
+            Left.Children.Add(New TextBlock With {.Text = $"健康：最近失败 {FailCount} 次（连续 {ModPlugin.FuseThreshold} 次会自动禁用）", .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
+        End If
         End If
 
         Dim LastEvents As New List(Of String)
@@ -405,6 +409,13 @@ Public Class PagePlugin
                                                      End SyncLock
                                                      MyMsgBox(Lines, "插件事件：" & Info.DisplayName, "确定")
                                                  End Sub))
+        End If
+        If FailCount > 0 Then
+            PanBtn.Children.Add(MkButtonSmall("重置失败计数", Sub()
+                                                         ModPlugin.ResetPluginFailures(Info)
+                                                         Hint($"已重置「{Info.DisplayName}」的失败计数", HintType.Blue)
+                                                         RefreshCurrentSection()
+                                                     End Sub))
         End If
         If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
 

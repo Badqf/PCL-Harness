@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -21,6 +21,7 @@ Public Module ModPlugin
     Public ReadOnly Property PathPluginRoot As String = Path.Combine(Paths.BaseThenName.TrimEnd("\"c), "Plugins")
     Private ReadOnly Property PathEnabledFile As String = Path.Combine(PathPluginRoot, "plugins.json")
     Public ReadOnly Property PathSettingsFile As String = Path.Combine(PathPluginRoot, "plugins.settings.json")
+    Private ReadOnly Property PathFuseFile As String = Path.Combine(PathPluginRoot, "fuse.json")
 
     ''' <summary>
     ''' 扩展点版本：
@@ -223,6 +224,7 @@ Public Module ModPlugin
         Try
             Directory.CreateDirectory(PathPluginRoot)
             Dim EnabledIds = ReadEnabled()
+            LoadFuseState()
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
                 Dim Info = ReadManifest(Folder)
                 If Info Is Nothing Then
@@ -234,6 +236,10 @@ Public Module ModPlugin
                     Continue For
                 End If
                 Info.Enabled = EnabledIds.Contains(Info.Id.ToLowerInvariant())
+                If Not Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]) Then
+                    Dim Fails As Integer = PluginFailCount(Info)
+                    If Fails >= FuseThreshold Then Info.[Error] = $"上次会话连续失败 {Fails} 次，已自动禁用；确认修好后可在插件页重新启用（会重置计数）。"
+                End If
                 If Not Info.Enabled Then
                     Logger.Info($"插件 {Info.DisplayName}（{Info.Id}）默认未启用：到「插件」页点启用后才会加载，启用记录保存于 {PathEnabledFile}。")
                 End If
@@ -356,8 +362,42 @@ Public Module ModPlugin
         SyncLock FuseLock
             FuseCounts.Remove(Info.Id)
         End SyncLock
+        SaveFuseState()
     End Sub
 
+    ''' <summary>把失败计数写进 Plugins\fuse.json，重启后仍能看到「上次失败 N 次 / 已熔断」。</summary>
+    Private Sub SaveFuseState()
+        Try
+            Dim Root As New JObject
+            SyncLock FuseLock
+                For Each Pair In FuseCounts
+                    If Pair.Value <= 0 Then Continue For
+                    Root(Pair.Key) = Pair.Value
+                Next
+            End SyncLock
+            IO.Directory.CreateDirectory(PathPluginRoot)
+            IO.File.WriteAllText(PathFuseFile, Root.ToString(Formatting.Indented), New Text.UTF8Encoding(False))
+        Catch ex As Exception
+            Logger.Error(ex, "保存插件失败计数失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>启动时读取上次的失败计数。</summary>
+    Private Sub LoadFuseState()
+        Try
+            If Not IO.File.Exists(PathFuseFile) Then Return
+            Dim Root As JObject = JObject.Parse(IO.File.ReadAllText(PathFuseFile))
+            SyncLock FuseLock
+                FuseCounts.Clear()
+                For Each Prop As JProperty In Root.Properties()
+                    Dim Value As Integer = 0
+                    If Integer.TryParse(Prop.Value.ToString(), Value) AndAlso Value > 0 Then FuseCounts(Prop.Name) = Value
+                Next
+            End SyncLock
+        Catch ex As Exception
+            Logger.Error(ex, "读取插件失败计数失败", LogBehavior.None)
+        End Try
+    End Sub
     ''' <summary>
     ''' 记录一次插件失败（加载、事件处理、界面回调都算）。
     ''' 连续失败达到 FuseThreshold 次时自动禁用该插件并弹出提示，返回 True 表示这一次刚好熔断。
@@ -372,6 +412,7 @@ Public Module ModPlugin
             FuseCounts(Info.Id) = Count
         End SyncLock
         Info.AddEvent($"失败 {Count}/{FuseThreshold}（{Where}）：{Reason}")
+        SaveFuseState()
         PluginDevLog.Warn(Info.DisplayName, $"失败 {Count}/{FuseThreshold}（{Where}）：{Reason}")
         Try
             Logger.Error(If(Ex, New Exception(Reason)), $"插件失败（{Where}）{Count}/{FuseThreshold}：{Info.DisplayName}", LogBehavior.None)
@@ -393,6 +434,31 @@ Public Module ModPlugin
             Logger.Error(exc, "提示插件熔断时出错", LogBehavior.None)
         End Try
         Return True
+    End Function
+    ''' <summary>
+    ''' API v6.2：统一的插件调用隔离。插件提供的任何回调（事件、界面、任务、扩展点）都从这里过一遍：
+    ''' 抛异常只会记一次失败并计入熔断计数，不会把异常抛回启动器主流程。
+    ''' </summary>
+    Public Function GuardCall(Info As PluginInfo, Where As String, Work As Action) As Boolean
+        If Info Is Nothing OrElse Work Is Nothing Then Return False
+        Try
+            Work()
+            Return True
+        Catch ex As Exception
+            NotePluginFailure(Info, Where, ex)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>API v6.2：带返回值的插件调用隔离；失败时返回 Fallback。</summary>
+    Public Function GuardCall(Of T)(Info As PluginInfo, Where As String, Work As Func(Of T), Optional Fallback As T = Nothing) As T
+        If Info Is Nothing OrElse Work Is Nothing Then Return Fallback
+        Try
+            Return Work()
+        Catch ex As Exception
+            NotePluginFailure(Info, Where, ex)
+            Return Fallback
+        End Try
     End Function
     ''' <summary>
     ''' 加载单个插件。
@@ -793,7 +859,7 @@ Public Module ModPlugin
             Try
                 Entry.Handler.OnLauncherReady()
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnLauncherReady 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnLauncherReady", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.LauncherReady)
@@ -815,7 +881,7 @@ Public Module ModPlugin
             Try
                 Entry.Handler.OnPageChanged(Page, SubType)
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnPageChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnPageChanged", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.PageChanged, Page, SubType)
@@ -827,7 +893,7 @@ Public Module ModPlugin
             Try
                 Entry.Handler.OnGameLaunching(Info)
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnGameLaunching 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnGameLaunching", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.GameLaunching, Info)
@@ -839,7 +905,7 @@ Public Module ModPlugin
             Try
                 Entry.Handler.OnGameLaunched(Info)
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnGameLaunched 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnGameLaunched", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.GameLaunched, Info)
@@ -855,7 +921,7 @@ Public Module ModPlugin
                 Entry.Owner.AddEvent($"OnGameExited(退出码 {ExitCode})")
             Catch ex As Exception
                 Entry.Owner.AddEvent("OnGameExited 失败：" & ex.GetBaseException().Message)
-                Logger.Error(ex, "插件事件 OnGameExited 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnGameExited", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.GameExited, Info, ExitCode)
@@ -868,7 +934,7 @@ Public Module ModPlugin
                 Entry.Handler.OnInstanceChanged(If(InstanceName, ""))
                 Entry.Owner.AddEvent("OnInstanceChanged(" & If(InstanceName, "") & ")")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnInstanceChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnInstanceChanged", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.InstanceChanged, If(InstanceName, ""))
@@ -881,7 +947,7 @@ Public Module ModPlugin
                 Entry.Handler.OnThemeChanged(IsDark)
                 Entry.Owner.AddEvent("OnThemeChanged(" & If(IsDark, "深色", "浅色") & ")")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnThemeChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnThemeChanged", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.ThemeChanged, IsDark)
@@ -894,7 +960,7 @@ Public Module ModPlugin
                 Entry.Handler.OnLinkRoomCreated(If(Invite, ""))
                 Entry.Owner.AddEvent("OnLinkRoomCreated")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnLinkRoomCreated 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnLinkRoomCreated", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.LinkRoomCreated, If(Invite, ""))
@@ -907,7 +973,7 @@ Public Module ModPlugin
                 Entry.Handler.OnLinkRoomJoined()
                 Entry.Owner.AddEvent("OnLinkRoomJoined")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnLinkRoomJoined 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnLinkRoomJoined", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.LinkRoomJoined)
@@ -920,7 +986,7 @@ Public Module ModPlugin
                 Entry.Handler.OnLinkRoomClosed()
                 Entry.Owner.AddEvent("OnLinkRoomClosed")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnLinkRoomClosed 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnLinkRoomClosed", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.LinkRoomClosed)
@@ -975,7 +1041,7 @@ Public Module ModPlugin
             Try
                 Entry.Handler.OnDownloadStarted(If(Target, ""))
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnDownloadStarted 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnDownloadStarted", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.DownloadStarted, If(Target, ""))
@@ -988,7 +1054,7 @@ Public Module ModPlugin
                 Entry.Handler.OnDownloadFinished(If(Target, ""), Success)
                 Entry.Owner.AddEvent("OnDownloadFinished(" & If(Target, "") & ", " & Success & ")")
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnDownloadFinished 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnDownloadFinished", ex)
             End Try
         Next
         EmitPluginEvent(PluginEvents.DownloadFinished, If(Target, ""), Success)
@@ -1002,7 +1068,7 @@ Public Module ModPlugin
             Try
                 If Entry.Handler.OnClosing() Then Cancel = True
             Catch ex As Exception
-                Logger.Error(ex, "插件事件 OnClosing 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
+                NotePluginFailure(Entry.Owner, "事件 OnClosing", ex)
             End Try
         Next
         Return Cancel
