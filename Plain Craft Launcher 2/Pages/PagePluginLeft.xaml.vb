@@ -1,5 +1,5 @@
-''' <summary>
-''' 插件页左侧栏：插件管理 / 扩展点 / 开发说明。
+﻿''' <summary>
+''' 插件页左侧栏：插件管理 / 扩展点 / 开发说明 / 开发模式。
 ''' 结构与 PageSetupLeft 完全一致，直接挂在主窗口的 PanMainLeft 上。
 ''' </summary>
 Public Class PagePluginLeft
@@ -9,7 +9,7 @@ Public Class PagePluginLeft
     ''' <summary>
     ''' 勾选事件切换右侧分区。
     ''' </summary>
-    Private Sub PageCheck(sender As MyListItem, e As EventArgs) Handles ItemManage.Check, ItemExtend.Check, ItemDoc.Check
+    Private Sub PageCheck(sender As MyListItem, e As EventArgs) Handles ItemManage.Check, ItemExtend.Check, ItemDoc.Check, ItemDev.Check
         '尚未初始化控件属性时 sender.Tag 为 Nothing，直接跳过
         If sender.Tag Is Nothing Then Return
         PageID = CInt(Val(sender.Tag.ToString()))

@@ -11,7 +11,7 @@ Imports System.Windows.Media
 ''' </summary>
 Public Class PagePlugin
 
-    ''' <summary>当前分区：0 插件管理 / 1 扩展点 / 2 开发说明。</summary>
+    ''' <summary>当前分区：0 插件管理 / 1 扩展点 / 2 开发说明 / 3 开发模式。</summary>
     Public SectionIndex As Integer = 0
 
     Private IsRebuilding As Boolean
@@ -47,6 +47,8 @@ Public Class PagePlugin
                 BuildExtend()
             Case 2
                 BuildDoc()
+            Case 3
+                BuildDevMode()
             Case Else
                 BuildManage()
         End Select
@@ -147,7 +149,6 @@ Public Class PagePlugin
         CardList.Children.Add(BodyList)
         PanContent.Children.Add(CardList)
         RefreshManageRows()
-        BuildDevConsole()
     End Sub
 
     ' ================= 开发模式（API v6）：实时日志 + 命令回显 =================
@@ -155,7 +156,7 @@ Public Class PagePlugin
     Private DevTimer As System.Windows.Threading.DispatcherTimer
     Private DevLogBox As MyTextBox
 
-    Private Sub BuildDevConsole()
+    Private Sub BuildDevMode()
         Dim Card = NewCard("开发模式")
         Dim Body As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
         Body.Children.Add(MkHint("实时显示插件事件、服务注册、后台任务和宿主调用。支持的命令：help / events / plugins / services / tasks / emit 事件名 / clear"))
@@ -172,7 +173,8 @@ Public Class PagePlugin
             .TextWrapping = TextWrapping.NoWrap,
             .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             .HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            .Height = 240,
+            .Height = 420,
+            .VerticalContentAlignment = VerticalAlignment.Top,
             .FontFamily = New Media.FontFamily("Consolas, Microsoft YaHei UI"),
             .FontSize = 12,
             .Margin = New Thickness(0, 0, 0, 8)
@@ -216,14 +218,8 @@ Public Class PagePlugin
             Dim Items = ModPlugin.PluginDevLog.Snapshot(ModPlugin.PluginDevLog.LevelTrace, Nothing, 400)
             Dim Text As String = String.Join(vbCrLf, Items.Select(Function(I) I.Display))
             If DevLogBox.Text = Text Then Return
-            Dim Offset = DevLogBox.VerticalOffset
-            Dim AtBottom As Boolean = DevLogBox.SelectionStart >= DevLogBox.Text.Length - 1 '光标在末尾时才自动跟随
             DevLogBox.Text = Text
-            If AtBottom Then
-                DevLogBox.ScrollToEnd() '停在最底部时自动跟随最新日志
-            ElseIf Math.Abs(Offset - DevLogBox.VerticalOffset) > 1 Then
-                DevLogBox.ScrollToVerticalOffset(Offset) '用户往上翻了，保持原位置
-            End If
+            DevLogBox.ScrollToEnd() '新日志总在最底部，视图跟着滚到最新一行
         Catch
             '开发日志刷新失败不影响主流程
         End Try

@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 438 Then 'PCL Harness 3.5.1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：开发模式改成插件页左侧独立的分区，不再和插件列表挤在一起"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：开发模式的控制台日志从顶部开始向下填充，并始终滚动到最新一行"))
+                FeatureCount += 2
+                BugCount += 0
+            End If
             If LastVersion < 437 Then 'PCL Harness 3.5.0
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件 API v6——事件总线覆盖启动器就绪、页面切换、游戏启动前后与退出、版本切换、主题切换、联机、下载、关闭前，共 13 类事件，支持优先级和一次性订阅"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件之间可以注册和取用服务（Host.Services），插件卸载时自动清理它注册的内容"))
