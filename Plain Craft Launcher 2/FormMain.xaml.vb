@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 436 Then 'PCL Harness 3.4.14
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：联机页 TUN 勾选框与旁边文字不同步的进入动画（现在方框和文字一起淡入）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：「用上次端口直接开房」按钮与 TUN 勾选框的间距，不再挤在一起"))
+                FeatureCount += 1
+                BugCount += 1
+            End If
             If LastVersion < 435 Then 'PCL Harness 3.4.13
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：正版登录页未登录时不再显示一长串说明，具体步骤由登录弹窗给出"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：首次启动时会尝试从旧版开源构建导入正版登录信息（官方 PCL 的加密数据无法解密，需要重新登录一次）"))

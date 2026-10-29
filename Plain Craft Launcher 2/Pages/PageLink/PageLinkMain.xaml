@@ -66,6 +66,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="10" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="1*" />
                 </Grid.RowDefinitions>
                 <local:MyCard x:Name="PanSelectCreate" Grid.Column="1" Grid.Row="1" CornerRadius="13" VerticalAlignment="Center">
@@ -124,7 +125,7 @@
                     <TextBlock x:Name="LabTunModeTip" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" Opacity="0.55"
                         Text="（需要管理员权限，会自动重启启动器）" />
                 </StackPanel>
-                <local:MyButton x:Name="BtnLastPort" Grid.Column="1" Grid.Row="5" HorizontalAlignment="Center" Margin="0,58,0,0"
+                <local:MyButton x:Name="BtnLastPort" Grid.Column="1" Grid.Row="6" HorizontalAlignment="Center" Margin="0,30,0,0"
                     Padding="12,4" Visibility="Collapsed" ToolTip="用上次的端口直接开房，省去重新输入" />
             </Grid>
             <Grid x:Name="PanFinish" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="300">

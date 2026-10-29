@@ -475,7 +475,10 @@ Public Class MyPageRight
     End Function
     Private Sub _GetAllAnimControls(Element As FrameworkElement, ByRef AllControls As List(Of FrameworkElement), IgnoreInvisibility As Boolean)
         If Not IgnoreInvisibility AndAlso Element.Visibility = Visibility.Collapsed Then Return
-        If TypeOf Element Is MyCard OrElse TypeOf Element Is MyHint OrElse TypeOf Element Is MyExtraTextButton OrElse TypeOf Element Is TextBlock OrElse TypeOf Element Is MyTextButton Then
+        If TypeOf Element Is MyCheckBox Then
+            '勾选框整体作为一个元素做进入动画：否则方框（Border/Path）不动、只有文字淡入，看起来像“方框先蹦出来”
+            AllControls.Add(Element)
+        ElseIf TypeOf Element Is MyCard OrElse TypeOf Element Is MyHint OrElse TypeOf Element Is MyExtraTextButton OrElse TypeOf Element Is TextBlock OrElse TypeOf Element Is MyTextButton Then
             AllControls.Add(Element)
         ElseIf TypeOf Element Is ContentControl Then
             Dim Content = CType(Element, ContentControl).Content
