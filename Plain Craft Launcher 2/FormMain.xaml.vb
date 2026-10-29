@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 448 Then 'PCL Harness 3.6.9
+            BugCount += 1
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：插件加载成功后自动清零上次会话的失败计数与熔断提示，不再需要手动点「重置失败计数」"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：去掉插件卡片上的「重置失败计数」按钮，恢复插件统一走「重新启用」"))
+        End If
         If LastVersion < 447 Then 'PCL Harness 3.6.8
             BugCount += 2
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：API v5 插件调用 PluginEventBus.On 时报「找不到方法」——v6 给 On 加了可选参数改变了 CLR 签名，现已补回两参数重载"))

@@ -661,6 +661,12 @@ Public Module ModPlugin
             If TypeOf Info.Instance Is IPclPluginLink Then PluginLinkHandlers.Add((CType(Info.Instance, IPclPluginLink), Info))
             If TypeOf Info.Instance Is IPclPluginDownload Then PluginDownloadHandlers.Add((CType(Info.Instance, IPclPluginDownload), Info))
             If TypeOf Info.Instance Is IPclPluginClosing Then PluginClosingHandlers.Add((CType(Info.Instance, IPclPluginClosing), Info))
+            ' 加载成功说明这次是好的：清掉上次会话留下的失败计数与熔断提示，避免卡片一直挂着「重置失败计数」
+            ResetPluginFailures(Info)
+            If Not String.IsNullOrEmpty(Info.[Error]) AndAlso
+               (Info.[Error].StartsWith("已熔断", StringComparison.Ordinal) OrElse Info.[Error].StartsWith("上次会话连续失败", StringComparison.Ordinal)) Then
+                Info.[Error] = ""
+            End If
         Catch ex As Exception
             Info.[Error] = ex.GetBaseException().Message
             Info.AddEvent("加载失败：" & ex.GetBaseException().Message)
