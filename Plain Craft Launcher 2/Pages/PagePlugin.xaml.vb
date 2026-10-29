@@ -1,4 +1,4 @@
-Imports System.Linq
+﻿Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -758,7 +758,7 @@ Public Class PagePlugin
         AddDocCode(Body, "Host.Events.On(""页面切换"", Sub(Page As Integer, SubType As Integer) Host.LogInfo($""{Page}/{SubType}"") End Sub, Priority:=10)" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
         AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
         AddDocTitle(Body, "示例")
-        AddDocText(Body, "两个完整示例都在发布包里：samples/V6Demo（当前版本，演示服务注册、优先级事件、一次性事件、后台任务）与 samples/DemoPlugin（v5 示例，演示自定义页面、标题栏入口与两个设置项）。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
+        AddDocText(Body, "两个完整示例都在开发版 SDK 里（Release 附件的 SDK 包，仓库里对应 samples/V6Demo 与 samples/DemoPlugin）：V6Demo 是当前版本示例，演示服务注册、优先级事件、一次性事件、后台任务；DemoPlugin 是 v5 示例，演示自定义页面、标题栏入口与两个设置项。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
 
         Body.Margin = New Thickness(25, 40, 25, 20)
         Card.Children.Add(Body)

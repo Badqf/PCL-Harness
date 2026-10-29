@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 440 Then 'PCL Harness 3.6.1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：欢迎页去掉过期的「需要填 Secrets.json」提示，以及「不依赖官方服务」「凭据留在本地」两条；插件框架说明更新到 API v6"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件页左侧「开发说明」不再额外留白，按正常顺序排在最后"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：开发说明里的示例位置改为「开发版 SDK」，并补充 build.ps1 用法"))
+                FeatureCount += 3
+                BugCount += 0
+            End If
             If LastVersion < 439 Then 'PCL Harness 3.6.0
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件连续出错 3 次会自动禁用，并在列表里标记「已熔断」，重新启用即清零重试"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件管理改成卡片式布局，每个插件一块，显示作者、状态、权限、依赖与最近事件，并提供「打开文件夹」「事件记录」"))
