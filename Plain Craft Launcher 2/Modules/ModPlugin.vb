@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -1831,6 +1831,57 @@ Public Module ModPlugin
                            $"{EventName}{PluginEvents.GetSignature(EventName)} → 执行 {Count} 个处理器（共 {Subscribers} 个订阅）")
         Return Count
     End Function
+
+    ''' <summary>API v6.2：收集所有插件为这个实例提供的右键菜单项（每个插件调用一次，异常隔离）。</summary>
+    Public Function GetInstanceMenuItems(InstanceName As String, InstanceFolder As String) As List(Of PluginMenuItem)
+        Dim Result As New List(Of PluginMenuItem)
+        Dim Ctx As New PluginInstanceInfo With {.Name = If(InstanceName, ""), .Folder = If(InstanceFolder, "")}
+        For Each Info In Plugins.ToList()
+            If Not Info.Enabled OrElse Not Info.Loaded OrElse Info.Instance Is Nothing Then Continue For
+            If Not TypeOf Info.Instance Is IPclPluginInstanceMenu Then Continue For
+            Dim Provider = CType(Info.Instance, IPclPluginInstanceMenu)
+            Dim Items As IEnumerable(Of PluginMenuItem) = GuardCall(Info, "实例右键菜单", Function() Provider.GetInstanceMenuItems(Ctx), Nothing)
+            If Items Is Nothing Then Continue For
+            For Each Entry In Items
+                If Entry Is Nothing OrElse String.IsNullOrWhiteSpace(Entry.Text) Then Continue For
+                Entry.Owner = Info
+                Result.Add(Entry)
+            Next
+        Next
+        Return Result
+    End Function
+
+    ''' <summary>API v6.2：执行插件提供的右键菜单项；异常只会记一次失败，不会打断启动器。</summary>
+    Public Sub RunInstanceMenu(Item As PluginMenuItem)
+        If Item Is Nothing Then Return
+        GuardCall(Item.Owner, "实例右键菜单：" & Item.Text, Item.Action)
+    End Sub
+
+    ''' <summary>API v6.2：传给插件实例右键菜单的实例信息。</summary>
+    Public Class PluginInstanceInfo
+        ''' <summary>实例（版本）名称。</summary>
+        Public Property Name As String = ""
+        ''' <summary>实例所在文件夹。</summary>
+        Public Property Folder As String = ""
+    End Class
+
+    ''' <summary>API v6.2：插件往「启动」页实例右键菜单里加的一项。</summary>
+    Public Class PluginMenuItem
+        ''' <summary>菜单文字。建议加插件名前缀，例如「导出实例（Demo 插件）」。</summary>
+        Public Property Text As String = ""
+        ''' <summary>点击后执行的动作；异常会被隔离并计入熔断。</summary>
+        Public Property Action As Action
+        ''' <summary>由启动器自动填写，插件不需要设置。</summary>
+        Public Property Owner As PluginInfo
+    End Class
+
+    ''' <summary>
+    ''' API v6.2：实例右键菜单扩展点。实现本接口后，插件可以往「启动」页左侧实例列表的右键菜单里添加操作。
+    ''' 每次打开右键菜单时调用一次，插件应按当前实例动态返回可用的项（返回 Nothing 或空集合表示不加）。
+    ''' </summary>
+    Public Interface IPclPluginInstanceMenu
+        Function GetInstanceMenuItems(Instance As PluginInstanceInfo) As IEnumerable(Of PluginMenuItem)
+    End Interface
 End Module
 
 ''' <summary>

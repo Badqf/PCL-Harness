@@ -758,6 +758,10 @@ Public Class PagePlugin
 
         AddDocTitle(Body, "控制台（v6）")
         AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
+
+        AddDocTitle(Body, "实例右键菜单（v6.2）")
+        AddDocText(Body, "实现 IPclPluginInstanceMenu 就能往「启动」页左侧实例列表的右键菜单里加操作：每次打开菜单时按当前实例调用一次，返回 PluginMenuItem（Text + Action），Action 抛异常会被隔离并计入熔断。")
+        AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase" & vbCrLf & "    Implements PCL.IPclPluginInstanceMenu" & vbCrLf & "    Public Function GetInstanceMenuItems(Instance As PCL.PluginInstanceInfo) As IEnumerable(Of PCL.PluginMenuItem) _" & vbCrLf & "        Implements PCL.IPclPluginInstanceMenu.GetInstanceMenuItems" & vbCrLf & "        Return {New PCL.PluginMenuItem With {.Text = ""导出实例信息（我的插件）"", .Action = Sub() Host.Message(Instance.Folder)}}" & vbCrLf & "    End Function" & vbCrLf & "End Class")
         AddDocTitle(Body, "设置值读写")
         AddDocCode(Body, "Dim Value = ModPlugin.GetSetting(Host.Info, ""Key"", 默认值)" & vbCrLf & "ModPlugin.SetSetting(Host.Info, ""Key"", 新值)")
 

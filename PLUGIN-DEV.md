@@ -472,14 +472,39 @@ End Class
 
 ### 6.6 开发模式（插件页第三个分区）
 
-插件页 → 开发模式：实时日志窗口 + 命令回显，支持命令：
+插件页 → 控制台：实时日志窗口 + 命令回显，支持命令：
 
 - `help` 帮助；`events` 事件/签名/订阅数；`plugins` 插件清单；`services` 已注册服务；`tasks` 运行中的任务；
 - `emit <事件名>` 手动触发事件；`clear` 清空日志。
 
 日志同时写进 `PluginDevLog`（内存环形缓冲，最多 4000 条），`Host.DevLog(...)` / `DevLog(...)` 都能往里写。
 
-### 6.7 兼容性
+### 6.7 实例右键菜单（v6.2）
+
+实现 `IPclPluginInstanceMenu` 后，插件可以往「启动」页左侧实例列表的右键菜单里加自己的操作：
+
+```vb
+Public Class DemoPlugin
+    Inherits PclPluginBase
+    Implements IPclPluginInstanceMenu
+
+    Public Function GetInstanceMenuItems(Instance As PluginInstanceInfo) As IEnumerable(Of PluginMenuItem) _
+        Implements IPclPluginInstanceMenu.GetInstanceMenuItems
+        Return {
+            New PluginMenuItem With {
+                .Text = "导出实例信息（Demo 插件）",
+                .Action = Sub() Host.Message("实例：" & Instance.Name & vbCrLf & Instance.Folder)
+            }
+        }
+    End Function
+End Class
+```
+
+- 每次打开右键菜单时调用一次，按当前实例动态返回；返回 `Nothing` 或空集合表示不加项。
+- 菜单文字建议带插件名前缀，避免和启动器自带的「重命名 / 打开文件夹 / 删除」混淆。
+- `Action` 抛出的异常会被隔离并计入熔断（连续 3 次自动禁用），不会打断启动器。
+
+### 6.8 兼容性
 
 - `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。
 - v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。
