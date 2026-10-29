@@ -542,7 +542,44 @@ End Class
 - `Action` 抛出的异常会被隔离并计入熔断（连续 3 次自动禁用），不会打断启动器。
 - 完整示例见开发版 SDK 里的 `samples/InstanceMenu`（`instance-menu-demo`），它同时演示了后台任务进度与 `DevLog`。
 
-### 6.9 兼容性
+### 6.9 发布与导入（v6.4）
+
+插件仍然是「一个文件夹 + plugin.json + DLL」，但发布和安装时不必让用户手动解压：启动器支持**插件包**。
+
+**打包**
+
+- 推荐用 `tools\pack-plugin.ps1`：`powershell -NoProfile -File tools\pack-plugin.ps1 -Project samples\InstanceMenu`，会生成 `instance-menu-demo-1.0.0.pclplugin`（本质是 zip，根目录里放 `plugin.json` 与 DLL）。
+- 也可以自己压 zip：根目录直接放 `plugin.json`，或者只套一层同名文件夹；`__MACOSX/`、`.DS_Store`、`Thumbs.db` 会被忽略。
+- 不要打进 `data\`（用户数据）、`.backup\`、`bin\`、`obj\` 与 `plugin.pdb`。
+
+**安装**
+
+- 插件页「插件管理 → 导入插件…」支持多选；把 `.pclplugin`、含 `plugin.json` 的 zip、或单个 DLL **拖进启动器窗口**也可以（和拖整合包一样，会先弹「正在导入插件……」再汇总结果）。
+- 重名会询问「要覆盖安装吗？」；覆盖安装会保留原来的 `data\`、插件设置与启用状态，只有权限（`permissions` 指纹）变化时才重新弹权限确认。
+- 单 DLL 安装要求 DLL 里带 `AssemblyMetadata`：`PclPluginId`、`PclPluginName`、`PclPluginVersion`、`PclPluginAuthor`、`PclPluginDescription`（可选），否则会提示「找不到 plugin.json」。
+
+**错误码**
+
+| Code | 含义 |
+| --- | --- |
+| `ERR_NOT_ARCHIVE` | 不是有效的 zip / 文件损坏 |
+| `ERR_NO_MANIFEST` | 包里找不到 `plugin.json` |
+| `ERR_AMBIGUOUS_MANIFEST` | 包里有多份 `plugin.json`，无法判断用哪个 |
+| `ERR_BAD_JSON` | `plugin.json` 解析失败 |
+| `ERR_BAD_ID` | `id` 不符合 `^[a-z0-9][a-z0-9_\-\.]{0,63}$` |
+| `ERR_MIN_API` | 插件要求的最低 API 版本高于当前启动器 |
+| `ERR_SHA256` | 清单里 `sha256` 与 DLL 实际内容不一致 |
+| `ERR_MISSING_DEP` | 依赖的插件不存在或版本不满足 |
+| `ERR_EXISTS` | 同名插件已存在且未选择覆盖 |
+| `ERR_UNSAFE_PATH` | 包内路径越界（`..` 之类） |
+| `ERR_WRITE_FAILED` | 落盘失败（磁盘、权限、文件占用） |
+
+**注意**
+
+- 导入只做结构、路径、`sha256` 与依赖校验，**不做代码安全审计**：插件 DLL 会在启动器进程内运行，只安装你信任来源的插件。
+- 目前没有联网下载与签名验证；插件包与 `plugin.json` 里的 `signature` 都只是「发布者声明（未验证）」，真正的 ECDsa 验签在后续版本做。
+
+### 6.10 兼容性
 
 - `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。
 

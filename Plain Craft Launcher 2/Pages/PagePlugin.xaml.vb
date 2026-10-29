@@ -36,6 +36,31 @@ Public Class PagePlugin
     ''' 切换分区并重建右侧内容。左栏与外部调用都走这里。
     ''' </summary>
     ''' <param name="Animate">是否播放入场动画；首次加载由页面自身动画负责，这里传 False。</param>
+    ''' <summary>导入插件后刷新页面（导航计数 + 当前分区）。</summary>
+    Public Sub RefreshAfterImport()
+        Try
+            RefreshNav()
+            RefreshCurrentSection()
+        Catch ex As Exception
+            Logger.Warn(ex, "刷新插件页失败")
+        End Try
+    End Sub
+
+    ''' <summary>用文件对话框选插件包导入（.pclplugin / zip / dll）。</summary>
+    Private Sub ImportPluginsFromDialog()
+        Try
+            Dim Dialog As New Microsoft.Win32.OpenFileDialog With {
+                .Title = "选择插件包",
+                .Filter = "插件包 (*.pclplugin;*.zip;*.dll)|*.pclplugin;*.zip;*.dll|所有文件 (*.*)|*.*",
+                .Multiselect = True
+            }
+            If Dialog.ShowDialog() <> True Then Return
+            ModPlugin.ImportPluginsWithUi(Dialog.FileNames)
+        Catch ex As Exception
+            Logger.Error(ex, "打开导入插件对话框失败", LogBehavior.Toast)
+        End Try
+    End Sub
+
     Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True)
         SectionIndex = Index
         If PanContent Is Nothing Then Return
@@ -125,6 +150,7 @@ Public Class PagePlugin
         Body.Children.Add(GridPath)
 
         Dim PanBtn As New StackPanel With {.Orientation = Orientation.Horizontal, .Margin = New Thickness(0, 10, 0, 0)}
+        PanBtn.Children.Add(MkButton("导入插件…", AddressOf ImportPluginsFromDialog))
         PanBtn.Children.Add(MkButton("打开插件目录", Sub() ModPlugin.OpenFolder()))
         PanBtn.Children.Add(MkButton("重新扫描", Sub()
                                                     Try
@@ -804,6 +830,8 @@ Public Class PagePlugin
         AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
         AddDocTitle(Body, "示例")
         AddDocText(Body, "两个完整示例都在开发版 SDK 里（Release 附件的 SDK 包，仓库里对应 samples/V6Demo 与 samples/DemoPlugin）：V6Demo 是当前版本示例，演示服务注册、优先级事件、一次性事件、后台任务；DemoPlugin 是 v5 示例，演示自定义页面、标题栏入口与两个设置项。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
+        AddDocTitle(Body, "发布与导入（v6.4）")
+        AddDocText(Body, "插件包（.pclplugin）就是 zip：根目录放 plugin.json 与 DLL（或只套一层同名文件夹），不要带 data\、.backup\、bin\、obj\。打包可用 tools\pack-plugin.ps1 -Project 插件目录，或自己压 zip。安装时点「插件管理 → 导入插件…」多选，或直接把 .pclplugin / 含清单的 zip / 带 AssemblyMetadata 的 DLL 拖进启动器窗口；重名会问是否覆盖，覆盖会保留 data\、设置与启用状态，只有权限指纹变化时才重新弹确认。单 DLL 需要在程序集里写 PclPluginId / PclPluginName / PclPluginVersion / PclPluginAuthor（可选 PclPluginDescription）。导入只做结构与 sha256 校验，不做代码审计。")
 
         Body.Margin = New Thickness(25, 40, 25, 20)
         Card.Children.Add(Body)

@@ -368,6 +368,8 @@ Public Module ModPlugin
             LoadFuseState()
             LoadTrustState()
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
+                '跳过导入用的临时目录与备份目录（以 . 开头）
+                If IO.Path.GetFileName(Folder).StartsWith("."c) Then Continue For
                 Dim Info = ReadManifest(Folder)
                 If Info Is Nothing Then
                     If IO.File.Exists(Path.Combine(Folder, "plugin.json")) Then
@@ -2079,6 +2081,348 @@ Public Module ModPlugin
     Public Interface IPclPluginInstanceMenu
         Function GetInstanceMenuItems(Instance As PluginInstanceInfo) As IEnumerable(Of PluginMenuItem)
     End Interface
+
+#Region "插件导入（拖入 / 导入按钮）"
+
+    ''' <summary>插件包扩展名：本质是 zip，根目录或唯一一层子目录里放 plugin.json。</summary>
+    Public Const PluginPackageExtension As String = "pclplugin"
+
+    ''' <summary>导入结果：成功与否、错误码、给用户看的说明。</summary>
+    Public Class PluginImportResult
+        Public Success As Boolean
+        Public Code As String = "OK"
+        Public Message As String = ""
+        Public PluginId As String = ""
+        Public PluginName As String = ""
+        Public Version As String = ""
+        Public Folder As String = ""
+        Public Upgraded As Boolean
+        Public ReadOnly Property Display As String
+            Get
+                If Success Then
+                    Dim Action As String = If(Upgraded, "已更新", "已导入")
+                    Dim Ver As String = If(String.IsNullOrWhiteSpace(Version), "", " v" & Version)
+                    Return $"{Action}：{PluginName}（{PluginId}）{Ver}"
+                Else
+                    Return $"失败：{Message}"
+                End If
+            End Get
+        End Property
+    End Class
+
+    Private Function ImportFail(Code As String, Message As String) As PluginImportResult
+        Return New PluginImportResult With {.Success = False, .Code = Code, .Message = Message}
+    End Function
+
+    Private Function IsManifestEntry(FullName As String) As Boolean
+        Dim Clean = FullName.Replace("\"c, "/"c).TrimStart("/"c)
+        Dim Parts = Clean.Split("/"c)
+        If Parts.Length = 0 OrElse Parts.Length > 2 Then Return False
+        Return String.Equals(Parts(Parts.Length - 1), ManifestFileName, StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Function IsValidPluginId(Id As String) As Boolean
+        Return Not String.IsNullOrWhiteSpace(Id) AndAlso
+               Text.RegularExpressions.Regex.IsMatch(Id, "^[a-z0-9][a-z0-9_\-\.]{0,63}$", Text.RegularExpressions.RegexOptions.IgnoreCase)
+    End Function
+
+    Private Function GetFileSha256(Path As String) As String
+        Try
+            Using Stream = IO.File.OpenRead(Path)
+                Using Sha = Security.Cryptography.SHA256.Create()
+                    Return BitConverter.ToString(Sha.ComputeHash(Stream)).Replace("-", "").ToLowerInvariant()
+                End Using
+            End Using
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>判断一个文件是否像插件包（zip，且根目录或唯一顶层目录里有 plugin.json）。</summary>
+    Public Function LooksLikePluginPackage(Path As String) As Boolean
+        Try
+            If Not File.Exists(Path) Then Return False
+            If Not {PluginPackageExtension, "zip"}.Contains(IO.Path.GetExtension(Path).ToLowerInvariant()) Then Return False
+            Using Archive = FileUtils.OpenZip(Path)
+                Return Archive.Entries.Any(Function(E) IsManifestEntry(E.FullName))
+            End Using
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>判断一个 DLL 是否声明了 PclPluginId（单 DLL 简装用）。</summary>
+    Public Function LooksLikePluginAssembly(Path As String) As Boolean
+        Return Not String.IsNullOrWhiteSpace(ReadAssemblyMetadata(Path, "PclPluginId"))
+    End Function
+
+    ''' <summary>用反射只读地读取程序集上的 AssemblyMetadataAttribute（不执行代码）。</summary>
+    Private Function ReadAssemblyMetadata(DllPath As String, Key As String) As String
+        Try
+            If Not File.Exists(DllPath) Then Return Nothing
+            Dim Asm = Reflection.Assembly.ReflectionOnlyLoadFrom(DllPath)
+            For Each Attr In Asm.GetCustomAttributesData()
+                If Attr.AttributeType IsNot GetType(Reflection.AssemblyMetadataAttribute) Then Continue For
+                If Attr.ConstructorArguments.Count <> 2 Then Continue For
+                If String.Equals(CStr(Attr.ConstructorArguments(0).Value), Key, StringComparison.OrdinalIgnoreCase) Then
+                    Return CStr(Attr.ConstructorArguments(1).Value)
+                End If
+            Next
+            Return Nothing
+        Catch
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>按文件类型导入插件：.pclplugin / 含 plugin.json 的 zip / 声明了 PclPluginId 的 dll。</summary>
+    Public Function ImportPluginFile(Path As String, Optional Overwrite As Boolean = False) As PluginImportResult
+        Try
+            If String.IsNullOrWhiteSpace(Path) Then Return ImportFail("ERR_NOT_FOUND", "没有指定文件")
+            If Not File.Exists(Path) Then Return ImportFail("ERR_NOT_FOUND", "文件不存在：" & Path)
+            Dim Ext = IO.Path.GetExtension(Path).ToLowerInvariant()
+            If Ext = ".dll" Then Return ImportPluginDll(Path, Overwrite)
+            Return ImportPluginPackage(Path, Overwrite)
+        Catch ex As IO.InvalidDataException
+            Return ImportFail("ERR_NOT_ARCHIVE", "这不是有效的插件包：可能不是 zip，或者文件已损坏")
+        Catch ex As Exception
+            Logger.Error(ex, "导入插件失败：" & Path, LogBehavior.None)
+            Return ImportFail("ERR_WRITE_FAILED", ex.GetBaseException().Message)
+        End Try
+    End Function
+
+    ''' <summary>导入一个插件包（.pclplugin / zip）。</summary>
+    Public Function ImportPluginPackage(PackagePath As String, Optional Overwrite As Boolean = False) As PluginImportResult
+        Dim TempRoot As String = Nothing
+        Try
+            If Not File.Exists(PackagePath) Then Return ImportFail("ERR_NOT_FOUND", "文件不存在：" & PackagePath)
+            Using Archive = FileUtils.OpenZip(PackagePath)
+                Dim Manifests = Archive.Entries.Where(Function(E) IsManifestEntry(E.FullName)).ToList()
+                If Manifests.Count = 0 Then Return ImportFail("ERR_NO_MANIFEST", "压缩包里没有找到 plugin.json（要放在根目录或唯一一层子目录里）")
+                If Manifests.Count > 1 Then Return ImportFail("ERR_AMBIGUOUS_MANIFEST", "压缩包里有多个 plugin.json：" & String.Join("、", Manifests.Select(Function(M) M.FullName)))
+                Dim ManifestEntry = Manifests(0)
+                Dim Prefix = ManifestEntry.FullName.Replace("\"c, "/"c)
+                Prefix = Prefix.Substring(0, Prefix.Length - ManifestFileName.Length)
+                '解压到临时目录（只取清单所在目录下的内容）
+                TempRoot = IO.Path.Combine(PathPluginRoot, ".tmp", Guid.NewGuid().ToString("N"))
+                IO.Directory.CreateDirectory(TempRoot)
+                Dim RootFull = IO.Path.GetFullPath(TempRoot).TrimEnd("\"c) & "\"
+                For Each Entry In Archive.Entries
+                    Dim Name = Entry.FullName.Replace("\"c, "/"c)
+                    If String.IsNullOrEmpty(Entry.Name) Then Continue For '文件夹
+                    If Not Name.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) Then Continue For
+                    Dim Rel = Name.Substring(Prefix.Length)
+                    If Rel = "" Then Continue For
+                    If Rel.StartsWith("__MACOSX/", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    If Rel.EndsWith(".DS_Store", StringComparison.OrdinalIgnoreCase) OrElse Rel.EndsWith("Thumbs.db", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    Dim Dest = IO.Path.GetFullPath(IO.Path.Combine(TempRoot, Rel.Replace("/"c, "\"c)))
+                    If Not Dest.StartsWith(RootFull, StringComparison.OrdinalIgnoreCase) Then
+                        Return ImportFail("ERR_UNSAFE_PATH", "压缩包里的路径越界：" & Entry.FullName)
+                    End If
+                    IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Dest))
+                    Using Source = Entry.Open()
+                        Using Target = IO.File.Create(Dest)
+                            Source.CopyTo(Target)
+                        End Using
+                    End Using
+                Next
+            End Using
+            Return InstallFromFolder(TempRoot, Overwrite, PackagePath)
+        Finally
+            If TempRoot IsNot Nothing Then
+                Try
+                    If IO.Directory.Exists(TempRoot) Then IO.Directory.Delete(TempRoot, True)
+                    Dim TmpParent = IO.Path.GetDirectoryName(TempRoot)
+                    If IO.Directory.Exists(TmpParent) AndAlso Not IO.Directory.EnumerateFileSystemEntries(TmpParent).Any() Then IO.Directory.Delete(TmpParent)
+                Catch
+                    '忽略
+                End Try
+            End If
+        End Try
+    End Function
+
+    ''' <summary>导入一个单 DLL（清单由 AssemblyMetadata 生成）。</summary>
+    Public Function ImportPluginDll(DllPath As String, Optional Overwrite As Boolean = False) As PluginImportResult
+        Dim TempRoot As String = Nothing
+        Try
+            Dim Id = ReadAssemblyMetadata(DllPath, "PclPluginId")
+            If String.IsNullOrWhiteSpace(Id) Then
+                Return ImportFail("ERR_NO_MANIFEST", "这个 DLL 没有声明 PclPluginId，无法当作插件安装；请改用 .pclplugin 包（内含 plugin.json）")
+            End If
+            TempRoot = IO.Path.Combine(PathPluginRoot, ".tmp", Guid.NewGuid().ToString("N"))
+            IO.Directory.CreateDirectory(TempRoot)
+            Dim DllName = IO.Path.GetFileName(DllPath)
+            IO.File.Copy(DllPath, IO.Path.Combine(TempRoot, DllName), True)
+            Dim Json As New JObject From {
+                {"id", Id.Trim()},
+                {"name", If(ReadAssemblyMetadata(DllPath, "PclPluginName"), Id)},
+                {"version", If(ReadAssemblyMetadata(DllPath, "PclPluginVersion"), "0.0.0")},
+                {"author", If(ReadAssemblyMetadata(DllPath, "PclPluginAuthor"), "")},
+                {"description", If(ReadAssemblyMetadata(DllPath, "PclPluginDescription"), "")},
+                {"dll", DllName},
+                {"minApiVersion", ApiVersionUi}
+            }
+            IO.File.WriteAllText(IO.Path.Combine(TempRoot, ManifestFileName), Json.ToString(), New Text.UTF8Encoding(False))
+            Return InstallFromFolder(TempRoot, Overwrite, DllPath)
+        Finally
+            If TempRoot IsNot Nothing Then
+                Try
+                    If IO.Directory.Exists(TempRoot) Then IO.Directory.Delete(TempRoot, True)
+                    Dim TmpParent = IO.Path.GetDirectoryName(TempRoot)
+                    If IO.Directory.Exists(TmpParent) AndAlso Not IO.Directory.EnumerateFileSystemEntries(TmpParent).Any() Then IO.Directory.Delete(TmpParent)
+                Catch
+                    '忽略
+                End Try
+            End If
+        End Try
+    End Function
+
+    ''' <summary>把已经解压好的插件目录装进 Plugins，并处理校验 / 冲突 / 回滚。</summary>
+    Private Function InstallFromFolder(TempRoot As String, Overwrite As Boolean, Origin As String) As PluginImportResult
+        Dim Info = ReadManifest(TempRoot)
+        If Info Is Nothing Then Return ImportFail("ERR_BAD_JSON", "plugin.json 无法解析")
+        Info.Id = Info.Id.Trim()
+        If Not IsValidPluginId(Info.Id) Then
+            Return ImportFail("ERR_BAD_ID", $"插件 id「{Info.Id}」不合法：只能用字母、数字与 - _ .，并以字母或数字开头")
+        End If
+        If Info.MinApiVersion > ApiVersionUi Then
+            Return ImportFail("ERR_MIN_API", $"这个插件要求 API v{Info.MinApiVersion}，当前启动器是 v{ApiVersionUi}，请先更新 PCL Harness")
+        End If
+        'DLL 校验值
+        If Not String.IsNullOrWhiteSpace(Info.DllName) Then
+            Dim DllPath = IO.Path.Combine(TempRoot, Info.DllName)
+            If Not File.Exists(DllPath) Then
+                Return ImportFail("ERR_NO_DLL", $"清单里写了 dll「{Info.DllName}」，但包里没有这个文件")
+            End If
+            If Not String.IsNullOrWhiteSpace(Info.DllSha256) Then
+                Dim Actual = GetFileSha256(DllPath)
+                If Actual Is Nothing OrElse Not String.Equals(Actual, Info.DllSha256.Trim(), StringComparison.OrdinalIgnoreCase) Then
+                    Return ImportFail("ERR_SHA256", "DLL 校验失败：清单里的 sha256 与实际文件不一致，包可能损坏或被改动过")
+                End If
+            End If
+        End If
+        '依赖
+        Dim Missing As New List(Of String)
+        Dim BadVersion As New List(Of String)
+        For Each DepRaw In Info.Dependencies
+            Dim DepId = DepRaw.Trim()
+            Dim Constraint As String = ""
+            Dim AtPos = DepId.IndexOf("@"c)
+            If AtPos >= 0 Then
+                Constraint = DepId.Substring(AtPos + 1).Trim()
+                DepId = DepId.Substring(0, AtPos).Trim()
+            End If
+            If DepId = "" Then Continue For
+            Dim Target = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, DepId, StringComparison.OrdinalIgnoreCase))
+            If Target Is Nothing Then
+                Missing.Add(DepRaw)
+            ElseIf Constraint <> "" AndAlso Not SatisfiesVersion(Target.Version, Constraint) Then
+                BadVersion.Add($"{DepRaw}（已装 {Target.Version}）")
+            End If
+        Next
+        If Missing.Count > 0 Then Return ImportFail("ERR_MISSING_DEP", "缺少依赖插件：" & String.Join("、", Missing))
+        If BadVersion.Count > 0 Then Return ImportFail("ERR_MISSING_DEP", "依赖插件版本不满足：" & String.Join("、", BadVersion))
+
+        Dim Existing = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, Info.Id, StringComparison.OrdinalIgnoreCase))
+        If Existing IsNot Nothing AndAlso Not Overwrite Then
+            Return ImportFail("ERR_EXISTS", $"已存在插件「{Existing.DisplayName}」v{Existing.Version}")
+        End If
+        Dim WasEnabled As Boolean = Existing IsNot Nothing AndAlso Existing.Enabled
+        Dim OldFingerprint As String = If(Existing IsNot Nothing, PermissionFingerprint(Existing), "")
+
+        Dim TargetFolder = If(Existing IsNot Nothing, Existing.Folder, IO.Path.Combine(PathPluginRoot, Info.Id))
+        Dim Backup As String = Nothing
+        If IO.Directory.Exists(TargetFolder) Then
+            If Existing IsNot Nothing AndAlso Existing.Enabled Then SetEnabled(Existing, False)
+            Try
+                Backup = IO.Path.Combine(PathPluginRoot, ".backup", IO.Path.GetFileName(TargetFolder) & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
+                IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Backup))
+                IO.Directory.Move(TargetFolder, Backup)
+            Catch ex As Exception
+                Return ImportFail("ERR_WRITE_FAILED", "无法替换旧插件目录（可能文件被占用）：" & ex.GetBaseException().Message)
+            End Try
+        End If
+        Try
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(TargetFolder))
+            IO.Directory.Move(TempRoot, TargetFolder)
+        Catch ex As Exception
+            If Backup IsNot Nothing AndAlso Not IO.Directory.Exists(TargetFolder) Then
+                Try
+                    IO.Directory.Move(Backup, TargetFolder)
+                Catch
+                    '忽略
+                End Try
+            End If
+            Return ImportFail("ERR_WRITE_FAILED", "写入插件目录失败：" & ex.GetBaseException().Message)
+        End Try
+        If Backup IsNot Nothing Then
+            Try
+                IO.Directory.Delete(Backup, True)
+            Catch
+                '忽略
+            End Try
+        End If
+        Refresh(True)
+        '原来启用过、且权限没变化，就继续启用；权限变了让它重新走一次确认
+        Dim Installed = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, Info.Id, StringComparison.OrdinalIgnoreCase))
+        If WasEnabled AndAlso Installed IsNot Nothing AndAlso PermissionFingerprint(Installed) = OldFingerprint Then
+            SetEnabled(Installed, True)
+        End If
+        Logger.Info($"插件导入成功：{Info.DisplayName}（{Info.Id}）v{Info.Version} ← {Origin}")
+        Return New PluginImportResult With {
+            .Success = True,
+            .PluginId = Info.Id,
+            .PluginName = Info.DisplayName,
+            .Version = Info.Version,
+            .Folder = TargetFolder,
+            .Upgraded = Existing IsNot Nothing,
+            .Message = "OK"
+        }
+    End Function
+
+    ''' <summary>导入一批插件（带界面反馈：进度提示 + 覆盖确认 + 结果汇总），可在任意线程调用。</summary>
+    Public Sub ImportPluginsWithUi(Files As IEnumerable(Of String))
+        Dim List = Files.Where(Function(F) Not String.IsNullOrWhiteSpace(F)).ToList()
+        If List.Count = 0 Then Return
+        ModBase.RunInNewThread(
+        Sub()
+            ModBase.RunInUi(Sub() ModMain.Hint("正在导入插件……", HintType.Blue, False))
+            Dim Lines As New List(Of String)
+            Dim OkCount As Integer = 0
+            Dim FailCount As Integer = 0
+            For Each FilePath In List
+                Dim Overwrite As Boolean = False
+                Dim Result As PluginImportResult = Nothing
+                Do While True
+                    Result = ImportPluginFile(FilePath, Overwrite)
+                    If Result.Code <> "ERR_EXISTS" Then Exit Do
+                    Dim Choice As Integer = 2
+                    ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox($"{Result.Message}{vbCrLf}{vbCrLf}要覆盖安装吗？", "插件已存在", "覆盖安装", "跳过"))
+                    If Choice <> 1 Then
+                        Result = ImportFail("ERR_SKIPPED", "已跳过（" & Result.Message & "）")
+                        Exit Do
+                    End If
+                    Overwrite = True
+                Loop
+                If Result.Success Then OkCount += 1 Else FailCount += 1
+                Lines.Add(If(Result.Success, "· " & Result.Display, "· " & IO.Path.GetFileName(FilePath) & " " & Result.Display))
+            Next
+            ModBase.RunInUi(
+            Sub()
+                If ModMain.FrmPlugin IsNot Nothing Then ModMain.FrmPlugin.RefreshAfterImport()
+                If FailCount = 0 Then
+                    ModMain.Hint($"已导入 {OkCount} 个插件，到插件页启用后生效", HintType.Green, True)
+                ElseIf OkCount = 0 Then
+                    ModMain.Hint($"插件导入失败：{FailCount} 个", HintType.Red, True)
+                Else
+                    ModMain.Hint($"插件导入完成：成功 {OkCount} 个，失败 {FailCount} 个", HintType.Blue, True)
+                End If
+                ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "导入插件", "确定")
+            End Sub)
+        End Sub, "导入插件")
+    End Sub
+
+#End Region
+
 End Module
 
 ''' <summary>

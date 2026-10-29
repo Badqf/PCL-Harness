@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 449 Then 'PCL Harness 3.7.0
+            FeatureCount += 2
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件导入——插件页新增「导入插件…」按钮，支持 .pclplugin、含 plugin.json 的 zip 与单 DLL。"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：把插件包拖进启动器窗口即可导入（与整合包一致），过程与结果都有提示，重名会询问是否覆盖。"))
+        End If
         If LastVersion < 448 Then 'PCL Harness 3.6.9
             BugCount += 1
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：插件加载成功后自动清零上次会话的失败计数与熔断提示，不再需要手动点「重置失败计数」"))
@@ -1416,6 +1421,14 @@ Public Class FormMain
                     FrmLaunchRight.ForceRefresh()
                     Hint("已加载主页自定义文件！", HintType.Green)
                 End Sub)
+                Return
+            End If
+            '插件包（.pclplugin / 含 plugin.json 的 zip / 声明了 PclPluginId 的 dll）：与整合包一样，拖入即导入
+            If Extension = ModPlugin.PluginPackageExtension OrElse
+               (Extension = "zip" AndAlso ModPlugin.LooksLikePluginPackage(FilePath)) OrElse
+               (Extension = "dll" AndAlso ModPlugin.LooksLikePluginAssembly(FilePath)) Then
+                Logger.Info("文件为插件包，开始导入插件")
+                ModPlugin.ImportPluginsWithUi(PathList)
                 Return
             End If
             '安装 Mod

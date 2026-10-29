@@ -48,6 +48,7 @@ Copy-Item (Join-Path $repo "LICENSE") $root
 
 # SDK 自带素材
 Copy-Item (Join-Path $sdkSrc "build.ps1") $root
+Copy-Item (Join-Path $PSScriptRoot "pack-plugin.ps1") $root
 Copy-Item (Join-Path $sdkSrc "samples") $root -Recurse
 
 # README：替换版本号占位符
