@@ -51,6 +51,53 @@ Public Module ModFirstRun
     End Function
 
     ''' <summary>
+    ''' 尝试把旧版启动器里的正版登录信息导入本程序（一次性）。
+    ''' 只从 PCLDebug（开源构建）读取：这些构建的设备识别码与本程序一致，加密数据可以直接复用；
+    ''' 官方 PCL 用另一套机器码加密，密文在本程序中无法解密，只能让用户重新登录一次。
+    ''' </summary>
+    Public Sub TryImportLegacyLogin()
+        Try
+            Using NewKey = Registry.CurrentUser.CreateSubKey("Software\" & RegFolder)
+                If NewKey Is Nothing Then Return
+                If NewKey.GetValue("LoginImportDone") IsNot Nothing Then Return
+                '只有本程序还没有登录信息时才导入，避免覆盖用户已经登录的账号
+                Dim OurLogin As String = TryCast(NewKey.GetValue("LoginMsJson"), String)
+                Dim NeedsImport As Boolean = String.IsNullOrWhiteSpace(OurLogin) OrElse OurLogin = "{}"
+                Dim Imported As Integer = 0
+                If NeedsImport Then
+                    Using OldKey = Registry.CurrentUser.OpenSubKey("Software\PCLDebug")
+                        If OldKey IsNot Nothing Then
+                            For Each ValueName In {"LoginMsJson", "CacheMsV2OAuthRefresh", "CacheMsV2Access", "CacheMsV2ProfileJson",
+                                                    "CacheMsV2Uuid", "CacheMsV2Name", "CacheMsV2Expires", "CacheMsV2Migrated",
+                                                    "LoginType", "LoginRemember"}
+                                If NewKey.GetValue(ValueName) Is Nothing AndAlso OldKey.GetValue(ValueName) IsNot Nothing Then
+                                    NewKey.SetValue(ValueName, OldKey.GetValue(ValueName), Microsoft.Win32.RegistryValueKind.String)
+                                    Imported += 1
+                                End If
+                            Next
+                        End If
+                    End Using
+                End If
+                If Imported > 0 Then Logger.Info($"已从旧版 PCL（开源构建）导入正版登录信息：{Imported} 项")
+                '官方 PCL 的登录信息无法解密：如果本程序还没登录、而官方 PCL 里有记录，就在日志里说明原因
+                If NeedsImport Then
+                    Try
+                        Using OfficialKey = Registry.CurrentUser.OpenSubKey("Software\PCL")
+                            If OfficialKey IsNot Nothing AndAlso OfficialKey.GetValue("LoginMsJson") IsNot Nothing Then
+                                Logger.Info("检测到官方 PCL 的登录信息，但它使用官方内置的机器码加密，本程序无法解密；需要在 PCL Harness 中重新登录一次")
+                            End If
+                        End Using
+                    Catch
+                    End Try
+                End If
+                NewKey.SetValue("LoginImportDone", 1, Microsoft.Win32.RegistryValueKind.DWord)
+            End Using
+        Catch ex As Exception
+            Logger.Error(ex, "导入旧版登录信息失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>
     ''' 是否需要显示迁移指引：首次启动，或上次跳过后用户还没改过设置（再给一次机会）。
     ''' </summary>
     Public Function NeedWizard() As Boolean

@@ -30,11 +30,9 @@ Public Class PageLoginMs
             LabMsNotWired.Foreground = CType(FindResource("ColorBrushRedLight"), System.Windows.Media.Brush)
             LabMsNotWired.Visibility = Visibility.Visible
         Else
-            'AppID 已通过 Mojang 审核并加入白名单（2026-10），登录流程默认可用
-            LabMsNotWired.Text = "使用正版微软账号登录：点「登录」后按提示在浏览器里输入屏幕上的代码即可。" & vbCrLf &
-                                 "登录成功后会自动记住账号，下次启动无需重复操作。"
-            LabMsNotWired.Foreground = CType(FindResource("ColorBrushGray3"), System.Windows.Media.Brush)
-            LabMsNotWired.Visibility = Visibility.Visible
+            'AppID 已通过 Mojang 审核并加入白名单，登录流程默认可用，不再需要额外的长说明（步骤由登录弹窗给出）
+            LabMsNotWired.Text = ""
+            LabMsNotWired.Visibility = Visibility.Collapsed
         End If
 End Sub
     Private Sub ComboAccounts_SelectionChanged(sender As Object, e As SelectionChangedEventArgs) Handles ComboAccounts.SelectionChanged

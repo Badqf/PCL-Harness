@@ -16,6 +16,8 @@ Public Class Application
                 Logger.Instance = New PclLogger With {.logFolder = Paths.BaseThenName, .MinLevel = If(ModeDebug, LogLevel.Trace, LogLevel.Info)}
                 '首次启动：在读取设置之前自动迁移旧 PCL 的数据，迁移来的 Setup.ini 本次启动即生效（#首次启动自动迁移）
                 ModFirstRun.AutoMigrateOnStartup()
+                '一次性导入旧版启动器的正版登录信息（只对开源构建有效，官方 PCL 的密文无法解密）
+                ModFirstRun.TryImportLegacyLogin()
             End If
             '提升主线程优先级
             Thread.CurrentThread.Priority = ThreadPriority.Highest
