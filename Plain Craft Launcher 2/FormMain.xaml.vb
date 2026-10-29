@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 444 Then 'PCL Harness 3.6.5
+            Logger.Info($"[Update] 版本号 {LastVersion} → {VersionCode}，稍后展示更新日志")
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：插件页勾选「启用」后状态没保存（热重载把 plugins.json 当成插件内容，自己写文件又触发重载，来回覆盖成空）"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件启用状态改由内存里的权威集合写入，热重载不再重建页面正在用的对象"))
+            FeatureCount += 0
+            BugCount += 1
+        End If
         If LastVersion < 443 Then 'PCL Harness 3.6.4
             Logger.Info($"[Update] 版本号 {LastVersion} → {VersionCode}，稍后展示更新日志")
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：实例右键菜单挂到了文件夹上，现在真正出现在「版本选择」里的实例上（含插件菜单项与「实例设置」）"))

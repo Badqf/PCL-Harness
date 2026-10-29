@@ -24,6 +24,29 @@ Public Module ModPlugin
     Private ReadOnly Property PathFuseFile As String = Path.Combine(PathPluginRoot, "fuse.json")
 
     ''' <summary>
+    ''' 已启用的插件 ID 集合（内存里的权威状态，见 WriteEnabled）。
+    ''' </summary>
+    Private ReadOnly EnabledState As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>
+    ''' 插件根目录下的状态文件（plugins.json / plugins.settings.json / fuse.json）不算“插件内容”，
+    ''' 否则启动器自己写这些文件会触发热重载，形成“重载→新对象→写回旧状态”的死循环。
+    ''' </summary>
+    Private Function IsPluginStateFile(FullPath As String) As Boolean
+        Try
+            Dim Dir = IO.Path.GetDirectoryName(IO.Path.GetFullPath(FullPath))
+            If Dir Is Nothing Then Return False
+            If Not Dir.TrimEnd("\"c).Equals(PathPluginRoot.TrimEnd("\"c), StringComparison.OrdinalIgnoreCase) Then Return False
+            Dim Name = IO.Path.GetFileName(FullPath)
+            Return Name.Equals("plugins.json", StringComparison.OrdinalIgnoreCase) OrElse
+                   Name.Equals("plugins.settings.json", StringComparison.OrdinalIgnoreCase) OrElse
+                   Name.Equals("fuse.json", StringComparison.OrdinalIgnoreCase)
+        Catch
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
     ''' 扩展点版本：
     ''' v2 自定义页面 / 标题栏入口 / 设置项；
     ''' v3 事件钩子；
@@ -224,6 +247,10 @@ Public Module ModPlugin
         Try
             Directory.CreateDirectory(PathPluginRoot)
             Dim EnabledIds = ReadEnabled()
+            EnabledState.Clear()
+            For Each Id In EnabledIds
+                EnabledState.Add(Id)
+            Next
             LoadFuseState()
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
                 Dim Info = ReadManifest(Folder)
@@ -563,11 +590,16 @@ Public Module ModPlugin
     ''' </summary>
     Public Sub SetEnabled(Info As PluginInfo, Value As Boolean)
         If Info Is Nothing Then Return
+        '热重载会重建 PluginInfo，页面可能持有旧对象；按 id 归一到当前列表里的那个
+        Dim Canonical = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, Info.Id, StringComparison.OrdinalIgnoreCase))
+        If Canonical IsNot Nothing Then Info = Canonical
         Info.Enabled = Value
         If Value Then
+            EnabledState.Add(Info.Id)
             ResetPluginFailures(Info) '用户重新启用就是重新计数，熔断状态解除
             LoadOne(Info)
         Else
+            EnabledState.Remove(Info.Id)
             If Info.Loaded AndAlso Info.Instance IsNot Nothing Then
                 Try
                     CType(Info.Instance, IPclPlugin).OnUnload()
@@ -703,8 +735,8 @@ Public Module ModPlugin
         Try
             Directory.CreateDirectory(PathPluginRoot)
             Dim Array As New JArray
-            For Each Info In Plugins
-                If Info.Enabled Then Array.Add(Info.Id)
+            For Each Id In EnabledState.OrderBy(Function(S) S, StringComparer.OrdinalIgnoreCase)
+                Array.Add(Id)
             Next
             Dim Json As New JObject
             Json("enabled") = Array
@@ -1087,11 +1119,19 @@ Public Module ModPlugin
             _Watcher = New FileSystemWatcher(PathPluginRoot, "*.json")
             _Watcher.IncludeSubdirectories = True
             _Watcher.NotifyFilter = NotifyFilters.LastWrite Or NotifyFilters.FileName Or NotifyFilters.Size
-            Dim Queue As FileSystemEventHandler = Sub(Sender, Args) QueueReload()
+            Dim Queue As FileSystemEventHandler = Sub(Sender, Args)
+                                                      Dim E = TryCast(Args, FileSystemEventArgs)
+                                                      If E IsNot Nothing AndAlso IsPluginStateFile(E.FullPath) Then Return
+                                                      QueueReload()
+                                                  End Sub
             AddHandler _Watcher.Changed, Queue
             AddHandler _Watcher.Created, Queue
             AddHandler _Watcher.Deleted, Queue
-            AddHandler _Watcher.Renamed, Sub(Sender, Args) QueueReload()
+            AddHandler _Watcher.Renamed, Sub(Sender, Args)
+                                             Dim R = TryCast(Args, RenamedEventArgs)
+                                             If R IsNot Nothing AndAlso (IsPluginStateFile(R.FullPath) OrElse IsPluginStateFile(R.OldFullPath)) Then Return
+                                             QueueReload()
+                                         End Sub
             _Watcher.EnableRaisingEvents = True
             _WatcherTimer = New Timers.Timer(700) With {.AutoReset = False}
             AddHandler _WatcherTimer.Elapsed, Sub(Sender, Args) DoHotReload()
