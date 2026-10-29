@@ -1,4 +1,4 @@
-# PCL Harness 插件开发指南（API v5）
+# PCL Harness 插件开发指南（API v6）
 
 > 适用版本：PCL Harness 3.2.x（插件 API v5，上游 2.14.0.0 合并后）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
@@ -346,7 +346,7 @@ DemoPlugin/
 **插件目录放好了，插件页却看不到 / 日志里没有插件行？**
 确认 `plugin.json` 和 DLL 都在 `PCLHarness\Plugins\<id>\` 这一层（不能多套一层）；新插件默认停用，要在插件页点启用才会加载。若目录里没有 `plugin.json` 或清单解析失败，启动器日志现在也会明确写出来。
 
-## API v5（当前版本）
+## API v5（历史版本）
 
 v5 在 v4 基础上补齐了「细粒度权限、完整性校验、事件、强类型设置、日志分级」，旧插件不需要任何改动。
 
@@ -397,3 +397,89 @@ Dim Answer = Host.Ask("要现在打开吗？", "插件提示", "打开", "取消
 - 未声明 `permissions` 的插件：保持 v4 行为（默认放行），不做限制。
 - 只写了 v4 字符串数组权限的插件：仍按整类权限放行，不启用白名单。
 - API 版本：`ApiVersionUi = 5`，User-Agent 为 `PCLHarness-Plugin/5`。
+
+## API v6（当前版本）
+
+v6 在 v5 之上补齐「事件总线、服务注册、后台任务、开发者模式」，**v5 插件不改一行代码就能继续用**（`ApiVersionUi = 6`）。
+
+### 6.1 事件总线
+
+13 个内置事件（`ModPlugin.PluginEvents`）：`启动器就绪`、`页面切换`、`游戏启动前`、`游戏启动后`、`游戏退出`、`实例切换`、`主题切换`、`联机创建`、`联机加入`、`联机关闭`、`下载开始`、`下载完成`、`关闭前`。
+
+```vb
+'按优先级订阅（数字大的先执行），OnlyOnce 执行一次后自动移除
+Host.Events.On("页面切换", Sub(Page As Integer, SubType As Integer)
+                               Host.LogDebug($"进入 {Page}/{SubType}")
+                           End Sub, Priority:=10)
+Host.Events.Once("启动器就绪", Sub() Host.LogInfo("启动完成") End Sub)
+Host.Events.Off("页面切换", Handler)
+
+'手动触发（调试用）
+Host.Events.Emit("主题切换", True)
+Host.Events.EmitAsync("下载开始", "test.zip")
+```
+
+- 处理器抛出的异常会被隔离并记进开发日志，不会影响其他插件与启动器。
+- 想列出全部事件、签名与订阅数：插件页 → 开发模式，输入 `events`。
+
+### 6.2 服务注册（插件之间互相调用）
+
+```vb
+Public Interface IGreeter
+    Function Greet(Name As String) As String
+End Interface
+
+Host.Services.Register(Of IGreeter)(New Greeter())      '注册（Owner 默认是插件 id）
+Dim G = Host.Services.Get(Of IGreeter)()               '取用（不存在会抛异常）
+If Host.Services.Has(Of IGreeter)() Then ... End If
+Dim Maybe = Host.Services.TryGet(Of IGreeter)()         '取不到返回 Nothing
+```
+
+- 插件被禁用或卸载时，它注册的服务会自动注销。
+- 列出当前所有服务：`services`。
+
+### 6.3 后台任务与进度
+
+```vb
+Host.Tasks.Run("下载配置", Sub(Ctx As PluginTaskContext)
+                                For I = 1 To 10
+                                    Ctx.ThrowIfCancelled()          '用户点了取消就抛异常
+                                    Ctx.Report(I / 10.0, $"第 {I} 步") '进度写进任务管理器
+                                    Thread.Sleep(300)
+                                Next
+                            End Sub)
+```
+
+任务会出现在右下角「任务管理」里，可取消，进度用 `LoaderTask` 上报；列出运行中的任务用 `tasks`。
+
+### 6.4 PclPluginBase（推荐基类）
+
+```vb
+Public Class MyPlugin
+    Inherits PCL.PclPluginBase   '已实现全部 6 个接口，按需 Overrides 即可
+
+    Public Overrides Sub OnLoad(Host As PCL.PluginHost)
+        MyBase.OnLoad(Host)      '必须调用，否则 Host/DataFolder 不会赋值
+        DevLog("加载完成")        '写入开发日志
+        Hint("插件已就绪")        '左下角提示
+    End Sub
+End Class
+```
+
+### 6.5 依赖版本约束
+
+`dependsOn` 支持 `"其它插件id@>=1.2"`（`>=` `<=` `>` `<` `=`，裸版本等于「大于等于」），版本不满足时插件不会加载并给出原因。
+
+### 6.6 开发模式（插件页第三个分区）
+
+插件页 → 开发模式：实时日志窗口 + 命令回显，支持命令：
+
+- `help` 帮助；`events` 事件/签名/订阅数；`plugins` 插件清单；`services` 已注册服务；`tasks` 运行中的任务；
+- `emit <事件名>` 手动触发事件；`clear` 清空日志。
+
+日志同时写进 `PluginDevLog`（内存环形缓冲，最多 4000 条），`Host.DevLog(...)` / `DevLog(...)` 都能往里写。
+
+### 6.7 兼容性
+
+- `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。
+- v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。

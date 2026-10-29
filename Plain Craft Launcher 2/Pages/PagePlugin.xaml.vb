@@ -39,6 +39,8 @@ Public Class PagePlugin
     Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True)
         SectionIndex = Index
         If PanContent Is Nothing Then Return
+        If DevTimer IsNot Nothing Then DevTimer.Stop()
+        DevLogBox = Nothing
         PanContent.Children.Clear()
         Select Case Index
             Case 1
@@ -145,6 +147,156 @@ Public Class PagePlugin
         CardList.Children.Add(BodyList)
         PanContent.Children.Add(CardList)
         RefreshManageRows()
+        BuildDevConsole()
+    End Sub
+
+    ' ================= 开发模式（API v6）：实时日志 + 命令回显 =================
+
+    Private DevTimer As System.Windows.Threading.DispatcherTimer
+    Private DevLogBox As MyTextBox
+
+    Private Sub BuildDevConsole()
+        Dim Card = NewCard("开发模式")
+        Dim Body As New StackPanel With {.Margin = New Thickness(25, 40, 25, 20)}
+        Body.Children.Add(MkHint("实时显示插件事件、服务注册、后台任务和宿主调用。支持的命令：help / events / plugins / services / tasks / emit 事件名 / clear"))
+
+        Dim Input_ As New MyTextBox With {
+            .HintText = "输入命令后回车，例如 events",
+            .Margin = New Thickness(0, 12, 0, 8)
+        }
+        Body.Children.Add(Input_)
+
+        Dim Box As New MyTextBox With {
+            .IsReadOnly = True,
+            .AcceptsReturn = True,
+            .TextWrapping = TextWrapping.NoWrap,
+            .VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            .HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            .Height = 240,
+            .FontFamily = New Media.FontFamily("Consolas, Microsoft YaHei UI"),
+            .FontSize = 12,
+            .Margin = New Thickness(0, 0, 0, 8)
+        }
+        DevLogBox = Box
+        Body.Children.Add(Box)
+
+        Dim PanBtn As New StackPanel With {.Orientation = Orientation.Horizontal}
+        PanBtn.Children.Add(MkButton("执行", Sub() RunDevCommand(Input_.Text, Input_)))
+        PanBtn.Children.Add(MkButton("清空日志", Sub()
+                                                ModPlugin.PluginDevLog.Clear()
+                                                RefreshDevLog()
+                                            End Sub))
+        PanBtn.Children.Add(MkButton("查看事件订阅", Sub() RunDevCommand("events", Input_)))
+        Body.Children.Add(PanBtn)
+
+        Card.Children.Add(Body)
+        PanContent.Children.Add(Card)
+
+        RefreshDevLog()
+        '命令输入框支持回车执行
+        AddHandler Input_.KeyDown, Sub(Sender As Object, E As KeyEventArgs)
+                                       If E.Key = Key.Enter Then
+                                           E.Handled = True
+                                           RunDevCommand(Input_.Text, Input_)
+                                       End If
+                                   End Sub
+
+        If DevTimer Is Nothing Then
+            DevTimer = New System.Windows.Threading.DispatcherTimer With {.Interval = New TimeSpan(0, 0, 0, 0, 600)}
+            AddHandler DevTimer.Tick, Sub() RefreshDevLog()
+            AddHandler ModPlugin.PluginDevLog.Changed, Sub() RefreshDevLog()
+        End If
+        DevTimer.Start()
+    End Sub
+
+    ''' <summary>把开发日志刷到文本框（保留滚动位置）。</summary>
+    Private Sub RefreshDevLog()
+        If DevLogBox Is Nothing Then Return
+        Try
+            Dim Items = ModPlugin.PluginDevLog.Snapshot(ModPlugin.PluginDevLog.LevelTrace, Nothing, 400)
+            Dim Text As String = String.Join(vbCrLf, Items.Select(Function(I) I.Display))
+            If DevLogBox.Text = Text Then Return
+            Dim Offset = DevLogBox.VerticalOffset
+            Dim AtBottom As Boolean = DevLogBox.SelectionStart >= DevLogBox.Text.Length - 1 '光标在末尾时才自动跟随
+            DevLogBox.Text = Text
+            If AtBottom Then
+                DevLogBox.ScrollToEnd() '停在最底部时自动跟随最新日志
+            ElseIf Math.Abs(Offset - DevLogBox.VerticalOffset) > 1 Then
+                DevLogBox.ScrollToVerticalOffset(Offset) '用户往上翻了，保持原位置
+            End If
+        Catch
+            '开发日志刷新失败不影响主流程
+        End Try
+    End Sub
+
+    ''' <summary>执行开发控制台命令，结果写进开发日志。</summary>
+    Private Sub RunDevCommand(Raw As String, Input_ As MyTextBox)
+        Dim Command As String = If(Raw, "").Trim()
+        If Command = "" Then Return
+        If Input_ IsNot Nothing Then Input_.Text = ""
+        ModPlugin.PluginDevLog.Info("控制台", "> " & Command)
+        Try
+            Dim Parts = Command.Split(New Char() {" "c}, 2)
+            Dim Name As String = Parts(0).ToLowerInvariant()
+            Dim Arg As String = If(Parts.Length > 1, Parts(1).Trim(), "")
+            Select Case Name
+                Case "help", "?"
+                    For Each Line In {"help            显示这条帮助",
+                                      "events          列出事件名、参数签名和当前订阅数",
+                                      "plugins         列出已发现的插件与状态",
+                                      "services        列出插件间注册的服务",
+                                      "tasks           列出正在运行的插件任务",
+                                      "emit <事件名>   手动触发一次事件（测试插件响应）",
+                                      "clear           清空开发日志"}
+                        ModPlugin.PluginDevLog.Info("控制台", Line)
+                    Next
+                Case "events"
+                    For Each EventName In ModPlugin.PluginEvents.All()
+                        Dim Total As Integer = 0
+                        For Each Info In ModPlugin.Plugins
+                            If Info.Loaded AndAlso Info.Host IsNot Nothing Then Total += Info.Host.Events.SubscriberCount(EventName)
+                        Next
+                        ModPlugin.PluginDevLog.Info("控制台", $"{EventName}{ModPlugin.PluginEvents.GetSignature(EventName)} → {Total} 个订阅")
+                    Next
+                Case "plugins"
+                    If ModPlugin.Plugins.Count = 0 Then
+                        ModPlugin.PluginDevLog.Info("控制台", "还没有发现任何插件")
+                    Else
+                        For Each Info In ModPlugin.Plugins
+                            ModPlugin.PluginDevLog.Info("控制台", $"{Info.DisplayName} {Info.Version}（{Info.Id}）— {Info.StatusText}")
+                        Next
+                    End If
+                Case "services"
+                    Dim Lines = ModPlugin.PluginServices.Describe()
+                    If Lines.Count = 0 Then
+                        ModPlugin.PluginDevLog.Info("控制台", "当前没有插件注册服务")
+                    Else
+                        Lines.ForEach(Sub(L) ModPlugin.PluginDevLog.Info("控制台", L))
+                    End If
+                Case "tasks"
+                    Dim Running = LoaderTaskbar.Where(Function(L) L.Name IsNot Nothing AndAlso L.Name.StartsWith("插件任务：", StringComparison.Ordinal)).
+                                                Select(Function(L) $"{L.Name}（{L.State}，进度 {L.Progress:P0}）").ToList()
+                    If Running.Count = 0 Then
+                        ModPlugin.PluginDevLog.Info("控制台", "当前没有插件任务在运行")
+                    Else
+                        Running.ForEach(Sub(L) ModPlugin.PluginDevLog.Info("控制台", L))
+                    End If
+                Case "emit"
+                    If Arg = "" Then
+                        ModPlugin.PluginDevLog.Warn("控制台", "用法：emit 事件名")
+                    Else
+                        Dim Count = ModPlugin.EmitPluginEvent(Arg)
+                        ModPlugin.PluginDevLog.Info("控制台", $"已触发 {Arg}，执行了 {Count} 个处理器")
+                    End If
+                Case "clear"
+                    ModPlugin.PluginDevLog.Clear()
+                Case Else
+                    ModPlugin.PluginDevLog.Warn("控制台", $"未知命令：{Name}，输入 help 查看可用命令")
+            End Select
+        Catch ex As Exception
+            ModPlugin.PluginDevLog.[Error]("控制台", "命令执行失败：" & ex.GetBaseException().Message)
+        End Try
+        RefreshDevLog()
     End Sub
 
     ''' <summary>
@@ -555,6 +707,16 @@ Public Class PagePlugin
         AddDocCode(Body, "Public Interface IPclPluginUi" & vbCrLf & "    Function GetPages() As IEnumerable(Of PluginPageInfo)" & vbCrLf & "    Function GetNavItems() As IEnumerable(Of PluginNavItem)" & vbCrLf & "    Function GetSettings() As IEnumerable(Of PluginSetting)" & vbCrLf & "End Interface")
         AddDocText(Body, "页面：PluginPageInfo 需要一个唯一的 Id、标题 Title 与工厂 Factory（返回 UserControl）。标题栏入口：PluginNavItem 指定 Text 与 Page（或只给 Action）。设置项：PluginSetting 支持 Boolean 与 Text 两种类型，值自动保存到 plugins.settings.json 的 " & ModPlugin.PathSettingsFile & "。")
 
+        AddDocTitle(Body, "事件总线（v6）")
+        AddDocText(Body, "13 个内置事件：启动器就绪、页面切换、游戏启动前、游戏启动后、游戏退出、实例切换、主题切换、联机创建、联机加入、联机关闭、下载开始、下载完成、关闭前。Host.Events.On(""事件名"", 处理器, Priority:=10) 按优先级执行（数字大的先跑）；Host.Events.Once 只执行一次；处理器抛异常不会影响启动器。")
+        AddDocCode(Body, "Host.Events.On(""页面切换"", Sub(Page As Integer, SubType As Integer)" & vbCrLf & "                               Host.LogDebug($""进入 {Page}/{SubType}"")" & vbCrLf & "                           End Sub, Priority:=10)")
+
+        AddDocTitle(Body, "服务注册与后台任务（v6）")
+        AddDocText(Body, "Host.Services.Register(Of 接口)(实现) 让插件之间互相调用，插件卸载时自动注销；Host.Tasks.Run(""任务名"", Sub(Ctx) ... End Sub) 跑后台任务，Ctx.Report(进度, 说明) 会显示在任务管理器里，用户可取消（Ctx.ThrowIfCancelled）。")
+        AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase   '已实现全部接口，按需 Overrides" & vbCrLf & "End Class")
+
+        AddDocTitle(Body, "开发模式（v6）")
+        AddDocText(Body, "插件页左侧「开发模式」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容。")
         AddDocTitle(Body, "设置值读写")
         AddDocCode(Body, "Dim Value = ModPlugin.GetSetting(Host.Info, ""Key"", 默认值)" & vbCrLf & "ModPlugin.SetSetting(Host.Info, ""Key"", 新值)")
 

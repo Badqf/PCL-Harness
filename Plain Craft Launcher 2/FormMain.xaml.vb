@@ -23,6 +23,15 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 437 Then 'PCL Harness 3.5.0
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件 API v6——事件总线覆盖启动器就绪、页面切换、游戏启动前后与退出、版本切换、主题切换、联机、下载、关闭前，共 13 类事件，支持优先级和一次性订阅"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件之间可以注册和取用服务（Host.Services），插件卸载时自动清理它注册的内容"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件可以起后台任务（Host.Tasks.Run），任务会出现在「任务管理」里，可以显示进度、可以取消"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件页的「开发模式」——实时日志窗口和命令回显（help / events / plugins / services / tasks / emit / clear）"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件基类 PclPluginBase，只需 Overrides 自己关心的事件，不用把 7 个接口全部实现一遍"))
+                FeatureCount += 5
+                BugCount += 0
+            End If
             If LastVersion < 436 Then 'PCL Harness 3.4.14
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：联机页 TUN 勾选框与旁边文字不同步的进入动画（现在方框和文字一起淡入）"))
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：「用上次端口直接开房」按钮与 TUN 勾选框的间距，不再挤在一起"))
@@ -1884,12 +1893,7 @@ Public Class FormMain
 #End Region
 
             Logger.Info($"切换主要页面：{Stack.Page}, {SubType}")
-            '把页面切换广播给订阅了 v5 事件的插件（出错不影响界面）
-            Try
-                ModPlugin.EmitPluginEvent("页面切换", Stack.Page.ToString(), SubType)
-            Catch ex2 As Exception
-                Logger.Error(ex2, "广播页面切换事件失败", LogBehavior.None)
-            End Try
+            '页面切换事件由 ModPlugin.RaisePageChanged 统一广播（API v6 起事件总线也走同一条路径）
         Catch ex As Exception
             Logger.Error(ex, $"切换主要页面失败（ID {PageCurrent.Page}）")
         Finally

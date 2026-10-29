@@ -1,0 +1,10 @@
+{
+  "id": "v6demo",
+  "name": "V6 能力演示",
+  "version": "1.0.0",
+  "author": "test",
+  "description": "演示 v6 事件、服务、后台任务",
+  "entry": "V6Demo.V6DemoPlugin",
+  "dll": "Plugin.dll",
+  "permissions": []
+}

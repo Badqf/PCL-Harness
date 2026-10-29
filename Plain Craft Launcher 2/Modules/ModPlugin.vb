@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -26,9 +26,11 @@ Public Module ModPlugin
     ''' 扩展点版本：
     ''' v2 自定义页面 / 标题栏入口 / 设置项；
     ''' v3 事件钩子；
-    ''' v4 生命周期与联机/下载事件、内嵌卡片与状态栏小组件、权限与依赖、热重载与事件日志。
+    ''' v4 生命周期与联机/下载事件、内嵌卡片与状态栏小组件、权限与依赖、热重载与事件日志；
+    ''' v5 事件总线、强类型设置、日志分级、Ask；
+    ''' v6 事件总线全覆盖（含优先级/一次性/异步）、插件服务注册与依赖版本约束、后台任务与进度、开发模式控制台。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 5
+    Public Const ApiVersionUi As Integer = 6
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -253,10 +255,19 @@ Public Module ModPlugin
                     For Each Info In Pending.ToList()
                         Dim Missing As String = Nothing
                         Dim Blocked As Boolean = False
-                        For Each DepId In Info.Dependencies
+                        For Each DepRaw In Info.Dependencies
+                            'API v6：支持 "其它插件id@>=1.2" 形式的版本约束
+                            Dim AtPos As Integer = DepRaw.IndexOf("@"c)
+                            Dim DepId As String = If(AtPos >= 0, DepRaw.Substring(0, AtPos).Trim(), DepRaw.Trim())
+                            Dim DepConstraint As String = If(AtPos >= 0, DepRaw.Substring(AtPos + 1).Trim(), "")
                             Dim Dep = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, DepId, StringComparison.OrdinalIgnoreCase))
                             If Dep Is Nothing Then
-                                Missing = DepId
+                                Missing = DepRaw
+                                Exit For
+                            End If
+                            If Not SatisfiesVersion(Dep.Version, DepConstraint) Then
+                                Info.[Error] = $"依赖插件 {Dep.DisplayName} 的版本是 {If(Dep.Version, "未知")}，不满足要求 {DepConstraint}"
+                                Missing = DepRaw
                                 Exit For
                             End If
                             If Dep.Enabled AndAlso Not Dep.Loaded AndAlso Pending.Contains(Dep) Then
@@ -264,7 +275,7 @@ Public Module ModPlugin
                                 Exit For
                             End If
                             If Dep.Enabled AndAlso Not String.IsNullOrEmpty(Dep.[Error]) Then
-                                Missing = DepId
+                                Missing = DepRaw
                                 Exit For
                             End If
                         Next
@@ -404,6 +415,8 @@ Public Module ModPlugin
                     Logger.Error(ex, "卸载插件失败：" & Info.DisplayName, LogBehavior.None)
                 End Try
             End If
+            'API v6：插件卸载时清掉它注册的服务
+            PluginServices.UnregisterByOwner(Info.Id)
             Info.Loaded = False
             Info.Instance = Nothing
         Next
@@ -425,6 +438,8 @@ Public Module ModPlugin
                     Logger.Error(ex, "卸载插件失败：" & Info.DisplayName, LogBehavior.None)
                 End Try
             End If
+            'API v6：插件卸载时清掉它注册的服务
+            PluginServices.UnregisterByOwner(Info.Id)
             Info.Loaded = False
             Info.Instance = Nothing
             RemoveUi(Info)
@@ -515,6 +530,7 @@ Public Module ModPlugin
             Dim Deps = Json.Value(Of JArray)("dependencies")
             If Deps IsNot Nothing Then
                 For Each D In Deps
+                    'API v6：依赖可以写成 "其它插件id@>=1.2"，也可以只写 id
                     Dim Name = D.ToString().Trim()
                     If Name <> "" Then Info.Dependencies.Add(Name)
                 Next
@@ -703,6 +719,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnLauncherReady 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.LauncherReady)
         '主页卡片可能比页面初始化更晚就绪，补一次渲染
         Try
             RunInUi(Sub()
@@ -724,6 +741,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnPageChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.PageChanged, Page, SubType)
     End Sub
 
     ''' <summary>构建启动参数时；插件可往 Info.ExtraJvmArgs / ExtraGameArgs 追加参数。</summary>
@@ -735,6 +753,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnGameLaunching 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.GameLaunching, Info)
     End Sub
 
     ''' <summary>游戏进程刚启动后。</summary>
@@ -746,6 +765,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnGameLaunched 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.GameLaunched, Info)
     End Sub
 
     ' ================= 事件分发（v4） =================
@@ -761,6 +781,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnGameExited 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.GameExited, Info, ExitCode)
     End Sub
 
     ''' <summary>当前版本切换后。</summary>
@@ -773,6 +794,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnInstanceChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.InstanceChanged, If(InstanceName, ""))
     End Sub
 
     ''' <summary>主题在深色/浅色之间切换后。</summary>
@@ -785,6 +807,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnThemeChanged 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.ThemeChanged, IsDark)
     End Sub
 
     ''' <summary>成功创建联机房间后。</summary>
@@ -797,6 +820,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnLinkRoomCreated 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.LinkRoomCreated, If(Invite, ""))
     End Sub
 
     ''' <summary>成功加入联机房间后。</summary>
@@ -809,6 +833,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnLinkRoomJoined 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.LinkRoomJoined)
     End Sub
 
     ''' <summary>离开联机房间或断开后。</summary>
@@ -821,12 +846,50 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnLinkRoomClosed 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.LinkRoomClosed)
     End Sub
 
     ''' <summary>是否为需要通知插件的下载类加载器（名称包含 下载 或 Download）。</summary>
     Public Function IsDownloadLoader(Name As String) As Boolean
         If String.IsNullOrWhiteSpace(Name) Then Return False
         Return Name.Contains("下载") OrElse Name.IndexOf("Download", StringComparison.OrdinalIgnoreCase) >= 0
+    End Function
+
+    ''' <summary>
+    ''' API v6：判断插件版本是否满足依赖约束。
+    ''' 支持 "1.2"（等价于 大于等于）、">=1.2"、">1.1"、"<=2.0"、"=1.2.3"；约束留空表示只要插件存在即可。
+    ''' </summary>
+    Public Function SatisfiesVersion(Actual As String, Constraint As String) As Boolean
+        If String.IsNullOrWhiteSpace(Constraint) Then Return True
+        If String.IsNullOrWhiteSpace(Actual) Then Return False
+        Dim Text As String = Constraint.Trim()
+        Dim Op As String = ">="
+        If Text.StartsWith(">=", StringComparison.Ordinal) Then
+            Op = ">=" : Text = Text.Substring(2)
+        ElseIf Text.StartsWith("<=", StringComparison.Ordinal) Then
+            Op = "<=" : Text = Text.Substring(2)
+        ElseIf Text.StartsWith("=", StringComparison.Ordinal) Then
+            Op = "=" : Text = Text.Substring(1)
+        ElseIf Text.StartsWith(">", StringComparison.Ordinal) Then
+            Op = ">" : Text = Text.Substring(1)
+        ElseIf Text.StartsWith("<", StringComparison.Ordinal) Then
+            Op = "<" : Text = Text.Substring(1)
+        End If
+        Text = Text.Trim()
+        If Text = "" Then Return True
+        Dim Result As Integer = McUtils.CompareVersion(Actual, Text)
+        Select Case Op
+            Case ">="
+                Return Result >= 0
+            Case "<="
+                Return Result <= 0
+            Case ">"
+                Return Result > 0
+            Case "<"
+                Return Result < 0
+            Case Else
+                Return Result = 0
+        End Select
     End Function
 
     ''' <summary>一个下载任务开始。</summary>
@@ -838,6 +901,7 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnDownloadStarted 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.DownloadStarted, If(Target, ""))
     End Sub
 
     ''' <summary>一个下载任务结束。</summary>
@@ -850,11 +914,13 @@ Public Module ModPlugin
                 Logger.Error(ex, "插件事件 OnDownloadFinished 失败：" & Entry.Owner.DisplayName, LogBehavior.None)
             End Try
         Next
+        EmitPluginEvent(PluginEvents.DownloadFinished, If(Target, ""), Success)
     End Sub
 
     ''' <summary>关闭启动器前询问插件；返回 True 表示有插件要求取消关闭。</summary>
     Public Function RaiseClosing() As Boolean
         Dim Cancel As Boolean = False
+        EmitPluginEvent(PluginEvents.Closing)
         For Each Entry In PluginClosingHandlers.ToList()
             Try
                 If Entry.Handler.OnClosing() Then Cancel = True
@@ -1129,66 +1195,493 @@ Public Module ModPlugin
         Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 net 权限只允许 {String.Join("、", Info.Detail.Hosts)}，已拦截 {Host}")
     End Sub
 
-    ''' <summary>API v5：事件总线。插件用 Host.Events.On("事件名", Sub(...) ...) 订阅。</summary>
+    ''' <summary>
+    ''' API v6：事件名常量。插件用 Host.Events.On(PluginEvents.游戏启动前, Sub(info) ...) 订阅，
+    ''' 也可以直接写字符串（事件名不区分大小写）。
+    ''' </summary>
+    Public Class PluginEvents
+        Public Const LauncherReady As String = "启动器就绪"
+        Public Const PageChanged As String = "页面切换"
+        Public Const GameLaunching As String = "游戏启动前"
+        Public Const GameLaunched As String = "游戏启动后"
+        Public Const GameExited As String = "游戏退出"
+        Public Const InstanceChanged As String = "实例切换"
+        Public Const ThemeChanged As String = "主题切换"
+        Public Const LinkRoomCreated As String = "联机创建"
+        Public Const LinkRoomJoined As String = "联机加入"
+        Public Const LinkRoomClosed As String = "联机关闭"
+        Public Const DownloadStarted As String = "下载开始"
+        Public Const DownloadFinished As String = "下载完成"
+        Public Const Closing As String = "关闭前"
+
+        ''' <summary>全部事件名。</summary>
+        Public Shared Function All() As String()
+            Return {LauncherReady, PageChanged, GameLaunching, GameLaunched, GameExited, InstanceChanged, ThemeChanged,
+                    LinkRoomCreated, LinkRoomJoined, LinkRoomClosed, DownloadStarted, DownloadFinished, Closing}
+        End Function
+
+        ''' <summary>事件的参数签名（开发模式控制台显示用）。</summary>
+        Public Shared Function GetSignature(EventName As String) As String
+            Select Case If(EventName, "").ToLowerInvariant()
+                Case LauncherReady.ToLowerInvariant()
+                    Return "()"
+                Case PageChanged.ToLowerInvariant()
+                    Return "(page As Integer, subType As Integer)"
+                Case GameLaunching.ToLowerInvariant(), GameLaunched.ToLowerInvariant()
+                    Return "(info As PluginLaunchInfo)"
+                Case GameExited.ToLowerInvariant()
+                    Return "(info As PluginLaunchInfo, exitCode As Integer)"
+                Case InstanceChanged.ToLowerInvariant()
+                    Return "(instanceName As String)"
+                Case ThemeChanged.ToLowerInvariant()
+                    Return "(isDark As Boolean)"
+                Case LinkRoomCreated.ToLowerInvariant()
+                    Return "(invite As String)"
+                Case LinkRoomJoined.ToLowerInvariant(), LinkRoomClosed.ToLowerInvariant(), Closing.ToLowerInvariant()
+                    Return "()"
+                Case DownloadStarted.ToLowerInvariant()
+                    Return "(target As String)"
+                Case DownloadFinished.ToLowerInvariant()
+                    Return "(target As String, success As Boolean)"
+                Case Else
+                    Return "(...)"
+            End Select
+        End Function
+    End Class
+
+    ''' <summary>
+    ''' API v6：开发模式实时日志。插件页「开发模式」分区与控制台读取这里的内容，
+    ''' 记录事件触发、宿主 API 调用、被拦截的操作和插件异常。
+    ''' </summary>
+    Public Class PluginDevLog
+        Public Const LevelTrace As Integer = 0
+        Public Const LevelInfo As Integer = 1
+        Public Const LevelWarn As Integer = 2
+        Public Const LevelError As Integer = 3
+
+        Public Class Entry
+            Public Time As Date = Date.Now
+            Public Level As Integer = LevelInfo
+            Public Source As String = ""
+            Public Text As String = ""
+            Public ReadOnly Property Display As String
+                Get
+                    Dim Mark As String
+                    Select Case Level
+                        Case LevelError
+                            Mark = "错误"
+                        Case LevelWarn
+                            Mark = "警告"
+                        Case LevelTrace
+                            Mark = "追踪"
+                        Case Else
+                            Mark = "信息"
+                    End Select
+                    Return $"{Time:HH:mm:ss.fff} [{Mark}] {Source}：{Text}"
+                End Get
+            End Property
+        End Class
+
+        Private Const Capacity As Integer = 4000
+        Private Shared ReadOnly _Lock As New Object
+        Private Shared ReadOnly _Items As New List(Of Entry)
+        ''' <summary>有新日志时触发（可能在任意线程）。</summary>
+        Public Shared Event Changed()
+
+        Public Shared Sub Write(Level As Integer, Source As String, Text As String)
+            Try
+                SyncLock _Lock
+                    _Items.Add(New Entry With {.Time = Date.Now, .Level = Level, .Source = If(Source, ""), .Text = If(Text, "")})
+                    If _Items.Count > Capacity Then _Items.RemoveRange(0, _Items.Count - Capacity)
+                End SyncLock
+                RaiseEvent Changed()
+            Catch
+                '开发日志本身不允许影响主流程
+            End Try
+        End Sub
+
+        Public Shared Sub Trace(Source As String, Text As String)
+            Write(LevelTrace, Source, Text)
+        End Sub
+
+        Public Shared Sub Info(Source As String, Text As String)
+            Write(LevelInfo, Source, Text)
+        End Sub
+
+        Public Shared Sub Warn(Source As String, Text As String)
+            Write(LevelWarn, Source, Text)
+        End Sub
+
+        Public Shared Sub [Error](Source As String, Text As String)
+            Write(LevelError, Source, Text)
+        End Sub
+
+        ''' <summary>取一份快照；MinLevel 为最低级别，SourceFilter 为空表示不过滤。</summary>
+        Public Shared Function Snapshot(Optional MinLevel As Integer = LevelTrace, Optional SourceFilter As String = Nothing, Optional MaxCount As Integer = 800) As List(Of Entry)
+            Dim Result As New List(Of Entry)
+            SyncLock _Lock
+                For i = _Items.Count - 1 To 0 Step -1
+                    If Result.Count >= MaxCount Then Exit For
+                    Dim Item = _Items(i)
+                    If Item.Level < MinLevel Then Continue For
+                    If Not String.IsNullOrWhiteSpace(SourceFilter) AndAlso
+                       Item.Source.IndexOf(SourceFilter.Trim(), StringComparison.OrdinalIgnoreCase) < 0 AndAlso
+                       Item.Text.IndexOf(SourceFilter.Trim(), StringComparison.OrdinalIgnoreCase) < 0 Then Continue For
+                    Result.Add(Item)
+                Next
+            End SyncLock
+            Result.Reverse()
+            Return Result
+        End Function
+
+        Public Shared Sub Clear()
+            SyncLock _Lock
+                _Items.Clear()
+            End SyncLock
+            RaiseEvent Changed()
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' API v6：事件总线。插件用 Host.Events.On("事件名", Sub(...) ...) 订阅。
+    ''' 支持优先级（数值大的先执行）、一次性订阅（执行后自动移除）与异步分发。
+    ''' </summary>
     Public Class PluginEventBus
-        Private ReadOnly _Handlers As New Dictionary(Of String, List(Of [Delegate]))(StringComparer.OrdinalIgnoreCase)
-        ''' <summary>订阅事件。</summary>
-        Public Sub [On](EventName As String, Handler As [Delegate])
+        Private Class Subscription
+            Public Handler As [Delegate]
+            Public Priority As Integer
+            Public OnlyOnce As Boolean
+            Public Owner As String
+        End Class
+
+        Private ReadOnly _Handlers As New Dictionary(Of String, List(Of Subscription))(StringComparer.OrdinalIgnoreCase)
+
+        ''' <summary>订阅事件。Priority 越大越先执行；OnlyOnce 为 True 时只执行一次。</summary>
+        Public Sub [On](EventName As String, Handler As [Delegate], Optional Priority As Integer = 0, Optional OnlyOnce As Boolean = False, Optional Owner As String = "")
             If String.IsNullOrWhiteSpace(EventName) OrElse Handler Is Nothing Then Return
             SyncLock _Handlers
-                Dim Items As List(Of [Delegate]) = Nothing
+                Dim Items As List(Of Subscription) = Nothing
                 If Not _Handlers.TryGetValue(EventName, Items) Then
-                    Items = New List(Of [Delegate])
+                    Items = New List(Of Subscription)
                     _Handlers(EventName) = Items
                 End If
-                Items.Add(Handler)
+                Items.Add(New Subscription With {.Handler = Handler, .Priority = Priority, .OnlyOnce = OnlyOnce, .Owner = If(Owner, "")})
             End SyncLock
+            PluginDevLog.Trace("事件总线", $"订阅 {EventName}{PluginEvents.GetSignature(EventName)}（优先级 {Priority}{If(OnlyOnce, "，一次性", "")}）")
         End Sub
+
+        ''' <summary>订阅一次性事件。</summary>
+        Public Sub Once(EventName As String, Handler As [Delegate], Optional Priority As Integer = 0)
+            [On](EventName, Handler, Priority, True)
+        End Sub
+
         ''' <summary>取消订阅。</summary>
         Public Sub Off(EventName As String, Handler As [Delegate])
+            If String.IsNullOrWhiteSpace(EventName) OrElse Handler Is Nothing Then Return
             SyncLock _Handlers
-                Dim Items As List(Of [Delegate]) = Nothing
+                Dim Items As List(Of Subscription) = Nothing
                 If _Handlers.TryGetValue(EventName, Items) Then
-                    Items.Remove(Handler)
+                    For i = Items.Count - 1 To 0 Step -1
+                        If Items(i).Handler Is Handler Then Items.RemoveAt(i)
+                    Next
                     If Items.Count = 0 Then _Handlers.Remove(EventName)
                 End If
             End SyncLock
         End Sub
+
         ''' <summary>某个事件的订阅者数量。</summary>
         Public Function SubscriberCount(EventName As String) As Integer
             SyncLock _Handlers
-                Dim Items As List(Of [Delegate]) = Nothing
+                Dim Items As List(Of Subscription) = Nothing
                 If _Handlers.TryGetValue(EventName, Items) Then Return Items.Count
             End SyncLock
             Return 0
         End Function
-        ''' <summary>触发事件，返回成功执行的处理器数量。</summary>
-        Public Function Emit(EventName As String, ParamArray Args As Object()) As Integer
-            Dim Snapshot As New List(Of [Delegate])
+
+        ''' <summary>当前有订阅者的事件与订阅数（开发模式显示用）。</summary>
+        Public Function SubscriberSummary() As List(Of String)
+            Dim Result As New List(Of String)
             SyncLock _Handlers
-                Dim Items As List(Of [Delegate]) = Nothing
-                If Not _Handlers.TryGetValue(EventName, Items) Then Return 0
-                Snapshot.AddRange(Items)
+                For Each Pair In _Handlers
+                    Result.Add($"{Pair.Key}：{Pair.Value.Count} 个订阅")
+                Next
             End SyncLock
-            Dim Count As Integer = 0
-            For Each Handler In Snapshot
+            Result.Sort()
+            Return Result
+        End Function
+
+        ''' <summary>触发事件，返回成功执行的处理器数量。处理器抛出的异常会被隔离并记入开发日志。</summary>
+        Public Function Emit(EventName As String, ParamArray Args As Object()) As Integer
+            If String.IsNullOrWhiteSpace(EventName) Then Return 0
+            Dim Snapshot As New List(Of Subscription)
+            SyncLock _Handlers
+                Dim Items As List(Of Subscription) = Nothing
+                If Not _Handlers.TryGetValue(EventName, Items) Then
+                    Items = Nothing
+                End If
+                If Items IsNot Nothing Then
+                    '按优先级降序（OrderByDescending 是稳定排序，同优先级保持订阅顺序）
+                    Snapshot.AddRange(Items.OrderByDescending(Function(S) S.Priority))
+                End If
+            End SyncLock
+            Dim Executed As Integer = 0
+            For Each Item In Snapshot
                 Try
-                    Handler.DynamicInvoke(Args)
-                    Count += 1
+                    Item.Handler.DynamicInvoke(Args)
+                    Executed += 1
                 Catch ex As Exception
+                    PluginDevLog.Error("事件总线", $"处理 {EventName} 时出错：{ex.GetBaseException().Message}")
                     Logger.Error(ex, "插件事件处理失败：" & EventName, LogBehavior.None)
                 End Try
+                If Item.OnlyOnce Then
+                    SyncLock _Handlers
+                        Dim Items As List(Of Subscription) = Nothing
+                        If _Handlers.TryGetValue(EventName, Items) Then
+                            Items.Remove(Item)
+                            If Items.Count = 0 Then _Handlers.Remove(EventName)
+                        End If
+                    End SyncLock
+                End If
             Next
-            Return Count
+            Return Executed
+        End Function
+
+        ''' <summary>异步触发事件（不阻塞调用方，处理器在主线程池里执行）。</summary>
+        Public Sub EmitAsync(EventName As String, ParamArray Args As Object())
+            Dim EventArgs = Args
+            System.Threading.Tasks.Task.Run(Sub()
+                                          Try
+                                              Emit(EventName, EventArgs)
+                                          Catch ex As Exception
+                                              Logger.Error(ex, "异步分发插件事件失败：" & EventName, LogBehavior.None)
+                                          End Try
+                                      End Sub)
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' API v6：插件间服务注册表。插件 A 把实现注册进来，插件 B 通过接口类型取用。
+    ''' 卸载插件时会自动清理它注册的服务。
+    ''' </summary>
+    Public Class PluginServiceRegistry
+        Private Class Entry
+            Public Value As Object
+            Public Owner As String
+        End Class
+
+        Private ReadOnly _Lock As New Object
+        Private ReadOnly _Services As New Dictionary(Of Type, List(Of Entry))
+
+        Friend Sub RegisterService(ServiceType As Type, Value As Object, Owner As String)
+            SyncLock _Lock
+                Dim Items As List(Of Entry) = Nothing
+                If Not _Services.TryGetValue(ServiceType, Items) Then
+                    Items = New List(Of Entry)
+                    _Services(ServiceType) = Items
+                End If
+                Items.Add(New Entry With {.Value = Value, .Owner = If(Owner, "")})
+            End SyncLock
+            PluginDevLog.Info("服务", $"注册 {ServiceType.Name}（来自 {Owner}）")
+        End Sub
+
+        Friend Sub UnregisterService(ServiceType As Type, Owner As String)
+            SyncLock _Lock
+                Dim Items As List(Of Entry) = Nothing
+                If _Services.TryGetValue(ServiceType, Items) Then
+                    For i = Items.Count - 1 To 0 Step -1
+                        If String.Equals(Items(i).Owner, If(Owner, ""), StringComparison.OrdinalIgnoreCase) Then Items.RemoveAt(i)
+                    Next
+                    If Items.Count = 0 Then _Services.Remove(ServiceType)
+                End If
+            End SyncLock
+        End Sub
+
+        Friend Function GetService(ServiceType As Type) As Object
+            SyncLock _Lock
+                Dim Items As List(Of Entry) = Nothing
+                If _Services.TryGetValue(ServiceType, Items) AndAlso Items.Count > 0 Then Return Items(Items.Count - 1).Value
+            End SyncLock
+            Return Nothing
+        End Function
+
+        Friend Function HasService(ServiceType As Type) As Boolean
+            SyncLock _Lock
+                Dim Items As List(Of Entry) = Nothing
+                Return _Services.TryGetValue(ServiceType, Items) AndAlso Items.Count > 0
+            End SyncLock
+        End Function
+
+        Friend Sub UnregisterByOwner(Owner As String)
+            SyncLock _Lock
+                For Each Pair In _Services.ToList()
+                    Pair.Value.RemoveAll(Function(E) String.Equals(E.Owner, If(Owner, ""), StringComparison.OrdinalIgnoreCase))
+                    If Pair.Value.Count = 0 Then _Services.Remove(Pair.Key)
+                Next
+            End SyncLock
+        End Sub
+
+        ''' <summary>当前注册的服务（开发模式显示用）。</summary>
+        Public Function Describe() As List(Of String)
+            Dim Result As New List(Of String)
+            SyncLock _Lock
+                For Each Pair In _Services
+                    Result.Add($"{Pair.Key.Name} ← {Pair.Value(Pair.Value.Count - 1).Owner}")
+                Next
+            End SyncLock
+            Result.Sort()
+            Return Result
+        End Function
+    End Class
+
+    ''' <summary>
+    ''' API v6：插件访问服务注册表的入口（Host.Services）。
+    ''' 用法：Host.Services.Register(Of IMyApi)(Me) / Host.Services.Get(Of IMyApi)()
+    ''' </summary>
+    Public Class PluginServiceAccessor
+        Friend ReadOnly OwnerId As String
+
+        Friend Sub New(OwnerId As String)
+            Me.OwnerId = OwnerId
+        End Sub
+
+        Public Sub Register(Of T As Class)(Impl As T)
+            If Impl Is Nothing Then Throw New ArgumentNullException(NameOf(Impl))
+            ModPlugin.PluginServices.RegisterService(GetType(T), Impl, OwnerId)
+        End Sub
+
+        Public Sub Unregister(Of T As Class)()
+            ModPlugin.PluginServices.UnregisterService(GetType(T), OwnerId)
+        End Sub
+
+        Public Function [Get](Of T As Class)() As T
+            Return TryCast(ModPlugin.PluginServices.GetService(GetType(T)), T)
+        End Function
+
+        Public Function TryGet(Of T As Class)(ByRef Service As T) As Boolean
+            Service = [Get](Of T)()
+            Return Service IsNot Nothing
+        End Function
+
+        Public Function Has(Of T As Class)() As Boolean
+            Return ModPlugin.PluginServices.HasService(GetType(T))
+        End Function
+    End Class
+
+    ''' <summary>全局服务注册表。</summary>
+    Public ReadOnly PluginServices As New PluginServiceRegistry
+
+    ''' <summary>API v6：任务上下文。工作委托里用它上报进度、检查取消。</summary>
+    Public Class PluginTaskContext
+        Friend ReadOnly Loader As LoaderBase
+
+        Friend Sub New(Loader As LoaderBase)
+            Me.Loader = Loader
+        End Sub
+
+        ''' <summary>任务是否已被取消。</summary>
+        Public ReadOnly Property Cancelled As Boolean
+            Get
+                Return Loader.State = LoadState.Canceled
+            End Get
+        End Property
+
+        ''' <summary>上报进度（0~1）；Message 为空时只更新进度条。</summary>
+        Public Sub Report(Value As Double, Optional Message As String = Nothing)
+            Loader.Progress = Math.Max(0, Math.Min(1, Value))
+            If Not String.IsNullOrEmpty(Message) Then Loader.Name = "插件任务：" & Message
+        End Sub
+
+        ''' <summary>已取消时抛出 OperationCanceledException，用于提前退出。</summary>
+        Public Sub ThrowIfCancelled()
+            If Cancelled Then Throw New OperationCanceledException("插件任务已取消")
+        End Sub
+    End Class
+
+    ''' <summary>API v6：后台任务句柄。</summary>
+    Public Class PluginTaskHandle
+        Public ReadOnly Loader As LoaderBase
+
+        Friend Sub New(Loader As LoaderBase)
+            Me.Loader = Loader
+        End Sub
+
+        Public ReadOnly Property Progress As Double
+            Get
+                Return Loader.Progress
+            End Get
+        End Property
+
+        Public ReadOnly Property State As LoadState
+            Get
+                Return Loader.State
+            End Get
+        End Property
+
+        ''' <summary>取消任务。</summary>
+        Public Sub Cancel()
+            Try
+                Loader.Cancel()
+            Catch ex As Exception
+                Logger.Error(ex, "取消插件任务失败", LogBehavior.None)
+            End Try
+        End Sub
+
+        ''' <summary>等待任务结束（会抛出让任务失败时记录过的异常）。</summary>
+        Public Sub Wait()
+            Loader.WaitForExit()
+        End Sub
+    End Class
+
+    ''' <summary>
+    ''' API v6：后台任务。插件用 Host.Tasks.Run("名字", Sub(ctx) ... End Sub) 起任务，
+    ''' 任务会出现在右下角「任务管理」里，可显示进度、可取消。
+    ''' </summary>
+    Public Class PluginTaskManager
+        Friend ReadOnly OwnerId As String
+
+        Friend Sub New(OwnerId As String)
+            Me.OwnerId = OwnerId
+        End Sub
+
+        Public Function Run(Name As String, Work As Action(Of PluginTaskContext)) As PluginTaskHandle
+            If Work Is Nothing Then Throw New ArgumentNullException(NameOf(Work))
+            Dim FullName As String = "插件任务：" & If(String.IsNullOrWhiteSpace(Name), "未命名", Name)
+            Dim Ldr As LoaderBase = Nothing
+            Ldr = New LoaderTask(Of Object, Object)(FullName,
+                Sub(Task)
+                    Dim Context As New PluginTaskContext(Task)
+                    PluginDevLog.Info("任务", $"开始 {FullName}")
+                    Try
+                        Work(Context)
+                        PluginDevLog.Info("任务", $"完成 {FullName}")
+                    Catch ex As OperationCanceledException
+                        PluginDevLog.Warn("任务", $"取消 {FullName}")
+                        Task.Cancel()
+                    Catch ex As Exception
+                        PluginDevLog.Error("任务", $"{FullName} 失败：{ex.GetBaseException().Message}")
+                        Throw
+                    End Try
+                End Sub)
+            Ldr.Show = True
+            Ldr.Start()
+            '开始后再加入任务栏，避免 50ms 的刷新把 Waiting 状态的任务丢掉
+            LoaderTaskbar.Add(Ldr)
+            Return New PluginTaskHandle(Ldr)
         End Function
     End Class
 
     ''' <summary>向所有已加载插件广播事件（宿主内部使用）。</summary>
     Public Function EmitPluginEvent(EventName As String, ParamArray Args As Object()) As Integer
         Dim Count As Integer = 0
+        Dim Subscribers As Integer = 0
         For Each Info In Plugins.ToList()
-            If Info.Loaded AndAlso Info.Host IsNot Nothing Then Count += Info.Host.Events.Emit(EventName, Args)
+            If Info.Loaded AndAlso Info.Host IsNot Nothing Then
+                Count += Info.Host.Events.Emit(EventName, Args)
+                Subscribers += Info.Host.Events.SubscriberCount(EventName)
+            End If
         Next
+        PluginDevLog.Write(If(Subscribers = 0, PluginDevLog.LevelTrace, PluginDevLog.LevelInfo), "事件",
+                           $"{EventName}{PluginEvents.GetSignature(EventName)} → 执行 {Count} 个处理器（共 {Subscribers} 个订阅）")
         Return Count
     End Function
 End Module
@@ -1319,14 +1812,108 @@ Public Interface IPclPluginUi2
 End Interface
 
 ''' <summary>
+''' API v6：插件基类。继承它就不用把 7 个接口的方法全部实现一遍，
+''' 只 Overrides 自己关心的事件即可（例如 Public Overrides Sub OnLauncherReady()）。
+''' 基类已经实现 IPclPlugin / IPclPluginEvents / IPclPluginLifecycle / IPclPluginLink / IPclPluginDownload / IPclPluginClosing。
+''' </summary>
+Public MustInherit Class PclPluginBase
+    Implements IPclPlugin
+    Implements IPclPluginEvents
+    Implements IPclPluginLifecycle
+    Implements IPclPluginLink
+    Implements IPclPluginDownload
+    Implements IPclPluginClosing
+
+    ''' <summary>宿主对象，OnLoad 之后可用。</summary>
+    Public Property Host As PluginHost
+
+    ''' <summary>插件自己的数据目录（会自动创建）。</summary>
+    Public ReadOnly Property DataFolder As String
+        Get
+            Return If(Host?.DataFolder, "")
+        End Get
+    End Property
+
+    ''' <summary>写一条开发日志（会显示在插件页的开发模式控制台里）。</summary>
+    Public Sub DevLog(Message As String)
+        PluginDevLog.Info(If(Host?.Info?.DisplayName, "插件"), If(Message, ""))
+    End Sub
+
+    ''' <summary>弹出左下角提示。</summary>
+    Public Sub Hint(Message As String, Optional Type As HintType = HintType.Blue)
+        Host?.Hint(Message, Type)
+    End Sub
+
+    Public Overridable Sub OnLoad(Host As PluginHost) Implements IPclPlugin.OnLoad
+        Me.Host = Host
+    End Sub
+
+    Public Overridable Sub OnUnload() Implements IPclPlugin.OnUnload
+    End Sub
+
+    Public Overridable Sub OnLauncherReady() Implements IPclPluginEvents.OnLauncherReady
+    End Sub
+
+    Public Overridable Sub OnPageChanged(Page As Integer, SubType As Integer) Implements IPclPluginEvents.OnPageChanged
+    End Sub
+
+    Public Overridable Sub OnGameLaunching(Info As PluginLaunchInfo) Implements IPclPluginEvents.OnGameLaunching
+    End Sub
+
+    Public Overridable Sub OnGameLaunched(Info As PluginLaunchInfo) Implements IPclPluginEvents.OnGameLaunched
+    End Sub
+
+    Public Overridable Sub OnGameExited(Info As PluginLaunchInfo, ExitCode As Integer) Implements IPclPluginLifecycle.OnGameExited
+    End Sub
+
+    Public Overridable Sub OnInstanceChanged(InstanceName As String) Implements IPclPluginLifecycle.OnInstanceChanged
+    End Sub
+
+    Public Overridable Sub OnThemeChanged(IsDark As Boolean) Implements IPclPluginLifecycle.OnThemeChanged
+    End Sub
+
+    Public Overridable Sub OnLinkRoomCreated(Invite As String) Implements IPclPluginLink.OnLinkRoomCreated
+    End Sub
+
+    Public Overridable Sub OnLinkRoomJoined() Implements IPclPluginLink.OnLinkRoomJoined
+    End Sub
+
+    Public Overridable Sub OnLinkRoomClosed() Implements IPclPluginLink.OnLinkRoomClosed
+    End Sub
+
+    Public Overridable Sub OnDownloadStarted(Target As String) Implements IPclPluginDownload.OnDownloadStarted
+    End Sub
+
+    Public Overridable Sub OnDownloadFinished(Target As String, Success As Boolean) Implements IPclPluginDownload.OnDownloadFinished
+    End Sub
+
+    Public Overridable Function OnClosing() As Boolean Implements IPclPluginClosing.OnClosing
+        Return False
+    End Function
+End Class
+
+''' <summary>
 ''' 提供给插件的宿主对象。
 ''' </summary>
 Public Class PluginHost
 
     Public ReadOnly Info As ModPlugin.PluginInfo
 
+    ''' <summary>API v6：插件间服务注册表（也可以直接用模块级的 ModPlugin.PluginServices）。</summary>
+    Public ReadOnly Services As PluginServiceAccessor
+
+    ''' <summary>API v6：后台任务（会出现在「任务管理」里，可显示进度、可取消）。</summary>
+    Public ReadOnly Tasks As PluginTaskManager
+
     Friend Sub New(Info As ModPlugin.PluginInfo)
         Me.Info = Info
+        Me.Services = New PluginServiceAccessor(If(Info.Id, Info.DisplayName))
+        Me.Tasks = New PluginTaskManager(If(Info.Id, Info.DisplayName))
+    End Sub
+
+    ''' <summary>API v6：在开发日志里记一条信息（会显示在插件页的开发模式控制台）。</summary>
+    Public Sub DevLog(Message As String)
+        PluginDevLog.Info(Info.DisplayName, If(Message, ""))
     End Sub
 
     ''' <summary>插件自己的数据目录（会自动创建）。</summary>

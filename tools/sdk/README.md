@@ -1,13 +1,13 @@
-﻿# PCL Harness 插件开发包（SDK）{{VERSION}}
+# PCL Harness 插件开发包（SDK）{{VERSION}}
 
-对应启动器版本：**PCL Harness {{VERSION}}**（插件 API v5）。
+对应启动器版本：**PCL Harness {{VERSION}}**（插件 API v6）。
 
 ## 包里有什么
 
 - `PLUGIN-DEV.md`：完整开发指南（接口、权限、宿主 API、内嵌 UI、热重载、FAQ）
-- API v5：细粒度权限（net.hosts / files.read / files.write）、DLL sha256 校验、事件总线、强类型设置、日志分级
+- API v6：事件总线（13 类事件、优先级、一次性、异常隔离）、插件间服务注册、后台任务与进度、`PclPluginBase` 便捷基类、依赖版本约束（`其它id@>=1.2`）、插件页「开发模式」实时日志与命令回显
 - `build.ps1`：通用编译脚本（自动找 vbc 与 .NET Framework 4.8 参考程序集）
-- `samples\HelloPlugin\`：最小插件（十行代码，API v5：事件、强类型设置、域名白名单）
+- `samples\V6Demo\`：v6 能力演示（服务注册、带优先级的页面事件、一次性事件、后台任务进度）
 - `samples\DemoPlugin\`：功能演示插件（事件钩子、设置项、卡片、文件/网络 API）
 - `LICENSE`：上游《PCL 分发有限许可》+《PCL 存储库合理使用指南》
 
