@@ -1,0 +1,687 @@
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{4499F2D2-18EF-4238-B1F0-7BD547AFF925}</ProjectGuid>
+    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{F184B08F-C81C-45F6-A57F-5ABD9991F28F}</ProjectTypeGuids>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>PCL</RootNamespace>
+    <AssemblyName>Plain Craft Launcher 2</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <MyType>Custom</MyType>
+    <IsWebBootstrapper>false</IsWebBootstrapper>
+    <TargetFrameworkProfile>
+    </TargetFrameworkProfile>
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
+    <PublishUrl>publish\</PublishUrl>
+    <Install>true</Install>
+    <InstallFrom>Disk</InstallFrom>
+    <UpdateEnabled>false</UpdateEnabled>
+    <UpdateMode>Foreground</UpdateMode>
+    <UpdateInterval>7</UpdateInterval>
+    <UpdateIntervalUnits>Days</UpdateIntervalUnits>
+    <UpdatePeriodically>false</UpdatePeriodically>
+    <UpdateRequired>false</UpdateRequired>
+    <MapFileExtensions>true</MapFileExtensions>
+    <TargetCulture>zh-CN</TargetCulture>
+    <ApplicationRevision>0</ApplicationRevision>
+    <ApplicationVersion>1.0.0.%2a</ApplicationVersion>
+    <UseApplicationTrust>false</UseApplicationTrust>
+    <BootstrapperEnabled>true</BootstrapperEnabled>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <DefineDebug>false</DefineDebug>
+    <DefineTrace>false</DefineTrace>
+    <IncrementalBuild>true</IncrementalBuild>
+    <OutputPath>bin\</OutputPath>
+    <DocumentationFile>Plain Craft Launcher 2.xml</DocumentationFile>
+    <NoWarn>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036,42314</NoWarn>
+    <Prefer32Bit>false</Prefer32Bit>
+    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
+    <Optimize>false</Optimize>
+    <WarningLevel>1</WarningLevel>
+    <RunCodeAnalysis>false</RunCodeAnalysis>
+    <DefineConstants>SNAPSHOT</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Snapshot|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <DefineDebug>false</DefineDebug>
+    <DefineTrace>false</DefineTrace>
+    <IncrementalBuild>false</IncrementalBuild>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\</OutputPath>
+    <DocumentationFile>Plain Craft Launcher 2.xml</DocumentationFile>
+    <NoWarn>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036,42314</NoWarn>
+    <Prefer32Bit>false</Prefer32Bit>
+    <CodeAnalysisRuleSet>BasicDesignGuidelineRules.ruleset</CodeAnalysisRuleSet>
+    <WarningLevel>1</WarningLevel>
+    <DefineConstants>SNAPSHOT</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionExplicit>On</OptionExplicit>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionCompare>Binary</OptionCompare>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionStrict>Off</OptionStrict>
+  </PropertyGroup>
+  <PropertyGroup>
+    <OptionInfer>On</OptionInfer>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>Images\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestCertificateThumbprint>CE7A815CD81401B559C8649A3EEA43B75ECB8FC5</ManifestCertificateThumbprint>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestKeyFile>Plain Craft Launcher 2_TemporaryKey.pfx</ManifestKeyFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <GenerateManifests>false</GenerateManifests>
+  </PropertyGroup>
+  <PropertyGroup>
+    <TargetZone>LocalIntranet</TargetZone>
+  </PropertyGroup>
+  <PropertyGroup>
+    <SignManifests>false</SignManifests>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>bin\</OutputPath>
+    <DocumentationFile>Plain Craft Launcher 2.xml</DocumentationFile>
+    <Optimize>true</Optimize>
+    <WarningLevel>1</WarningLevel>
+    <NoWarn>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036,42314</NoWarn>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <CodeAnalysisRuleSet>BasicDesignGuidelineRules.ruleset</CodeAnalysisRuleSet>
+    <DefineConstants>RELEASE</DefineConstants>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+  <PropertyGroup>
+    <SignAssembly>false</SignAssembly>
+  </PropertyGroup>
+  <PropertyGroup>
+    <AssemblyOriginatorKeyFile>
+    </AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Controls\Behaviors\ClipboardInterceptor.vb" />
+    <Compile Include="Controls\Behaviors\Interfaces.vb" />
+    <Compile Include="Controls\Behaviors\LazyLoadBehavior.vb" />
+    <Compile Include="Controls\MyComboBox.vb" />
+    <Compile Include="Controls\MyComboBoxItem.vb" />
+    <Compile Include="Controls\MyCard.vb" />
+    <Compile Include="Controls\MyExtraTextButton.xaml.vb">
+      <DependentUpon>MyExtraTextButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyImage.vb" />
+    <Compile Include="Controls\MyPageRight.vb" />
+    <Compile Include="Controls\MyPageLeft.vb" />
+    <Compile Include="Controls\MyIconTextButton.xaml.vb">
+      <DependentUpon>MyIconTextButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyVirtualizingElement.vb" />
+    <Compile Include="Modules\Base\PclLogger.vb" />
+    <Compile Include="Modules\Resource\LocalResourceFile.vb" />
+    <Compile Include="Modules\Resource\ResourceProject.vb" />
+    <Compile Include="Modules\Resource\ResourceVersion.vb" />
+    <Compile Include="Modules\Resource\ResourceSearcher.vb" />
+    <Compile Include="Modules\Minecraft\ModJava.vb" />
+    <Compile Include="Modules\Resource\LocalResourceLoaders.vb" />
+    <Compile Include="Modules\Minecraft\ModModpack.vb" />
+    <Compile Include="Modules\ThirdParty\DragHelper.vb" />
+    <Compile Include="My Project\Resources.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\MyLocalModItem.xaml.vb">
+      <DependentUpon>MyLocalModItem.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Modules\ModEvent.vb" />
+    <Compile Include="Controls\MyExtraButton.xaml.vb">
+      <DependentUpon>MyExtraButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyHint.xaml.vb">
+      <DependentUpon>MyHint.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyLoading.xaml.vb">
+      <DependentUpon>MyLoading.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyMenuItem.vb" />
+    <Compile Include="Controls\MyMsg\MyMsgInput.xaml.vb">
+      <DependentUpon>MyMsgInput.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyMsg\MyMsgSelect.xaml.vb">
+      <DependentUpon>MyMsgSelect.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyScrollBar.vb" />
+    <Compile Include="Controls\MyScrollViewer.vb" />
+    <Compile Include="Controls\MySearchBox.xaml.vb">
+      <DependentUpon>MySearchBox.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyTextBox.vb" />
+    <Compile Include="Controls\MyTextButton.vb" />
+    <Compile Include="GlobalSuppressions.vb" />
+    <Compile Include="Modules\Minecraft\ModCrash.vb" />
+    <Compile Include="Modules\ModMusic.vb" />
+    <Compile Include="Modules\ModDevelop.vb" />
+    <Compile Include="Modules\Minecraft\ModWatcher.vb" />
+    <Compile Include="Modules\ModFirstRun.vb" />
+    <Compile Include="Modules\ModSecret.vb" />
+    <Compile Include="Modules\ModUpnp.vb" />
+    <Compile Include="Modules\ModDialogFx.vb" />
+    <Compile Include="Modules\ModIntro.vb" />
+    <Compile Include="Modules\ModPlugin.vb" />
+    <Compile Include="Pages\PageDownload\Resource\PageResource.xaml.vb">
+      <DependentUpon>PageResource.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadDataPack.xaml.vb">
+      <DependentUpon>PageDownloadDataPack.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadPack.xaml.vb">
+      <DependentUpon>PageDownloadPack.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadShader.xaml.vb">
+      <DependentUpon>PageDownloadShader.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadResourcePack.xaml.vb">
+      <DependentUpon>PageDownloadResourcePack.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\ModDownloadLib.vb" />
+    <Compile Include="Pages\PageDownload\Resource\MyResourceItem.xaml.vb">
+      <DependentUpon>MyResourceItem.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadMod.xaml.vb">
+      <DependentUpon>PageDownloadMod.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\PageDownloadInstall.xaml.vb">
+      <DependentUpon>PageDownloadInstall.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\PageDownloadModify.vb" />
+    <Compile Include="Pages\PageDownload\Resource\PageDownloadCompDetail.xaml.vb">
+      <DependentUpon>PageDownloadCompDetail.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\MyMsgLogin.xaml.vb">
+      <DependentUpon>MyMsgLogin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginAuth.xaml.vb">
+      <DependentUpon>PageLoginAuth.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginAuthSkin.xaml.vb">
+      <DependentUpon>PageLoginAuthSkin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginMs.xaml.vb">
+      <DependentUpon>PageLoginMs.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginMsSkin.xaml.vb">
+      <DependentUpon>PageLoginMsSkin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginNideSkin.xaml.vb">
+      <DependentUpon>PageLoginNideSkin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLink\PageLinkMain.xaml.vb">
+      <DependentUpon>PageLinkMain.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageOther\PageOtherHelpDetail.xaml.vb">
+      <DependentUpon>PageOtherHelpDetail.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceExport.xaml.vb">
+      <DependentUpon>PageInstanceExport.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceLeft.xaml.vb">
+      <DependentUpon>PageInstanceLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceMod.xaml.vb">
+      <DependentUpon>PageInstanceMod.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceModDisabled.xaml.vb">
+      <DependentUpon>PageInstanceModDisabled.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceOverall.xaml.vb">
+      <DependentUpon>PageInstanceOverall.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageInstance\PageInstanceSetup.xaml.vb">
+      <DependentUpon>PageInstanceSetup.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyDropShadow.vb" />
+    <Compile Include="Modules\Base\ModLoader.vb" />
+    <Compile Include="Modules\Base\ModNet.vb" />
+    <Compile Include="Modules\Base\ModValidate.vb" />
+    <Compile Include="Modules\Minecraft\ModDownload.vb" />
+    <Compile Include="Modules\Minecraft\ModLaunch.vb" />
+    <Compile Include="Modules\Minecraft\ModMinecraft.vb" />
+    <Compile Include="Pages\PagePlugin.xaml.vb">
+      <DependentUpon>PagePlugin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PagePluginHost.vb" />
+    <Compile Include="Pages\PagePluginLeft.xaml.vb">
+      <DependentUpon>PagePluginLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageOther\PageOtherTest.xaml.vb">
+      <DependentUpon>PageOtherTest.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\MySkin.xaml.vb">
+      <DependentUpon>MySkin.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginNide.xaml.vb">
+      <DependentUpon>PageLoginNide.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLoginLegacy.xaml.vb">
+      <DependentUpon>PageLoginLegacy.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSelectRight.xaml.vb">
+      <DependentUpon>PageSelectRight.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSelectLeft.xaml.vb">
+      <DependentUpon>PageSelectLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLaunchLeft.xaml.vb">
+      <DependentUpon>PageLaunchLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageLaunch\PageLaunchRight.xaml.vb">
+      <DependentUpon>PageLaunchRight.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageOther\PageOtherAbout.xaml.vb">
+      <DependentUpon>PageOtherAbout.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageOther\PageOtherHelp.xaml.vb">
+      <DependentUpon>PageOtherHelp.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageDownload\PageDownloadLeft.xaml.vb">
+      <DependentUpon>PageDownloadLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageOther\PageOtherLeft.xaml.vb">
+      <DependentUpon>PageOtherLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\PageSetupLeft.xaml.vb">
+      <DependentUpon>PageSetupLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\Settings.vb" />
+    <Compile Include="Pages\PageSetup\PageSetupLaunch.xaml.vb">
+      <DependentUpon>PageSetupLaunch.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\PageSetupSystem.xaml.vb">
+      <DependentUpon>PageSetupSystem.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\PageSetupLink.xaml.vb">
+      <DependentUpon>PageSetupLink.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\PageSetupUI.xaml.vb">
+      <DependentUpon>PageSetupUI.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSetup\SettingService.vb" />
+    <Compile Include="Pages\PageSpeedLeft.xaml.vb">
+      <DependentUpon>PageSpeedLeft.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Pages\PageSpeedRight.xaml.vb">
+      <DependentUpon>PageSpeedRight.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Application.xaml.vb">
+      <DependentUpon>Application.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Controls\MyListItem.xaml.vb">
+      <DependentUpon>MyListItem.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyButton.xaml.vb">
+      <DependentUpon>MyButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyCheckBox.xaml.vb">
+      <DependentUpon>MyCheckBox.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyIconButton.xaml.vb">
+      <DependentUpon>MyIconButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyMsg\MyMsgText.xaml.vb">
+      <DependentUpon>MyMsgText.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyRadioBox.xaml.vb">
+      <DependentUpon>MyRadioBox.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyResizer.vb" />
+    <Compile Include="Controls\MySlider.xaml.vb">
+      <DependentUpon>MySlider.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="Controls\MyRadioButton.xaml.vb">
+      <DependentUpon>MyRadioButton.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="FormMain.xaml.vb">
+      <DependentUpon>FormMain.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <None Include="app.manifest" />
+    <None Include="Resources\Custom.xaml">
+      <SubType>Designer</SubType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Import Include="MeloongCore" />
+    <Import Include="MeloongCore.Extensions" />
+    <Import Include="MeloongCore.Wpf" />
+    <Import Include="MeloongCore.Wpf.Extensions" />
+    <Import Include="Microsoft.VisualBasic" />
+    <Import Include="Newtonsoft.Json" />
+    <Import Include="Newtonsoft.Json.Linq" />
+    <Import Include="PCLCS" />
+    <Import Include="System" />
+    <Import Include="System.Collections.Concurrent" />
+    <Import Include="System.Collections.Generic" />
+    <Import Include="System.IO" />
+    <Import Include="System.IO.Compression" />
+    <Import Include="System.Linq" />
+    <Import Include="System.Net" />
+    <Import Include="System.Net.Http" />
+    <Import Include="System.Text" />
+    <Import Include="System.Threading" />
+    <Import Include="System.Threading.Tasks" />
+    <Import Include="System.Xml.Linq" />
+    <Import Include="System.Collections" />
+    <Import Include="System.Diagnostics" />
+    <Import Include="System.Windows" />
+    <Import Include="System.Windows.Controls" />
+    <Import Include="System.Windows.Data" />
+    <Import Include="System.Windows.Documents" />
+    <Import Include="System.Windows.Input" />
+    <Import Include="System.Windows.Media" />
+    <Import Include="System.Windows.Media.Imaging" />
+    <Import Include="ThrottleDebounce" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Modules\Base\ModAnimation.vb" />
+    <Compile Include="Modules\Base\MyBitmap.vb" />
+    <Compile Include="Modules\ModMain.vb" />
+    <Compile Include="Modules\Base\ModBase.vb" />
+    <Compile Include="My Project\AssemblyInfo.vb">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="My Project\MyExtensions\MyWpfExtension.vb">
+      <VBMyExtensionTemplateID>Microsoft.VisualBasic.WPF.MyExtension</VBMyExtensionTemplateID>
+      <VBMyExtensionTemplateVersion>1.0.0.0</VBMyExtensionTemplateVersion>
+    </Compile>
+    <Compile Include="My Project\Settings.Designer.vb">
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Settings.settings</DependentUpon>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+    </Compile>
+    <EmbeddedResource Include="My Project\Resources.resx">
+      <Generator>VbMyResourcesResXFileCodeGenerator</Generator>
+      <CustomToolNamespace>My.Resources</CustomToolNamespace>
+      <SubType>Designer</SubType>
+      <LastGenOutput>Resources.Designer.vb</LastGenOutput>
+    </EmbeddedResource>
+    <None Include="My Project\app.manifest" />
+    <None Include="My Project\Settings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings.Designer.vb</LastGenOutput>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <BootstrapperPackage Include=".NETFramework,Version=v4.5.2">
+      <Visible>False</Visible>
+      <ProductName>Microsoft .NET Framework 4.5.2 %28x86 和 x64%29</ProductName>
+      <Install>true</Install>
+    </BootstrapperPackage>
+    <BootstrapperPackage Include="Microsoft.Net.Framework.3.5.SP1">
+      <Visible>False</Visible>
+      <ProductName>.NET Framework 3.5 SP1</ProductName>
+      <Install>false</Install>
+    </BootstrapperPackage>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Help.zip" />
+    <None Include="Resources\NAudio.dll" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Newtonsoft.Json.dll" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Ookii.Dialogs.Wpf.dll" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\forge-installer.jar" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\transformer.jar" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\java-wrapper.jar" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Imazen.WebP.dll" />
+    <None Include="Resources\libwebp64.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\CacheCow.Client.FileStore.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\CacheCow.Common.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\CacheCow.Client.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\ThrottleDebounce.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\System.Net.Http.Formatting.dll" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\lwjgl-unsafe-agent.jar" />
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\PCLCS\bin\PCLCS.dll">
+      <LogicalName>PCLCS.dll</LogicalName>
+      <Link>Resources\PCLCS.dll</Link>
+    </None>
+    <None Include="..\PCLCS\bin\MeloongCore.dll">
+      <LogicalName>MeloongCore.dll</LogicalName>
+      <Link>Resources\MeloongCore.dll</Link>
+    </None>
+    <None Include="..\PCLCS\bin\MeloongCore.Wpf.dll">
+      <LogicalName>MeloongCore.Wpf.dll</LogicalName>
+      <Link>Resources\MeloongCore.Wpf.dll</Link>
+    </None>
+    <None Include="..\PCLCS\bin\Microsoft.Win32.Registry.dll">
+      <LogicalName>Microsoft.Win32.Registry.dll</LogicalName>
+      <Link>Resources\Microsoft.Win32.Registry.dll</Link>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
+  <ItemGroup>
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\CacheCow.Client.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\CacheCow.Client.FileStore.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\CacheCow.Common.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\Imazen.WebP.dll" />
+    <ReferencePath Include="F:\PCL2-Source\PCLCS\bin\MeloongCore.dll" />
+    <ReferencePath Include="F:\PCL2-Source\PCLCS\bin\MeloongCore.Wpf.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\NAudio.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\netstandard.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\Newtonsoft.Json.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\Ookii.Dialogs.Wpf.dll" />
+    <ReferencePath Include="F:\PCL2-Source\PCLCS\bin\PCLCS.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\PresentationCore.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\PresentationFramework.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Configuration.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Core.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Drawing.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.IO.Compression.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.IO.Compression.FileSystem.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Management.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Net.Http.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\System.Net.Http.Formatting.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Numerics.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Runtime.Caching.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.ServiceModel.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.ValueTuple.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Windows.Forms.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Xaml.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Xml.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\System.Xml.Linq.dll" />
+    <ReferencePath Include="F:\PCL2-Source\Plain Craft Launcher 2\Resources\ThrottleDebounce.dll" />
+    <ReferencePath Include="C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8\WindowsBase.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PagePluginLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PagePlugin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyExtraTextButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyExtraButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyHint.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyListItem.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyCheckBox.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyIconButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyLoading.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyMsg\MyMsgInput.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyMsg\MyMsgSelect.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyMsg\MyMsgText.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyRadioBox.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyIconTextButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MySearchBox.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MySlider.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Controls\MyRadioButton.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\FormMain.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\MyLocalModItem.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\MyResourceItem.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageResource.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadDataPack.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadPack.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadShader.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadResourcePack.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadMod.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\PageDownloadInstall.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\Resource\PageDownloadCompDetail.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\MyMsgLogin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginAuth.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginAuthSkin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginMs.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginMsSkin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginNideSkin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLink\PageLinkMain.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageOther\PageOtherHelpDetail.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceExport.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageOther\PageOtherTest.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\MySkin.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginNide.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLoginLegacy.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSelectRight.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSelectLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLaunchLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageLaunch\PageLaunchRight.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageOther\PageOtherAbout.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageOther\PageOtherHelp.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageDownload\PageDownloadLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageOther\PageOtherLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSetup\PageSetupLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSetup\PageSetupLaunch.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSetup\PageSetupSystem.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSetup\PageSetupLink.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSetup\PageSetupUI.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSpeedLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageSpeedRight.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceLeft.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceMod.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceModDisabled.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceOverall.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Pages\PageInstance\PageInstanceSetup.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\Application.g.vb" />
+    <Compile Include="F:\PCL2-Source\Plain Craft Launcher 2\obj\Release\GeneratedInternalTypeHelper.g.vb" />
+  </ItemGroup>
+</Project>

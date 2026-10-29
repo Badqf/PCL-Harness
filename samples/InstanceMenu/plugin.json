@@ -1,0 +1,11 @@
+{
+  "id": "instance-menu-demo",
+  "name": "实例菜单示例",
+  "version": "1.0.0",
+  "author": "PCL Harness",
+  "description": "演示 API v6.2：实例右键菜单、后台任务、事件总线与 PclPluginBase。",
+  "entry": "InstanceMenuDemo.DemoPlugin",
+  "dll": "InstanceMenu.Demo.dll",
+  "minApiVersion": 6,
+  "permissions": ["ui", "events"]
+}

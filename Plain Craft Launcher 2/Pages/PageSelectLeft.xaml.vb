@@ -71,16 +71,7 @@ Public Class PageSelectLeft
                 CType(ContMenu.FindName("Delete"), MyMenuItem).AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(AddressOf FrmSelectLeft.Delete_Click))
                 CType(ContMenu.FindName("Rename"), MyMenuItem).AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(AddressOf FrmSelectLeft.Rename_Click))
                 CType(ContMenu.FindName("Refresh"), MyMenuItem).AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(AddressOf FrmSelectLeft.Refresh_Click))
-                'API v6.2：插件提供的实例右键菜单项（每次打开菜单时收集一次）
-                Dim PluginMenuItems As List(Of ModPlugin.PluginMenuItem) = ModPlugin.GetInstanceMenuItems(Folder.Name, Folder.Location)
-                If PluginMenuItems.Count > 0 Then
-                    For Each It In PluginMenuItems
-                        Dim PluginMenu As New MyMenuItem With {.Header = It.Text}
-                        Dim Captured As ModPlugin.PluginMenuItem = It
-                        PluginMenu.AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(Sub(sender As Object, e As RoutedEventArgs) ModPlugin.RunInstanceMenu(Captured)))
-                        ContMenu.Items.Add(PluginMenu)
-                    Next
-                End If
+
                 '构建框架与图表按钮
                 Dim NewItem As New MyListItem With {.IsScaleAnimationEnabled = False, .Type = MyListItem.CheckType.RadioBox, .MinPaddingRight = 30, .Title = Folder.Name, .Info = Folder.Location, .Height = 40, .ContextMenu = ContMenu, .Tag = Folder}
                 AddHandler NewItem.Changed, AddressOf FrmSelectLeft.Folder_Change

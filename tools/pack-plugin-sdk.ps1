@@ -7,7 +7,7 @@
         README.md            上手说明（{{VERSION}} 会被替换成实际版本号）
         build.ps1            通用编译脚本
         samples\HelloPlugin  最小插件
-    再从仓库根目录取 PLUGIN-DEV.md、LICENSE、samples\DemoPlugin\DemoPlugin.vb。
+    再从仓库根目录取 PLUGIN-DEV.md、LICENSE，以及 samples\DemoPlugin、samples\V6Demo、samples\InstanceMenu 三个示例。
 
 .PARAMETER Version
     版本号，默认从 ModBase.vb 的 VersionBaseName 读取。
@@ -76,6 +76,14 @@ $demoJson = @"
 # 仓库里有正式清单时以它为准，避免 SDK 清单与指南漂移
 $repoManifest = Join-Path $repo "samples\DemoPlugin\plugin.json"
 if (Test-Path $repoManifest) { Copy-Item $repoManifest (Join-Path $demoOut "plugin.json") -Force }
+
+# 仓库里的其它示例（v6 能力演示 / 实例右键菜单）
+foreach ($sampleName in @("V6Demo", "InstanceMenu")) {
+    $sampleSrc = Join-Path $repo "samples\$sampleName"
+    if (Test-Path $sampleSrc) {
+        Copy-Item $sampleSrc (Join-Path $root "samples") -Recurse -Force
+    }
+}
 
 # 打包
 $zip = Join-Path $OutputDirectory "$name.zip"

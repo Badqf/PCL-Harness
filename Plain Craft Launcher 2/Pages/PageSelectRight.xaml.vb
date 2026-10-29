@@ -148,11 +148,32 @@ Public Class PageSelectRight
                 PageInstanceLeft.Instance = Instance
                 FrmMain.PageChange(FormMain.PageType.InstanceSetup, 0)
             End Sub
-            AddHandler sender.MouseRightButtonUp,
-            Sub()
-                PageInstanceLeft.Instance = Instance
-                FrmMain.PageChange(FormMain.PageType.InstanceSetup, 0)
-            End Sub
+            'API v6.2：插件提供的实例右键菜单。有插件菜单时用它替代默认的「右键直接进设置」
+            Dim PluginItems As List(Of ModPlugin.PluginMenuItem) = ModPlugin.GetInstanceMenuItems(Instance.Name, Instance.PathVersion)
+            If PluginItems.Count > 0 Then
+                Dim ContMenu As New ContextMenu
+                For Each It In PluginItems
+                    Dim Item As New MyMenuItem With {.Header = It.Text}
+                    Dim Captured As ModPlugin.PluginMenuItem = It
+                    Item.AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(Sub(s As Object, E2 As RoutedEventArgs) ModPlugin.RunInstanceMenu(Captured)))
+                    ContMenu.Items.Add(Item)
+                Next
+                ContMenu.Items.Add(New Separator)
+                Dim ItemSetup As New MyMenuItem With {.Header = "实例设置"}
+                ItemSetup.AddHandler(MyMenuItem.ClickEvent, New RoutedEventHandler(
+                    Sub()
+                        PageInstanceLeft.Instance = Instance
+                        FrmMain.PageChange(FormMain.PageType.InstanceSetup, 0)
+                    End Sub))
+                ContMenu.Items.Add(ItemSetup)
+                sender.ContextMenu = ContMenu
+            Else
+                AddHandler sender.MouseRightButtonUp,
+                Sub()
+                    PageInstanceLeft.Instance = Instance
+                    FrmMain.PageChange(FormMain.PageType.InstanceSetup, 0)
+                End Sub
+            End If
             sender.Buttons = {BtnStar, BtnDel, BtnCont}
         Else
             Dim BtnCont As New MyIconButton With {.LogoScale = 1.15, .Logo = Logo.IconButtonOpen}

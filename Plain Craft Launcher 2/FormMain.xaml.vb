@@ -23,6 +23,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 443 Then 'PCL Harness 3.6.4
+            Logger.Info($"[Update] 版本号 {LastVersion} → {VersionCode}，稍后展示更新日志")
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：实例右键菜单挂到了文件夹上，现在真正出现在「版本选择」里的实例上（含插件菜单项与「实例设置」）"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：去掉窗口右下角那行插件状态灰字，插件状态统一显示在插件页的卡片里"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "新增：开发版 SDK 附带「实例菜单示例」插件源码，演示 API v6.2 的菜单、后台任务与事件"))
+            FeatureCount += 2
+            BugCount += 1
+        End If
         If LastVersion < 442 Then 'PCL Harness 3.6.3
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件 API v6.2——实例右键菜单扩展点，插件可以往「启动」页实例列表的右键菜单里加自己的操作（实现 IPclPluginInstanceMenu 即可）"))
             FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件提供的菜单项在点击时统一隔离异常，出错只记一次失败、不会打断启动器"))

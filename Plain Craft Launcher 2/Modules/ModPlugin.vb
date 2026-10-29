@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -1226,27 +1226,6 @@ Public Module ModPlugin
         Next
     End Sub
 
-    ''' <summary>刷新窗口右下角的插件状态栏。</summary>
-    Public Sub RefreshStatusWidgets()
-        Try
-            If ModMain.FrmMain Is Nothing Then Return
-            Dim Parts As New List(Of String)
-            For Each W In PluginStatusWidgets.ToList()
-                Try
-                    Dim T = If(W.TextProvider(), "").Trim()
-                    If T <> "" Then Parts.Add(T)
-                Catch ex As Exception
-                    W.Owner.AddEvent("状态组件读取失败：" & ex.GetBaseException().Message)
-                End Try
-            Next
-            Dim Text = String.Join("   ", Parts)
-            If Text = ModMain.FrmMain.LabPluginStatus.Text Then Return
-            ModMain.FrmMain.LabPluginStatus.Text = Text
-            ModMain.FrmMain.LabPluginStatus.Visibility = If(Text = "", Visibility.Collapsed, Visibility.Visible)
-        Catch ex As Exception
-            Logger.Error(ex, "刷新插件状态栏失败", LogBehavior.None)
-        End Try
-    End Sub
 
     ' ================= API v5 基础设施 =================
 

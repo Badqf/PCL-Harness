@@ -481,7 +481,7 @@ End Class
 
 ### 6.7 实例右键菜单（v6.2）
 
-实现 `IPclPluginInstanceMenu` 后，插件可以往「启动」页左侧实例列表的右键菜单里加自己的操作：
+实现 `IPclPluginInstanceMenu` 后，插件可以往「版本选择」页里每个实例卡片的右键菜单里加自己的操作（菜单顺序：插件项 → 分隔线 → 「实例设置」）：
 
 ```vb
 Public Class DemoPlugin
@@ -493,16 +493,17 @@ Public Class DemoPlugin
         Return {
             New PluginMenuItem With {
                 .Text = "导出实例信息（Demo 插件）",
-                .Action = Sub() Host.Message("实例：" & Instance.Name & vbCrLf & Instance.Folder)
+                .Action = Sub() Host.Message("实例信息", Instance.Name & vbCrLf & Instance.Folder)
             }
         }
     End Function
 End Class
 ```
 
-- 每次打开右键菜单时调用一次，按当前实例动态返回；返回 `Nothing` 或空集合表示不加项。
+- 每次打开右键菜单时调用一次，按当前实例动态返回；返回 `Nothing` 或空集合表示不加项（此时该实例仍是原版的「实例设置」右键）。
 - 菜单文字建议带插件名前缀，避免和启动器自带的「重命名 / 打开文件夹 / 删除」混淆。
 - `Action` 抛出的异常会被隔离并计入熔断（连续 3 次自动禁用），不会打断启动器。
+- 完整示例见开发版 SDK 里的 `samples/InstanceMenu`（`instance-menu-demo`），它同时演示了后台任务进度与 `DevLog`。
 
 ### 6.8 兼容性
 
