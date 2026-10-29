@@ -479,7 +479,13 @@ End Class
 
 日志同时写进 `PluginDevLog`（内存环形缓冲，最多 4000 条），`Host.DevLog(...)` / `DevLog(...)` 都能往里写。
 
-### 6.7 实例右键菜单（v6.2）
+### 6.7 信任确认（v6.3）
+
+- 插件首次启用时会弹出权限确认框：逐条展示 `permissions` 及说明，未签名会提示来源未知；确认后才加载。
+- 确认结果存进 `Plugins\trust.json`（权限签名），权限不变不再询问；改过权限会重新询问。
+- `plugin.json` 可选字段：`signature`（字符串，仅展示与记录，当前不做密钥验证）、`homepage`、`license`。
+
+### 6.8 实例右键菜单（v6.2）
 
 实现 `IPclPluginInstanceMenu` 后，插件可以往「版本选择」页里每个实例卡片的右键菜单里加自己的操作（菜单顺序：插件项 → 分隔线 → 「实例设置」）：
 
@@ -505,7 +511,7 @@ End Class
 - `Action` 抛出的异常会被隔离并计入熔断（连续 3 次自动禁用），不会打断启动器。
 - 完整示例见开发版 SDK 里的 `samples/InstanceMenu`（`instance-menu-demo`），它同时演示了后台任务进度与 `DevLog`。
 
-### 6.8 兼容性
+### 6.9 兼容性
 
 - `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。
 - v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。

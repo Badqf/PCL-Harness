@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -23,6 +23,78 @@ Public Module ModPlugin
     Public ReadOnly Property PathSettingsFile As String = Path.Combine(PathPluginRoot, "plugins.settings.json")
     Private ReadOnly Property PathFuseFile As String = Path.Combine(PathPluginRoot, "fuse.json")
 
+    Private ReadOnly Property PathTrustFile As String = Path.Combine(PathPluginRoot, "trust.json")
+
+    ''' <summary>已确认过权限的插件：id → 权限签名（权限变了要重新确认）。</summary>
+    Private ReadOnly TrustedIds As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>
+    ''' 生成权限签名，用于判断「插件被授予了新的权限」。
+    ''' </summary>
+    Public Function PermissionSignature(Info As PluginInfo) As String
+        If Info Is Nothing Then Return ""
+        Dim Parts = Info.Permissions.Select(Function(P) P.ToLowerInvariant()).OrderBy(Function(P) P).ToList()
+        Return String.Join(",", Parts)
+    End Function
+
+    ''' <summary>某个插件名下的权限是否已经被用户确认过（且权限没有变化）。</summary>
+    Public Function IsTrusted(Info As PluginInfo) As Boolean
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return False
+        Dim Sig As String = Nothing
+        If Not TrustedIds.TryGetValue(Info.Id, Sig) Then Return False
+        Return String.Equals(Sig, PermissionSignature(Info), StringComparison.Ordinal)
+    End Function
+
+    ''' <summary>记录用户已确认某插件的当前权限。</summary>
+    Public Sub TrustPlugin(Info As PluginInfo)
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
+        TrustedIds(Info.Id) = PermissionSignature(Info)
+        SaveTrustState()
+    End Sub
+
+    Private Sub LoadTrustState()
+        TrustedIds.Clear()
+        Try
+            If Not IO.File.Exists(PathTrustFile) Then Return
+            Dim Json = JObject.Parse(IO.File.ReadAllText(PathTrustFile, Encoding.UTF8))
+            For Each P In Json.Properties()
+                Dim Sig = If(P.Value, "").ToString()
+                '兼容两种写法：{"id":"ui,events"} 或 {"id":{"signature":"ui,events"}}
+                Dim Obj = TryCast(P.Value, JObject)
+                If Obj IsNot Nothing Then Sig = Obj.Value(Of String)("signature")
+                TrustedIds(P.Name) = If(Sig, "")
+            Next
+        Catch ex As Exception
+            Logger.Error(ex, "读取插件信任记录失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    Private Sub SaveTrustState()
+        Try
+            Directory.CreateDirectory(PathPluginRoot)
+            Dim Json As New JObject
+            For Each Pair In TrustedIds
+                Json(Pair.Key) = Pair.Value
+            Next
+            IO.File.WriteAllText(PathTrustFile, Json.ToString(), New UTF8Encoding(False))
+        Catch ex As Exception
+            Logger.Error(ex, "保存插件信任记录失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>权限的中文说明（用于启用前的确认框）。</summary>
+    Public Function DescribePermission(Name As String) As String
+        Select Case If(Name, "").Trim().ToLowerInvariant()
+            Case "ui" : Return "添加自定义页面、标题栏入口、设置项与卡片（会改动界面）"
+            Case "events" : Return "订阅启动器事件（页面切换、游戏启动/退出、下载开始/结束等）"
+            Case "files" : Return "在授权的目录里读写文件（插件自己的数据目录始终可用）"
+            Case "net" : Return "访问清单里授权的主机（发网络请求）"
+            Case "args" : Return "修改游戏启动参数（JVM 参数与游戏参数）"
+            Case "process" : Return "启动外部进程"
+            Case Else : Return If(Name, "") & "（未知权限）"
+        End Select
+    End Function
+
     ''' <summary>
     ''' 已启用的插件 ID 集合（内存里的权威状态，见 WriteEnabled）。
     ''' </summary>
@@ -40,7 +112,8 @@ Public Module ModPlugin
             Dim Name = IO.Path.GetFileName(FullPath)
             Return Name.Equals("plugins.json", StringComparison.OrdinalIgnoreCase) OrElse
                    Name.Equals("plugins.settings.json", StringComparison.OrdinalIgnoreCase) OrElse
-                   Name.Equals("fuse.json", StringComparison.OrdinalIgnoreCase)
+                   Name.Equals("fuse.json", StringComparison.OrdinalIgnoreCase) OrElse
+                   Name.Equals("trust.json", StringComparison.OrdinalIgnoreCase)
         Catch
             Return False
         End Try
@@ -110,6 +183,12 @@ Public Module ModPlugin
         Public DllSha256 As String = ""
         ''' <summary>API v5：插件要求的最低 API 版本（0 表示未声明）。</summary>
         Public MinApiVersion As Integer = 0
+        ''' <summary>插件主页（可选）。</summary>
+        Public Homepage As String = ""
+        ''' <summary>插件许可证（可选）。</summary>
+        Public License As String = ""
+        ''' <summary>清单里声明的签名（可选；没有就视为未签名）。</summary>
+        Public Signature As String = ""
         ''' <summary>最近的事件/错误记录（最多 40 条，插件页可见）。</summary>
         Public ReadOnly Events As New List(Of String)
         ''' <summary>记录一条事件日志。</summary>
@@ -696,6 +775,9 @@ Public Module ModPlugin
                 Dim MinApiValue As Integer
                 If Integer.TryParse(MinApiToken.ToString().Trim(), MinApiValue) Then Info.MinApiVersion = MinApiValue
             End If
+            Info.Homepage = If(Json.Value(Of String)("homepage"), "").Trim()
+            Info.License = If(Json.Value(Of String)("license"), "").Trim()
+            Info.Signature = If(Json.Value(Of String)("signature"), "").Trim()
             Dim Deps = Json.Value(Of JArray)("dependencies")
             If Deps IsNot Nothing Then
                 For Each D In Deps

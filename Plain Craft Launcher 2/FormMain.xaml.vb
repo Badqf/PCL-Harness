@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 445 Then 'PCL Harness 3.6.6
+            ' 插件信任：启用前确认权限
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件启用前会先列出它申请的权限，确认后才加载；权限有变化会再次询问"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：插件卡片会标注「未签名」并显示来源提示，确认记录保存在 Plugins\trust.json"))
+            FeatureCount += 2
+        End If
         If LastVersion < 444 Then 'PCL Harness 3.6.5
             Logger.Info($"[Update] 版本号 {LastVersion} → {VersionCode}，稍后展示更新日志")
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：插件页勾选「启用」后状态没保存（热重载把 plugins.json 当成插件内容，自己写文件又触发重载，来回覆盖成空）"))

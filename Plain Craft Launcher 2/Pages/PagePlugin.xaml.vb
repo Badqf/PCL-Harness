@@ -350,6 +350,7 @@ Public Class PagePlugin
         If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
         If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
+        If String.IsNullOrWhiteSpace(Info.Signature) Then MetaExtra.Add("未签名（来源需自行确认）")
         If MetaExtra.Count > 0 Then
             Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
@@ -380,6 +381,33 @@ Public Class PagePlugin
         Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
+                                   If Value AndAlso Not ModPlugin.IsTrusted(Info) Then
+                                       Dim Lines As New List(Of String)
+                                       Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
+                                       Lines.Add("")
+                                       If Info.Permissions.Count = 0 Then
+                                           Lines.Add("· 未声明权限（按默认权限运行，不额外放行）")
+                                       Else
+                                           For Each Perm In Info.Permissions.OrderBy(Function(P) P)
+                                               Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
+                                           Next
+                                       End If
+                                       Lines.Add("")
+                                       Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
+                                       If String.IsNullOrWhiteSpace(Info.Signature) Then
+                                           Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
+                                       Else
+                                           Lines.Add($"签名：{Info.Signature}")
+                                       End If
+                                       Lines.Add("")
+                                       Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
+                                       Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
+                                       If Choice <> 1 Then
+                                           Chk.Checked = False
+                                           Return
+                                       End If
+                                       ModPlugin.TrustPlugin(Info)
+                                   End If
                                    Try
                                        ModPlugin.SetEnabled(Info, Value)
                                        Hint(Info.DisplayName & If(Value, " 已启用", " 已禁用"), If(Value, HintType.Green, HintType.Blue))
@@ -759,6 +787,8 @@ Public Class PagePlugin
         AddDocTitle(Body, "控制台（v6）")
         AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
 
+        AddDocTitle(Body, "信任确认（v6.3）")
+        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（权限签名），权限不变不再询问，改过权限会重新询问。清单可选字段：signature（仅展示与记录，当前不做密钥验证）、homepage、license。")
         AddDocTitle(Body, "实例右键菜单（v6.2）")
         AddDocText(Body, "实现 IPclPluginInstanceMenu 就能往「版本选择」页里每个实例卡片的右键菜单里加操作（插件项 → 分隔线 → 「实例设置」）：每次打开菜单时按当前实例调用一次，返回 PluginMenuItem（Text + Action），Action 抛异常会被隔离并计入熔断。完整示例见开发版 SDK 的 samples\InstanceMenu。")
         AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase" & vbCrLf & "    Implements PCL.IPclPluginInstanceMenu" & vbCrLf & "    Public Function GetInstanceMenuItems(Instance As PCL.PluginInstanceInfo) As IEnumerable(Of PCL.PluginMenuItem) _" & vbCrLf & "        Implements PCL.IPclPluginInstanceMenu.GetInstanceMenuItems" & vbCrLf & "        Return {New PCL.PluginMenuItem With {.Text = ""导出实例信息（我的插件）"", .Action = Sub() Host.Message(Instance.Folder)}}" & vbCrLf & "    End Function" & vbCrLf & "End Class")
