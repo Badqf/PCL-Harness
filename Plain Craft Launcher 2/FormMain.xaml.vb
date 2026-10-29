@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 447 Then 'PCL Harness 3.6.8
+            BugCount += 2
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：API v5 插件调用 PluginEventBus.On 时报「找不到方法」——v6 给 On 加了可选参数改变了 CLR 签名，现已补回两参数重载"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：API v5 插件订阅「页面切换」时收到整数而声明的是字符串，导致类型转换异常；事件总线现在按处理器参数类型自动适配"))
+        End If
         If LastVersion < 446 Then 'PCL Harness 3.6.7
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：插件卡片与权限确认框把「签名」改称「发布者声明（未验证）」，避免被误认为已验签"))
             FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：trust.json 升级为 schema 2，权限记录改名为 permissionsHash（旧文件可继续读取并自动升级）"))

@@ -545,4 +545,11 @@ End Class
 ### 6.9 兼容性
 
 - `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。
+
+**二进制兼容（3.6.8 起强制遵守）**
+
+- 插件会调用的公开成员**不要**用「给已有方法加 Optional 参数」的方式扩展：`Optional` 只在编译期生效，CLR 签名会变，已编译的旧插件会抛 `MissingMethodException`。正确做法是新增重载，并保留旧签名的精确版本（例如 `PluginEventBus.On(String, Delegate)` 与 `On(String, Delegate, Integer, Boolean, String)` 并存）。
+- 事件参数**不要**更换类型。历史上「页面切换」从 `String` 改成了 `Integer`，旧插件按 `(String, String)` 声明就崩了；现在事件总线会按处理器声明的参数类型自动适配，但新事件请直接给出稳定类型。
+- 删除公开成员前先标 `Obsolete`，至少保留一个大版本。
+- 回归样本：`F:\PCL2-Release\PCLHarness\Plugins\hello`（v5「你好插件」）与 `samples\V6Demo`、`samples\InstanceMenu`。
 - v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。

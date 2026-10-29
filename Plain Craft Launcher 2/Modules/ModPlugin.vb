@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -346,6 +346,13 @@ Public Module ModPlugin
     ''' <summary>
     ''' 扫描插件目录并（可选）加载已启用的插件。返回插件数量。
     ''' </summary>
+    ''' <summary>
+    ''' v5 兼容：旧版本用它刷新右下角的插件状态文字。
+    ''' v6.4 起界面不再显示这段文字，这里保留为空实现，避免已编译的旧插件调用时报 MissingMethodException。
+    ''' </summary>
+    <Obsolete("v6.4 起不再需要调用：界面已不再显示插件状态文字。")>
+    Public Sub RefreshStatusWidgets()
+    End Sub
     Public Function Refresh(Optional LoadEnabled As Boolean = True) As Integer
         UnloadAll()
         Plugins.Clear()
@@ -1633,6 +1640,12 @@ Public Module ModPlugin
         Private ReadOnly _Handlers As New Dictionary(Of String, List(Of Subscription))(StringComparer.OrdinalIgnoreCase)
 
         ''' <summary>订阅事件。Priority 越大越先执行；OnlyOnce 为 True 时只执行一次。</summary>
+        ''' <summary>v5 兼容重载：等价于优先级 0、非一次性、无所有者。</summary>
+        ''' <remarks>v6 给 On 增加了可选参数，CLR 签名随之变化；已编译的 v5 插件仍按两参数调用，必须保留这个重载，否则会抛 MissingMethodException。</remarks>
+        Public Sub [On](EventName As String, Handler As [Delegate])
+            [On](EventName, Handler, 0, False, "")
+        End Sub
+
         Public Sub [On](EventName As String, Handler As [Delegate], Optional Priority As Integer = 0, Optional OnlyOnce As Boolean = False, Optional Owner As String = "")
             If String.IsNullOrWhiteSpace(EventName) OrElse Handler Is Nothing Then Return
             SyncLock _Handlers
@@ -1687,6 +1700,54 @@ Public Module ModPlugin
         End Function
 
         ''' <summary>触发事件，返回成功执行的处理器数量。处理器抛出的异常会被隔离并记入开发日志。</summary>
+        ''' <summary>
+        ''' 把事件参数适配到处理器声明的类型。
+        ''' v5 插件订阅「页面切换」时按 (String, String) 声明，而 v6 内部统一传 Integer；
+        ''' 直接 DynamicInvoke 会抛「Int32 无法转换为 String」，这里按目标参数类型做安全转换。
+        ''' </summary>
+        Private Shared Function AdaptArguments(Handler As [Delegate], Args As Object()) As Object()
+            If Handler Is Nothing OrElse Args Is Nothing OrElse Args.Length = 0 Then Return Args
+            Dim Params = Handler.Method.GetParameters()
+            If Params.Length = 0 Then Return Args
+
+            'ParamArray：把多余参数打包成数组
+            Dim LastParam = Params(Params.Length - 1)
+            Dim IsParamArray As Boolean = LastParam.GetCustomAttributes(GetType(ParamArrayAttribute), False).Length > 0
+            If IsParamArray AndAlso Args.Length >= Params.Length Then
+                Dim Packed(Params.Length - 1) As Object
+                For i = 0 To Params.Length - 2
+                    Packed(i) = ConvertValue(Args(i), Params(i).ParameterType)
+                Next
+                Dim Extra(Args.Length - Params.Length) As Object
+                For i = Params.Length - 1 To Args.Length - 1
+                    Extra(i - (Params.Length - 1)) = Args(i)
+                Next
+                Packed(Params.Length - 1) = Extra
+                Return Packed
+            End If
+
+            Dim Result(Args.Length - 1) As Object
+            For i = 0 To Args.Length - 1
+                If i < Params.Length Then
+                    Result(i) = ConvertValue(Args(i), Params(i).ParameterType)
+                Else
+                    Result(i) = Args(i)
+                End If
+            Next
+            Return Result
+        End Function
+
+        Private Shared Function ConvertValue(Value As Object, Target As Type) As Object
+            If Value Is Nothing OrElse Target Is Nothing OrElse Target.IsInstanceOfType(Value) Then Return Value
+            Try
+                If Target Is GetType(String) Then Return Convert.ToString(Value)
+                If Target.IsEnum Then Return [Enum].ToObject(Target, Convert.ToInt32(Value))
+                If Value.GetType() Is GetType(String) Then Return Convert.ChangeType(Value, Target)
+            Catch
+                '转换失败就原样传进去，让处理器自己报错并被隔离
+            End Try
+            Return Value
+        End Function
         Public Function Emit(EventName As String, ParamArray Args As Object()) As Integer
             If String.IsNullOrWhiteSpace(EventName) Then Return 0
             Dim Snapshot As New List(Of Subscription)
@@ -1703,7 +1764,7 @@ Public Module ModPlugin
             Dim Executed As Integer = 0
             For Each Item In Snapshot
                 Try
-                    Item.Handler.DynamicInvoke(Args)
+                    Item.Handler.DynamicInvoke(AdaptArguments(Item.Handler, Args))
                     Executed += 1
                 Catch ex As Exception
                     PluginDevLog.Error("事件总线", $"处理 {EventName} 时出错：{ex.GetBaseException().Message}")
