@@ -350,7 +350,11 @@ Public Class PagePlugin
         If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
         If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
-        If String.IsNullOrWhiteSpace(Info.Signature) Then MetaExtra.Add("未签名（来源需自行确认）")
+        If String.IsNullOrWhiteSpace(Info.Signature) Then
+            MetaExtra.Add("未签名（来源需自行确认）")
+        Else
+            MetaExtra.Add("发布者声明（未验证）")
+        End If
         If MetaExtra.Count > 0 Then
             Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
@@ -397,7 +401,8 @@ Public Class PagePlugin
                                        If String.IsNullOrWhiteSpace(Info.Signature) Then
                                            Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
                                        Else
-                                           Lines.Add($"签名：{Info.Signature}")
+                                           Lines.Add($"发布者声明（未验证）：{Info.Signature}")
+                                           Lines.Add("注意：启动器还没有校验这份声明，任何人都能填写它，不要当作身份证明。")
                                        End If
                                        Lines.Add("")
                                        Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
@@ -787,8 +792,9 @@ Public Class PagePlugin
         AddDocTitle(Body, "控制台（v6）")
         AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
 
-        AddDocTitle(Body, "信任确认（v6.3）")
-        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（权限签名），权限不变不再询问，改过权限会重新询问。清单可选字段：signature（仅展示与记录，当前不做密钥验证）、homepage、license。")
+        AddDocTitle(Body, "权限指纹与签名（v6.3）")
+        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未声明权限也会写明，未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（schema 2），其中 permissionsHash 是把权限名小写、排序、逗号连接得到的字符串（如 events,files,ui）——它只是权限指纹，不含密钥、不是哈希摘要、也不是密码学签名，作用仅是权限集合变了就再问一次。")
+        AddDocText(Body, "清单里的 signature 字段目前【只读不验】：界面显示为「发布者声明（未验证）」，任何人填任意字符串都会原样显示，请不要把它当作身份证明，也不要基于它做安全判断。计划中的真实验签：ECDsa P-256 + SHA-256，签 sha256(包字节)，清单增加 publisher（公钥）与 signature，验签通过才显示「已验证发布者」并在 trust.json 记录公钥指纹；SDK 会提供 tools\sign-plugin.ps1。可选字段还有 homepage、license。")
         AddDocTitle(Body, "实例右键菜单（v6.2）")
         AddDocText(Body, "实现 IPclPluginInstanceMenu 就能往「版本选择」页里每个实例卡片的右键菜单里加操作（插件项 → 分隔线 → 「实例设置」）：每次打开菜单时按当前实例调用一次，返回 PluginMenuItem（Text + Action），Action 抛异常会被隔离并计入熔断。完整示例见开发版 SDK 的 samples\InstanceMenu。")
         AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase" & vbCrLf & "    Implements PCL.IPclPluginInstanceMenu" & vbCrLf & "    Public Function GetInstanceMenuItems(Instance As PCL.PluginInstanceInfo) As IEnumerable(Of PCL.PluginMenuItem) _" & vbCrLf & "        Implements PCL.IPclPluginInstanceMenu.GetInstanceMenuItems" & vbCrLf & "        Return {New PCL.PluginMenuItem With {.Text = ""导出实例信息（我的插件）"", .Action = Sub() Host.Message(Instance.Folder)}}" & vbCrLf & "    End Function" & vbCrLf & "End Class")

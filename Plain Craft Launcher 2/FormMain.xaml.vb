@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 446 Then 'PCL Harness 3.6.7
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：插件卡片与权限确认框把「签名」改称「发布者声明（未验证）」，避免被误认为已验签"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：trust.json 升级为 schema 2，权限记录改名为 permissionsHash（旧文件可继续读取并自动升级）"))
+            FeatureCount += 2
+            BugCount += 0
+        End If
         If LastVersion < 445 Then 'PCL Harness 3.6.6
             ' 插件信任：启用前确认权限
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件启用前会先列出它申请的权限，确认后才加载；权限有变化会再次询问"))

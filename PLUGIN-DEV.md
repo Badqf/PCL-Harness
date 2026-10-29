@@ -479,11 +479,42 @@ End Class
 
 日志同时写进 `PluginDevLog`（内存环形缓冲，最多 4000 条），`Host.DevLog(...)` / `DevLog(...)` 都能往里写。
 
-### 6.7 信任确认（v6.3）
+### 6.7 权限指纹与签名（v6.3）
 
-- 插件首次启用时会弹出权限确认框：逐条展示 `permissions` 及说明，未签名会提示来源未知；确认后才加载。
-- 确认结果存进 `Plugins\trust.json`（权限签名），权限不变不再询问；改过权限会重新询问。
-- `plugin.json` 可选字段：`signature`（字符串，仅展示与记录，当前不做密钥验证）、`homepage`、`license`。
+**启用前的权限确认**
+
+- 插件首次启用会弹出确认框：逐条展示 `permissions` 及中文说明，未声明权限也会写明；同时显示作者与来源（未签名 / 发布者声明）。
+- 只有点「仍然启用」才会写入状态并加载；点「取消」会立刻把勾选回滚。
+- 确认结果存进 `Plugins\trust.json`：权限不变不会再问；`permissions` 有任何变化都会重新询问。
+
+**`trust.json` 里存的是「权限指纹」，不是签名**
+
+```json
+{
+  "schema": 2,
+  "plugins": {
+    "instance-menu-demo": { "permissionsHash": "events,files,ui" }
+  }
+}
+```
+
+- `permissionsHash` 的生成方式：把 `permissions` 全部小写、按字母排序、用逗号连接（`events,files,ui`）。
+- 它**没有密钥、不是哈希摘要、也不加密**，唯一作用是「检测权限集合是否变化」，不能证明包是谁发布的。
+- 旧格式（`{"id":"ui,events"}` 或 `{"id":{"signature":"ui,events"}}`）仍可读取，保存时会自动升级为 `schema: 2`。
+
+**`plugin.json` 的 `signature` 字段现在只读不验**
+
+- 启动器把该字段读进 `PluginInfo.Signature`，界面显示为「发布者声明（未验证）」。
+- **当前没有任何公钥比对**：任何人写任意字符串都会被原样显示，请勿把它当身份证明，也不要基于它做安全判断。
+- 面向未来，`signature` 会升级为真正的签名（见下），届时未带公钥/验签失败的包仍按「未验证」处理。
+
+**计划中的真实验签（第三梯队）**
+
+1. 算法：`ECDsa` P-256 + SHA-256（.NET Framework 4.8 自带，无额外依赖）。
+2. 签名对象：`sha256(整个 .pclplugin 文件字节)`。
+3. 清单字段：`publisher`（Base64 公钥/SPKI）+ `signature`（Base64 签名）。
+4. 校验：`ECDsa.VerifyData` 通过才显示「已验证发布者」，并把公钥指纹（如 `A1B2 C3D4 …`）写入 `trust.json`；同一发布者的后续更新可跳过「来源未知」提示，但权限确认照旧。
+5. 工具链：SDK 提供 `tools\sign-plugin.ps1`（私钥 + 包路径 → 签名串）；市场索引展示公钥指纹。
 
 ### 6.8 实例右键菜单（v6.2）
 

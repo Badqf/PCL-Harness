@@ -25,16 +25,25 @@ Public Module ModPlugin
 
     Private ReadOnly Property PathTrustFile As String = Path.Combine(PathPluginRoot, "trust.json")
 
-    ''' <summary>已确认过权限的插件：id → 权限签名（权限变了要重新确认）。</summary>
+    ''' <summary>
+    ''' 已确认过权限的插件：id → 权限指纹（权限变了要重新确认）。
+    ''' 注意：这是权限集合的规范化字符串，**不是**密码学签名，不含任何密钥或哈希算法。
+    ''' </summary>
     Private ReadOnly TrustedIds As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
 
     ''' <summary>
-    ''' 生成权限签名，用于判断「插件被授予了新的权限」。
+    ''' 生成权限指纹，用于判断「插件被授予了新的权限」。
+    ''' 实现是把权限名小写、排序后用逗号连接（例如 events,files,ui）；它只能检测变化，不能证明发布者身份。
     ''' </summary>
-    Public Function PermissionSignature(Info As PluginInfo) As String
+    Public Function PermissionFingerprint(Info As PluginInfo) As String
         If Info Is Nothing Then Return ""
         Dim Parts = Info.Permissions.Select(Function(P) P.ToLowerInvariant()).OrderBy(Function(P) P).ToList()
         Return String.Join(",", Parts)
+    End Function
+
+    ''' <summary>旧名字，保留给已有调用方；请改用 PermissionFingerprint。</summary>
+    Public Function PermissionSignature(Info As PluginInfo) As String
+        Return PermissionFingerprint(Info)
     End Function
 
     ''' <summary>某个插件名下的权限是否已经被用户确认过（且权限没有变化）。</summary>
@@ -42,13 +51,13 @@ Public Module ModPlugin
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return False
         Dim Sig As String = Nothing
         If Not TrustedIds.TryGetValue(Info.Id, Sig) Then Return False
-        Return String.Equals(Sig, PermissionSignature(Info), StringComparison.Ordinal)
+        Return String.Equals(Sig, PermissionFingerprint(Info), StringComparison.Ordinal)
     End Function
 
     ''' <summary>记录用户已确认某插件的当前权限。</summary>
     Public Sub TrustPlugin(Info As PluginInfo)
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
-        TrustedIds(Info.Id) = PermissionSignature(Info)
+        TrustedIds(Info.Id) = PermissionFingerprint(Info)
         SaveTrustState()
     End Sub
 
@@ -57,13 +66,27 @@ Public Module ModPlugin
         Try
             If Not IO.File.Exists(PathTrustFile) Then Return
             Dim Json = JObject.Parse(IO.File.ReadAllText(PathTrustFile, Encoding.UTF8))
+            ' 新格式：{"schema":2,"plugins":{"id":{"permissionsHash":"ui,events"}}}
+            Dim PluginsNode = TryCast(Json("plugins"), JObject)
+            If PluginsNode IsNot Nothing Then
+                For Each P In PluginsNode.Properties()
+                    Dim Obj = TryCast(P.Value, JObject)
+                    Dim Hash As String = Nothing
+                    If Obj IsNot Nothing Then Hash = Obj.Value(Of String)("permissionsHash")
+                    If Hash Is Nothing AndAlso Obj IsNot Nothing Then Hash = Obj.Value(Of String)("signature")
+                    TrustedIds(P.Name) = If(Hash, "")
+                Next
+                Return
+            End If
+            ' 旧格式：{"id":"ui,events"} 或 {"id":{"signature":"ui,events"}}
             For Each P In Json.Properties()
                 Dim Sig = If(P.Value, "").ToString()
-                '兼容两种写法：{"id":"ui,events"} 或 {"id":{"signature":"ui,events"}}
                 Dim Obj = TryCast(P.Value, JObject)
                 If Obj IsNot Nothing Then Sig = Obj.Value(Of String)("signature")
                 TrustedIds(P.Name) = If(Sig, "")
             Next
+            ' 旧格式读进来后立刻按新结构回写一次，避免一直停留在旧格式
+            SaveTrustState()
         Catch ex As Exception
             Logger.Error(ex, "读取插件信任记录失败", LogBehavior.None)
         End Try
@@ -72,10 +95,15 @@ Public Module ModPlugin
     Private Sub SaveTrustState()
         Try
             Directory.CreateDirectory(PathPluginRoot)
-            Dim Json As New JObject
+            Dim PluginsNode As New JObject
             For Each Pair In TrustedIds
-                Json(Pair.Key) = Pair.Value
+                Dim Item As New JObject
+                Item("permissionsHash") = Pair.Value
+                PluginsNode(Pair.Key) = Item
             Next
+            Dim Json As New JObject
+            Json("schema") = 2
+            Json("plugins") = PluginsNode
             IO.File.WriteAllText(PathTrustFile, Json.ToString(), New UTF8Encoding(False))
         Catch ex As Exception
             Logger.Error(ex, "保存插件信任记录失败", LogBehavior.None)
@@ -331,6 +359,7 @@ Public Module ModPlugin
                 EnabledState.Add(Id)
             Next
             LoadFuseState()
+            LoadTrustState()
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
                 Dim Info = ReadManifest(Folder)
                 If Info Is Nothing Then
