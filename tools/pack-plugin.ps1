@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     把插件文件夹打包成 PCL Harness 插件包（.pclplugin）。
 

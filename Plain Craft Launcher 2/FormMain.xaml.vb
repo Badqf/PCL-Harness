@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 451 Then 'PCL Harness 3.7.2
+            FeatureCount += 2
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：开发版 SDK 支持 -SingleFile（把清单写进 DLL，可直接单文件分发导入）与 -Pack（编译后自动打 .pclplugin）。"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化：单 DLL 导入时，清单里的权限会一起带过来，启用前仍会逐条确认。"))
+        End If
         If LastVersion < 450 Then 'PCL Harness 3.7.1
             BugCount += 1
             FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：启动器自动更新后，新文件仍带着「网络标记」，下次启动会被 Windows SmartScreen 拦一次；现在更新完成就清除标记。"))

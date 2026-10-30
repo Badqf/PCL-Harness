@@ -579,6 +579,18 @@ End Class
 - 导入只做结构、路径、`sha256` 与依赖校验，**不做代码安全审计**：插件 DLL 会在启动器进程内运行，只安装你信任来源的插件。
 - 目前没有联网下载与签名验证；插件包与 `plugin.json` 里的 `signature` 都只是「发布者声明（未验证）」，真正的 ECDsa 验签在后续版本做。
 
+### 6.9.1 单文件与打包（v6.4）
+
+开发期照旧用文件夹（`plugin.json` + DLL + 资源），运行时会照常加载，不需要任何迁移。
+
+需要分发时，SDK 提供两种产物：
+
+- **单 DLL**：`tools\sdk\build.ps1 -Project <目录> -SingleFile`
+  会把清单写进程序集元数据（`PclPluginId` / `PclPluginName` / `PclPluginVersion` / `PclPluginAuthor` / `PclPluginDescription` / `PclPluginPermissions`），产出的 DLL 可以直接拖进启动器导入。注意单文件模式无法携带额外资源文件，也不支持 `sha256` 自校验。
+- **插件包 `.pclplugin`**：`tools\pack-plugin.ps1 -Project <目录>`，或编译时加 `-Pack` 一步完成。
+  本质是 zip：根目录（或单层子目录）下有 `plugin.json` 即可；会跳过 `data\`、`.backup\`、`bin\`、`obj\`、`*.pdb`。
+
+导入方式：插件页「导入插件…」按钮、把文件拖进启动器窗口，或用 `--import-plugin`（后续版本）。重名会询问是否覆盖；覆盖会保留 `data\`、设置与启用状态，只有权限变化时才重新弹确认框。
 ### 6.10 兼容性
 
 - `ApiVersionUi = 6`，User-Agent 为 `PCLHarness-Plugin/6`。

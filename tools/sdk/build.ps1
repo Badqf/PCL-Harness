@@ -26,7 +26,11 @@ param(
     [Parameter(Mandatory = $true)][string]$Project,
     [string]$Launcher,
     [string]$VbcPath,
-    [string]$ReferencePath
+    [string]$ReferencePath,
+    # 把清单里的信息写成 AssemblyMetadata，产出的 DLL 可以单文件分发、直接拖进启动器导入
+    [switch]$SingleFile,
+    # 编译完成后顺手打成 .pclplugin（调用 tools\pack-plugin.ps1）
+    [switch]$Pack
 )
 
 $ErrorActionPreference = "Stop"
@@ -148,12 +152,42 @@ if ($isLegacyVbc) {
     $vbcArgs = @("/noconfig", "/nostdlib", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
 }
 foreach ($r in $effectiveRefs) { $vbcArgs += "/r:$r" }
+
+# -SingleFile：把清单写进程序集元数据，让 DLL 自己就能被识别/导入
+$metaFile = $null
+if ($SingleFile) {
+    function Esc([object]$v) { return ([string]$v).Replace('"', '""') }
+    $perm = ""
+    if ($manifest.permissions) { $perm = (@($manifest.permissions) -join ",") }
+    $meta = @("Imports System.Reflection")
+    $meta += '<Assembly: AssemblyMetadata("PclPluginId", "{0}")>' -f (Esc $manifest.id)
+    $meta += '<Assembly: AssemblyMetadata("PclPluginName", "{0}")>' -f (Esc $manifest.name)
+    $meta += '<Assembly: AssemblyMetadata("PclPluginVersion", "{0}")>' -f (Esc $manifest.version)
+    $meta += '<Assembly: AssemblyMetadata("PclPluginAuthor", "{0}")>' -f (Esc $manifest.author)
+    $meta += '<Assembly: AssemblyMetadata("PclPluginDescription", "{0}")>' -f (Esc $manifest.description)
+    if ($perm) { $meta += '<Assembly: AssemblyMetadata("PclPluginPermissions", "{0}")>' -f (Esc $perm) }
+    $metaFile = Join-Path ([System.IO.Path]::GetTempPath()) ("pclmeta-" + [guid]::NewGuid().ToString('N') + ".vb")
+    [System.IO.File]::WriteAllLines($metaFile, $meta, (New-Object System.Text.UTF8Encoding($false)))
+    $vbcArgs += $metaFile
+    Write-Host "单文件模式 : 已生成程序集元数据（permissions=$perm）"
+}
+
 $vbcArgs += $sources
 
 & $VbcPath @vbcArgs
-if ($LASTEXITCODE -ne 0) { throw "编译失败（exit $LASTEXITCODE）" }
+$code = $LASTEXITCODE
+if ($metaFile -and (Test-Path $metaFile)) { Remove-Item $metaFile -Force }
+if ($code -ne 0) { throw "编译失败（exit $code）" }
 
 $size = (Get-Item $outDll).Length
 Write-Host ""
 Write-Host "OK: $outDll ($size bytes)" -ForegroundColor Green
+
+if ($Pack) {
+    $packScript = Join-Path (Split-Path $PSScriptRoot -Parent) "pack-plugin.ps1"
+    if (-not (Test-Path $packScript)) { throw "找不到 $packScript（-Pack 需要它与 sdk 目录同级）" }
+    & $packScript -Project $projectDir
+    exit $LASTEXITCODE
+}
+
 Write-Host "把 $projectDir 整个文件夹放到 PCLHarness\Plugins\ 下，然后重启启动器或点插件页的「重新扫描」。"

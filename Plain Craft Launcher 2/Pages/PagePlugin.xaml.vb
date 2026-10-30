@@ -832,6 +832,8 @@ Public Class PagePlugin
         AddDocText(Body, "两个完整示例都在开发版 SDK 里（Release 附件的 SDK 包，仓库里对应 samples/V6Demo 与 samples/DemoPlugin）：V6Demo 是当前版本示例，演示服务注册、优先级事件、一次性事件、后台任务；DemoPlugin 是 v5 示例，演示自定义页面、标题栏入口与两个设置项。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
         AddDocTitle(Body, "发布与导入（v6.4）")
         AddDocText(Body, "插件包（.pclplugin）就是 zip：根目录放 plugin.json 与 DLL（或只套一层同名文件夹），不要带 data\、.backup\、bin\、obj\。打包可用 tools\pack-plugin.ps1 -Project 插件目录，或自己压 zip。安装时点「插件管理 → 导入插件…」多选，或直接把 .pclplugin / 含清单的 zip / 带 AssemblyMetadata 的 DLL 拖进启动器窗口；重名会问是否覆盖，覆盖会保留 data\、设置与启用状态，只有权限指纹变化时才重新弹确认。单 DLL 需要在程序集里写 PclPluginId / PclPluginName / PclPluginVersion / PclPluginAuthor（可选 PclPluginDescription）。导入只做结构与 sha256 校验，不做代码审计。")
+        AddDocTitle(Body, "单 DLL 与打包（v6.4）")
+        AddDocText(Body, "SDK 的 tools\pack-plugin.ps1 能把插件文件夹打成 .pclplugin；sdk\build.ps1 加 -Pack 会在编译后顺手打包，加 -SingleFile 会从 plugin.json 注入 AssemblyMetadata（PclPluginId / PclPluginName / PclPluginVersion / PclPluginAuthor / PclPluginDescription / PclPluginPermissions），产出的 DLL 可以单独分发并直接拖进启动器导入。单 DLL 不适合带资源文件或需要 data\ 的插件，那种请用 .pclplugin。")
 
         Body.Margin = New Thickness(25, 40, 25, 20)
         Card.Children.Add(Body)

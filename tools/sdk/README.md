@@ -6,8 +6,8 @@
 
 - `PLUGIN-DEV.md`：完整开发指南（接口、权限、宿主 API、内嵌 UI、热重载、FAQ）
 - API v6：事件总线（13 类事件、优先级、一次性、异常隔离）、插件间服务注册、后台任务与进度、`PclPluginBase` 便捷基类、依赖版本约束（`其它id@>=1.2`）、插件页「开发模式」实时日志与命令回显
-- `build.ps1`：通用编译脚本（自动找 vbc 与 .NET Framework 4.8 参考程序集）
-- `samples\V6Demo\`：v6 能力演示（服务注册、带优先级的页面事件、一次性事件、后台任务进度）
+- `build.ps1`：通用编译脚本（自动找 vbc 与 .NET Framework 4.8 参考程序集）；`-SingleFile` 把清单写进 DLL 便于单文件分发，`-Pack` 编译后自动打 `.pclplugin`
+- `tools\pack-plugin.ps1`：把插件目录打成 `.pclplugin`（也可用 `build.ps1 -Pack`）`r`n- `samples\V6Demo\`：v6 能力演示（服务注册、带优先级的页面事件、一次性事件、后台任务进度）
 - `samples\DemoPlugin\`：功能演示插件（事件钩子、设置项、卡片、文件/网络 API）
 - `LICENSE`：上游《PCL 分发有限许可》+《PCL 存储库合理使用指南》
 

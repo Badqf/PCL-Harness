@@ -2261,6 +2261,14 @@ Public Module ModPlugin
                 {"dll", DllName},
                 {"minApiVersion", ApiVersionUi}
             }
+            Dim Perms = ReadAssemblyMetadata(DllPath, "PclPluginPermissions")
+            If Not String.IsNullOrWhiteSpace(Perms) Then
+                Dim Arr As New JArray
+                For Each Part In Perms.Split(New Char() {","c, ";"c}, StringSplitOptions.RemoveEmptyEntries)
+                    Arr.Add(Part.Trim())
+                Next
+                Json("permissions") = Arr
+            End If
             IO.File.WriteAllText(IO.Path.Combine(TempRoot, ManifestFileName), Json.ToString(), New Text.UTF8Encoding(False))
             Return InstallFromFolder(TempRoot, Overwrite, DllPath)
         Finally

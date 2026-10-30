@@ -347,3 +347,6 @@ MaskFiles/
 patches/
 
 *_wpftmp.vbproj
+# 示例插件的编译产物（运行时/打包时生成，不入库）
+samples/**/*.dll
+samples/**/*.pclplugin
