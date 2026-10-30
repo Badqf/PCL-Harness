@@ -23,6 +23,10 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 450 Then 'PCL Harness 3.7.1
+            BugCount += 1
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复：启动器自动更新后，新文件仍带着「网络标记」，下次启动会被 Windows SmartScreen 拦一次；现在更新完成就清除标记。"))
+        End If
         If LastVersion < 449 Then 'PCL Harness 3.7.0
             FeatureCount += 2
             FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件导入——插件页新增「导入插件…」按钮，支持 .pclplugin、含 plugin.json 的 zip 与单 DLL。"))

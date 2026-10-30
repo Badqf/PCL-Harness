@@ -1,4 +1,4 @@
-'由于包含加解密等安全信息，本文件中的部分代码已被删除
+﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -520,6 +520,24 @@ Friend Module ModSecret
     End Sub
 
     ''' <summary>
+    ''' 删除文件的「网络标记」（Zone.Identifier 备用数据流）。
+    ''' .NET 的 File.Delete 不支持带冒号的 ADS 路径，这里直接调 Win32 DeleteFile。
+    ''' </summary>
+    Private Sub StripZoneIdentifier(FilePath As String)
+        Dim AdsPath As String = FilePath & ":Zone.Identifier"
+        If DeleteFileWin32(AdsPath) Then
+            Logger.Info($"[Update] 已清除网络标记：{FilePath}")
+        Else
+            Dim Code As Integer = Runtime.InteropServices.Marshal.GetLastWin32Error()
+            If Code <> 2 Then Logger.Warn($"[Update] 清除网络标记失败（错误 {Code}）：{FilePath}") '2 = 文件不存在，正常
+        End If
+    End Sub
+
+    <Runtime.InteropServices.DllImport("kernel32.dll", EntryPoint:="DeleteFileW", CharSet:=Runtime.InteropServices.CharSet.Unicode, SetLastError:=True)>
+    Private Function DeleteFileWin32(lpFileName As String) As Boolean
+    End Function
+    
+    ''' <summary>
     ''' 由新版本 exe 以 --update 参数启动时调用：等待旧进程退出、用自己的文件覆盖旧文件，可选重启。
     ''' </summary>
     Public Sub UpdateReplace(ProcessId As Integer, OldFileName As String, NewFileName As String, TriggerRestart As Boolean)
@@ -545,6 +563,7 @@ Friend Module ModSecret
                 End Try
             Next
             If Not Done Then Throw New Exception($"无法写入 {OldFileName}")
+            StripZoneIdentifier(OldFileName) '换掉的新文件同样可能带着「网络标记」，清掉才不会每次启动都被 SmartScreen 拦截
             Logger.Info($"[Update] 已更新到 {OldFileName}")
             If TriggerRestart Then StartProcess(OldFileName)
         Catch ex As Exception

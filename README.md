@@ -2,7 +2,7 @@
 
 基于 [Plain Craft Launcher 2 开源版](https://github.com/Meloong-Git/PCL)（上游版本 2.14.0.0）二次开发的自编版启动器，在保留原版功能的基础上加入独立配置目录、主题系统、插件系统与联机直连等扩展。
 
-- 当前版本：**3.7.0**
+- 当前版本：**3.7.1**
 - 上游基线：PCL 2.14.0.0（2026-10-16 发布）
 - 反馈 / 问题：<https://github.com/Badqf/PCL-Harness/issues>
 - 插件开发文档：[PLUGIN-DEV.md](PLUGIN-DEV.md)
@@ -37,6 +37,24 @@
 ### 上游 2.14.0.0 的新特性（已合并）
 - 版本设置新增「修改」页：可修改、添加、移除、更新已安装版本的 MC 版本与组件。
 - 启动游戏时按 Esc 取消、主页启动日志可复制、新增主页预设、整合包另存为后打开文件夹等。
+
+## Windows 提示「未知发布者」怎么办
+
+PCL Harness 目前**没有购买代码签名证书**，所以从网上下载的 exe 会被 Windows SmartScreen 拦一次，弹窗写着「Windows 已保护你的电脑 / 未知发布者」。这不是杀毒报警，而是「这个文件来自网络，且发布者身份没验证过」。
+
+- **正常放行**：弹窗里点「更多信息」→「仍要运行」。
+- **提前解除**（推荐，省得每次问）：下载后右键 exe →「属性」→ 勾选「解除锁定」→「确定」；或者用 PowerShell 执行 `Unblock-File .\PCL Harness.exe`。
+- **自动更新不受影响**：启动器更新时会自己清掉新文件的「网络标记」（3.7.1 起），所以更新后的启动不会再被拦。
+
+要彻底消除这个提示只能做**代码签名**：买证书（EV 证书立即可信；OV / Azure Trusted Signing 需要积累一点信誉），然后：
+
+```powershell
+$env:PCL_SIGN_CERT = "C:\path\codesign.pfx"    # 证书
+$env:PCL_SIGN_PASSWORD = "******"              # 口令，别写进脚本
+powershell -File build.ps1 -Sign
+```
+
+`build.ps1` 会调用 `signtool` 签名并校验；证书和 signtool 都到位后，发布出来的 exe 在 SmartScreen 里会显示证书主体而不是「未知发布者」。
 
 ## 构建
 

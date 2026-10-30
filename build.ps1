@@ -8,7 +8,13 @@
 param(
     [ValidateSet("Release", "Debug", "Snapshot")]
     [string]$Configuration = "Release",
-    [string]$Platform = "AnyCPU"
+    [string]$Platform = "AnyCPU",
+    # 代码签名（可选）：-Sign 时用 signtool 给 PCL Harness.exe 签名，消除 SmartScreen 的「未知发布者」。
+    # 证书口令请放环境变量 PCL_SIGN_PASSWORD，或 PCL_SIGN_CERT 指定 pfx 路径，避免出现在命令行历史里。
+    [switch]$Sign,
+    [string]$SignCert = $env:PCL_SIGN_CERT,
+    [string]$SignPassword = $env:PCL_SIGN_PASSWORD,
+    [string]$TimestampUrl = "http://timestamp.digicert.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -46,5 +52,29 @@ $renamed = Join-Path $outDir "PCL Harness.exe"
 if (Test-Path $built) {
     Copy-Item $built $renamed -Force
     Write-Host "输出: $renamed"
+
+    if ($Sign) {
+        # 代码签名：签名后文件名、内容不变，但 publisher 会显示证书主体，SmartScreen 不再提示「未知发布者」
+        # EV 证书立刻建立信誉；OV / Azure Trusted Signing 还需要一段时间的下载量积累。
+        $signtool = $env:PCL_SIGNTOOL
+        if (-not $signtool) {
+            $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $signtool = $cmd.Source }
+        }
+        if (-not $signtool) { throw "找不到 signtool.exe，请安装 Windows SDK 或用 PCL_SIGNTOOL 指定完整路径" }
+        if (-not $SignCert) { throw "未指定证书：请用 -SignCert 或环境变量 PCL_SIGN_CERT 指向 .pfx" }
+        if (-not (Test-Path $SignCert)) { throw "证书文件不存在: $SignCert" }
+
+        $signArgs = @("sign", "/fd", "SHA256", "/tr", $TimestampUrl, "/td", "SHA256", "/f", $SignCert)
+        if ($SignPassword) { $signArgs += @("/p", $SignPassword) }
+        $signArgs += @("/d", "PCL Harness", $renamed)
+        Write-Host "签名: $signtool $($signArgs -join ' ')"
+        & $signtool @signArgs
+        if ($LASTEXITCODE -ne 0) { throw "签名失败（signtool 退出码 $LASTEXITCODE）" }
+
+        & $signtool verify /pa /v $renamed | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "签名校验失败（signtool verify 退出码 $LASTEXITCODE）" }
+        Write-Host "签名完成并校验通过"
+    }
 }
 exit 0
