@@ -1,4 +1,4 @@
-Imports System.Linq
+﻿Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -376,11 +376,24 @@ Public Class PagePlugin
         If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
         If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
-        If String.IsNullOrWhiteSpace(Info.Signature) Then
-            MetaExtra.Add("未签名（来源需自行确认）")
-        Else
-            MetaExtra.Add("发布者声明（未验证）")
-        End If
+        '签名状态（P1-1）
+        Dim SigText As String
+        Dim SigColor As String = "ColorBrushGray2"
+        Select Case Info.SignatureStatus
+            Case ModPlugin.PluginSignatureStatus.Signed
+                SigText = "签名有效"
+                SigColor = "ColorBrushGray2"
+            Case ModPlugin.PluginSignatureStatus.Invalid
+                SigText = "签名无效（文件可能被改动过）"
+                SigColor = "ColorBrushRedLight"
+            Case ModPlugin.PluginSignatureStatus.UnknownPublisher
+                SigText = "签名来自未知发布者"
+                SigColor = "ColorBrushRedLight"
+            Case Else
+                SigText = If(String.IsNullOrWhiteSpace(Info.Signature), "未签名（来源需自行确认）", "发布者声明（未验证）")
+        End Select
+        MetaExtra.Add(SigText)
+        If Not String.IsNullOrWhiteSpace(Info.UpdateUrl) Then MetaExtra.Add("已声明更新地址")
         If MetaExtra.Count > 0 Then
             Left.Children.Add(New TextBlock With {.Text = String.Join("　·　", MetaExtra), .FontSize = 11, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
         End If
@@ -470,6 +483,31 @@ Public Class PagePlugin
                                                  End Sub))
         End If
 
+        If ModPlugin.HasBackup(Info.Id) Then
+            PanBtn.Children.Add(MkButtonSmall("回滚到上一版", Sub()
+                                                            Dim Choice = MyMsgBox($"回滚 {Info.DisplayName} 到上一版？" & vbCrLf & vbCrLf & "回滚会排队到下次启动，重启启动器后生效。", "回滚插件", "回滚", "取消")
+                                                            If Choice <> 1 Then Return
+                                                            Try
+                                                                If ModPlugin.RollbackPlugin(Info.Id) Then
+                                                                    Hint(Info.DisplayName & " 已安排回滚，重启启动器后生效", HintType.Green)
+                                                                    RefreshNav()
+                                                                    RefreshCurrentSection()
+                                                                Else
+                                                                    Hint("没有可用的备份，回滚失败", HintType.Red)
+                                                                End If
+                                                            Catch ex As Exception
+                                                                Logger.Error(ex, "回滚插件失败", LogBehavior.Toast)
+                                                            End Try
+                                                        End Sub))
+        End If
+        If Info.Loaded Then
+            PanBtn.Children.Add(MkButtonSmall("重新加载插件", Sub()
+                                                              Hint("已重新读取插件清单；改了代码请重启启动器才能生效", HintType.Blue)
+                                                              ModPlugin.Refresh(True)
+                                                              RefreshNav()
+                                                              RefreshCurrentSection()
+                                                          End Sub))
+        End If
         If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
 
         Grid.SetColumn(Right, 1)
@@ -522,6 +560,45 @@ Public Class PagePlugin
         FilterBody.Children.Add(LabExtendStat)
         FilterCard.Children.Add(FilterBody)
         PanContent.Children.Add(FilterCard)
+
+        '已授权主机（net.dynamic 放行记录，P0-3）
+        Dim HostCard As New MyCard With {.Margin = New Thickness(0, 0, 0, 12)}
+        Dim HostBody As New StackPanel With {.Margin = New Thickness(15, 12, 15, 12)}
+        HostBody.Children.Add(New TextBlock With {.Text = "已授权主机", .FontSize = 14.5, .FontWeight = FontWeights.SemiBold, .Foreground = Res("ColorBrush1")})
+        HostBody.Children.Add(New TextBlock With {.Text = "插件在运行时经你同意访问过的站点；撤销后该插件再次访问会重新询问。", .FontSize = 11.5, .Foreground = Res("ColorBrushGray2"), .Margin = New Thickness(0, 4, 0, 0), .TextWrapping = TextWrapping.Wrap})
+
+        Dim HostRows As New StackPanel With {.Margin = New Thickness(0, 8, 0, 0)}
+        Dim Approved = ModPlugin.ApprovedHostsSnapshot()
+        If Approved.Count = 0 Then
+            HostRows.Children.Add(New TextBlock With {.Text = "当前没有任何插件获得动态主机授权。", .FontSize = 12, .Foreground = Res("ColorBrushGray2")})
+        Else
+            For Each Pair In Approved
+                Dim Row As New Grid With {.Margin = New Thickness(0, 4, 0, 0)}
+                Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = New GridLength(1, GridUnitType.Star)})
+                Row.ColumnDefinitions.Add(New ColumnDefinition With {.Width = GridLength.Auto})
+                Dim Text As New TextBlock With {.FontSize = 12.5, .TextWrapping = TextWrapping.Wrap, .VerticalAlignment = VerticalAlignment.Center}
+                Text.Inlines.Add(New Run With {.Text = Pair.Key.DisplayName, .Foreground = Res("ColorBrush1")})
+                Text.Inlines.Add(New Run With {.Text = "　" & String.Join("、", Pair.Value), .Foreground = Res("ColorBrushGray2")})
+                Grid.SetColumn(Text, 0)
+                Row.Children.Add(Text)
+                Dim PluginId = Pair.Key.Id
+                Dim Revoke As MyButton = MkButtonSmall("撤销", Sub()
+                                                               Try
+                                                                   ModPlugin.RevokeHosts(PluginId)
+                                                                   Hint("已撤销该插件的全部动态主机授权", HintType.Green)
+                                                                   RefreshCurrentSection()
+                                                               Catch ex As Exception
+                                                                   Logger.Error(ex, "撤销授权失败", LogBehavior.Toast)
+                                                               End Try
+                                                           End Sub)
+                Grid.SetColumn(Revoke, 1)
+                Row.Children.Add(Revoke)
+                HostRows.Children.Add(Row)
+            Next
+        End If
+        HostBody.Children.Add(HostRows)
+        HostCard.Children.Add(HostBody)
+        PanContent.Children.Add(HostCard)
 
         ExtendList = New StackPanel
         PanContent.Children.Add(ExtendList)

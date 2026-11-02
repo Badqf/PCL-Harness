@@ -1,4 +1,4 @@
-# PCL Harness 插件开发指南（API v6）
+﻿# PCL Harness 插件开发指南（API v6）
 
 > 适用版本：PCL Harness 3.2.x（插件 API v5，上游 2.14.0.0 合并后）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
@@ -502,20 +502,65 @@ End Class
 - 它**没有密钥、不是哈希摘要、也不加密**，唯一作用是「检测权限集合是否变化」，不能证明包是谁发布的。
 - 旧格式（`{"id":"ui,events"}` 或 `{"id":{"signature":"ui,events"}}`）仍可读取，保存时会自动升级为 `schema: 2`。
 
-**`plugin.json` 的 `signature` 字段现在只读不验**
+**真实验签（v3.7.4 已实现）**
 
-- 启动器把该字段读进 `PluginInfo.Signature`，界面显示为「发布者声明（未验证）」。
-- **当前没有任何公钥比对**：任何人写任意字符串都会被原样显示，请勿把它当身份证明，也不要基于它做安全判断。
-- 面向未来，`signature` 会升级为真正的签名（见下），届时未带公钥/验签失败的包仍按「未验证」处理。
+- 算法：`ECDsa` P-256 + SHA-256（.NET Framework 4.8 自带）。
+- 签名载荷：`id + "\n" + version + "\n" + sha256(DLL) 的小写十六进制`。注意是 **DLL 的哈希**，不是整包：清单里没写 `sha256` 时启动器会按 `dll` 字段实测补算，所以你改 DLL 而不改清单也会立刻校验失败。
+- 公钥存放：`Plugins\publishers.json`，格式 `{"发布者名":"Base64(SPKI DER)"}`（一个文件可放多个发布者）。
+- 清单字段：`"signature": "<Base64 签名>"`。
+- 显示四态：`签名有效` / `签名无效（文件可能被改动过）` / `签名来自未知发布者`（公钥表为空或没有匹配）/ `未签名（来源需自行确认）`。验签**不**替代权限确认，权限变化照旧重新询问。
 
-**计划中的真实验签（第三梯队）**
+生成签名（PowerShell + .NET，不依赖 SDK）：
 
-1. 算法：`ECDsa` P-256 + SHA-256（.NET Framework 4.8 自带，无额外依赖）。
-2. 签名对象：`sha256(整个 .pclplugin 文件字节)`。
-3. 清单字段：`publisher`（Base64 公钥/SPKI）+ `signature`（Base64 签名）。
-4. 校验：`ECDsa.VerifyData` 通过才显示「已验证发布者」，并把公钥指纹（如 `A1B2 C3D4 …`）写入 `trust.json`；同一发布者的后续更新可跳过「来源未知」提示，但权限确认照旧。
-5. 工具链：SDK 提供 `tools\sign-plugin.ps1`（私钥 + 包路径 → 签名串）；市场索引展示公钥指纹。
+```powershell
+$dll = 'Plugins\hello\Hello.Plugin.dll'
+$sha = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
+$payload = "hello`n1.1.0`n$sha"
+$key = [System.Security.Cryptography.ECDsa]::Create()
+$key.ImportFromPem((Get-Content 'private.pem' -Raw))   # 或 ImportParameters / CngKey
+$sig = $key.SignData([Text.Encoding]::UTF8.GetBytes($payload), 'SHA256')
+[Convert]::ToBase64String($sig)
+```
 
+导出公钥给用户/市场：
+
+```powershell
+$spki = $key.ExportSubjectPublicKeyInfo()
+[Convert]::ToBase64String($spki)   # 放进 publishers.json 的值
+```
+
+### 6.7.1 更新通道、排队更新与回滚（v3.7.4）
+
+**更新地址**
+
+清单可选 `"update": "https://…/plugin.json"`：启动器只把它读到 `PluginInfo.UpdateUrl` 并在卡片上标注「已声明更新地址」，不会自己去抓；插件用 `Host.Plugins.UpdateUrl(id)` 取来比对版本，再用 `Host.HttpDownload` 下载、`Host.Plugins.ImportPackage` 安装。
+
+**排队更新（`.pending`）**
+
+覆盖安装一个**正在运行**的插件时，宿主不会强行替换目录（DLL 被 `Assembly.LoadFrom` 占着），而是把它暂存到 `Plugins\.pending\<id>` 并返回 `PluginImportResult.NeedRestart = True`：
+
+```vb
+Dim r = Host.Plugins.ImportPackage(pkgPath, Overwrite:=True)
+If r.Ok AndAlso r.NeedRestart Then
+    Host.Message("更新已就绪，重启启动器后生效", "插件更新")
+End If
+```
+
+重启时 `Refresh` 先应用 `.pending` 再扫描：换入成功写日志「待生效插件已替换：…」，旧目录进 `.backup\<id>-<时间戳>`。同一时间只保留一份 `.pending`，后装覆盖前装。
+
+**回滚**
+
+- `Host.Plugins.CanRollback(id)` → 是否存在上一版备份。
+- `Host.Plugins.Rollback(id)` → 已加载时同样排队（复制备份到 `.pending\<id>`，重启生效）；未加载时立刻「当前目录进 `.trash`、备份回原位」。插件不能回滚自己。
+- 界面入口：插件卡片「回滚到上一版」，确认框会说明「回滚会排队到下次启动」。
+
+**目录回收**
+
+启动时清理 `.trash` / `.backup` / `.tmp` 中修改时间超过 **30 天** 的目录；单份备份策略是「每次进备份只留最近一份」。所以回滚窗口是「最近一次升级之前」，更早的版本会被自动丢弃。
+
+**热重载**
+
+「重新加载插件」只重读清单与程序集元数据，**改了代码仍必须重启启动器**（程序集已加载，无法卸载重载）。
 ### 6.8 实例右键菜单（v6.2）
 
 实现 `IPclPluginInstanceMenu` 后，插件可以往「版本选择」页里每个实例卡片的右键菜单里加自己的操作（菜单顺序：插件项 → 分隔线 → 「实例设置」）：
@@ -630,9 +675,14 @@ If Not Result.Success Then Host.LogWarn($"安装失败：{Result.Code} {Result.M
 
 Host.Plugins.SetEnabled("v6demo", False)
 Host.Plugins.Uninstall("v6demo")
+
+' 3.7.4 新增
+Dim MktUrl = Host.Plugins.UpdateUrl("pcl-harness-market")   ' 清单里声明的 update 地址，没写就是空串
+If Host.Plugins.CanRollback("pcl-harness-market") Then Host.Plugins.Rollback("pcl-harness-market")
+Dim Hosts = Host.Plugins.ApprovedHosts("pcl-harness-market") ' 该插件已获准的动态主机
 ```
 
-- `PluginSummary`：`Id`、`Name`、`Version`、`Author`、`Description`、`Enabled`、`Loaded`、`MinApiVersion`、`Permissions`（`List(Of String)`）、`DisplayName`。
+- `PluginSummary`：`Id`、`Name`、`Version`、`Author`、`Description`、`Enabled`、`Loaded`、`MinApiVersion`、`Permissions`（`List(Of String)`）、`DisplayName`，以及 3.7.4 新增的 `UpdateUrl`、`SignatureStatus`（`PluginSignatureStatus` 枚举）、`HasBackup`。
 - `ImportPackage` 走的是启动器自己的导入管线（zip/单 DLL、`sha256` 校验、覆盖安装保留 `data\`、原子落盘），返回 `PluginImportResult`，`Code` 是 `ERR_*`。
 - `SetEnabled` / `Uninstall` 内部会 `Refresh(True)`，**不要缓存 `PluginSummary`**，每次用完就丢。
 - 插件不能卸载自己（会抛 `InvalidOperationException`）。
@@ -668,5 +718,5 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 **别做这些**（本体不提供，也不打算提供）
 
 - 给插件用的「商场页」控件：市场插件自己用 `IPclPluginUi` 画页面。
-- 版本回滚、灰度、静默自动更新其他插件：由市场插件自己决定策略，宿主只提供 `ImportPackage`。
-- 索引抓取助手、签名验证服务：`net.dynamic` 只解决「能不能连」，内容校验由插件自己做（`sha256` 已经由导入管线强制校验）。
+- 灰度与静默自动更新：宿主只提供 `ImportPackage`（排队到重启）与 `Rollback`，谁该更新、什么时候更新由市场插件自己决定。
+- 索引抓取助手：`net.dynamic` 只解决「能不能连」，索引结构校验由插件自己做；包本身的 `sha256` 由导入管线强制校验，发布者签名由宿主验（见 6.7）。

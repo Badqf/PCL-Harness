@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,16 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 453 Then 'PCL Harness 3.7.4
+                BugCount += 1
+                FeatureCount += 6
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件更新不再要求关掉启动器——正在运行的插件会先放进 Plugins\.pending，下次启动时自动换入；导入结果会提示「重启启动器后生效」。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件签名校验——publishers.json 里登记发布者公钥后，卡片会显示「签名有效 / 签名无效 / 未知发布者」，未登记的仍标「未签名」。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件回滚——升级会保留上一版，卡片新增「回滚到上一版」，当前版本移入 .trash，回滚后重启生效。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件清单支持 update 字段，卡片会标注「已声明更新地址」，插件可用 Host.Plugins.UpdateUrl 读取。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件设置页新增「已授权主机」卡片，可以逐个撤销 net.dynamic 放行的主机。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化：启动时自动清理 .trash / .backup / .tmp 里超过 30 天的旧目录；插件卡片的「重新加载」会提示改了代码需重启才生效。"))
+            End If
         If LastVersion < 452 Then 'PCL Harness 3.7.3
             FeatureCount += 2
             FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件 API v6.4 —— 插件可以用 Host.Plugins 查看、安装、启停、卸载其他插件（需要 plugins 权限）。"))

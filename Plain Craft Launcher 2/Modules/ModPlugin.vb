@@ -1,4 +1,4 @@
-Imports System.IO
+﻿Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -24,6 +24,10 @@ Public Module ModPlugin
     Private ReadOnly Property PathFuseFile As String = Path.Combine(PathPluginRoot, "fuse.json")
 
     Private ReadOnly Property PathTrustFile As String = Path.Combine(PathPluginRoot, "trust.json")
+    Private ReadOnly Property PathPendingRoot As String = Path.Combine(PathPluginRoot, ".pending")
+    Private ReadOnly Property PathBackupRoot As String = Path.Combine(PathPluginRoot, ".backup")
+    Private ReadOnly Property PathTrashRoot As String = Path.Combine(PathPluginRoot, ".trash")
+    Private ReadOnly Property PathPublishersFile As String = Path.Combine(PathPluginRoot, "publishers.json")
 
     ''' <summary>
     ''' 已确认过权限的插件：id → 权限指纹（权限变了要重新确认）。
@@ -291,6 +295,10 @@ Public Module ModPlugin
         Public License As String = ""
         ''' <summary>清单里声明的签名（可选；没有就视为未签名）。</summary>
         Public Signature As String = ""
+        ''' <summary>更新检查地址（可选）：一个返回 {version,url,sha256,size} 的 JSON。</summary>
+        Public UpdateUrl As String = ""
+        ''' <summary>签名校验结果（未签名 / 有效 / 无效 / 未知发布者）。</summary>
+        Public SignatureStatus As PluginSignatureStatus = PluginSignatureStatus.Unsigned
         ''' <summary>最近的事件/错误记录（最多 40 条，插件页可见）。</summary>
         Public ReadOnly Events As New List(Of String)
         ''' <summary>记录一条事件日志。</summary>
@@ -441,6 +449,9 @@ Public Module ModPlugin
             Next
             LoadFuseState()
             LoadTrustState()
+            LoadTrustedPublishers()
+            ApplyPendingUpdates()
+            CleanUpOldDirectories(30)
             For Each Folder In Directory.GetDirectories(PathPluginRoot)
                 '跳过导入用的临时目录与备份目录（以 . 开头）
                 If IO.Path.GetFileName(Folder).StartsWith("."c) Then Continue For
@@ -751,6 +762,238 @@ Public Module ModPlugin
         End Try
     End Sub
 
+    ''' <summary>插件签名状态（v6.5）。</summary>
+    Public Enum PluginSignatureStatus
+        Unsigned = 0
+        Signed = 1
+        Invalid = 2
+        UnknownPublisher = 3
+    End Enum
+
+    Private PendingApplied As Boolean
+    Private ReadOnly TrustedPublishers As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>把 .pending 里等待生效的插件换入正式目录（启动时调用一次，此时还没有插件被加载）。</summary>
+    Private Sub ApplyPendingUpdates()
+        If PendingApplied Then Return
+        PendingApplied = True
+        If Not IO.Directory.Exists(PathPendingRoot) Then Return
+        '有插件已加载时不动目录，避免把正在使用的文件挪走
+        If Plugins.Any(Function(P) P.Loaded) Then Return
+        For Each PendingDir In IO.Directory.GetDirectories(PathPendingRoot)
+            Dim Info = ReadManifest(PendingDir)
+            If Info Is Nothing OrElse String.IsNullOrWhiteSpace(Info.Id) Then
+                Logger.Warn($"待生效插件 {IO.Path.GetFileName(PendingDir)} 的清单无效，已跳过（不会动插件目录）")
+                Continue For
+            End If
+            Dim Target = IO.Path.Combine(PathPluginRoot, Info.Id)
+            Dim Existing = IO.Directory.Exists(Target)
+            If Existing Then
+                Dim Backup = IO.Path.Combine(PathBackupRoot, Info.Id & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
+                IO.Directory.CreateDirectory(PathBackupRoot)
+                Try
+                    IO.Directory.Move(Target, Backup)
+                Catch ex As Exception
+                    Logger.Warn($"待生效插件 {Info.Id} 无法替换旧目录：{ex.GetBaseException().Message}")
+                    Continue For
+                End Try
+            End If
+            Try
+                IO.Directory.Move(PendingDir, Target)
+                Logger.Info($"待生效插件已替换：{Info.DisplayName}（{Info.Id}）v{Info.Version}")
+            Catch ex As Exception
+                Logger.Warn($"待生效插件 {Info.Id} 写入失败：{ex.GetBaseException().Message}")
+            End Try
+        Next
+        Try
+            If Not IO.Directory.EnumerateFileSystemEntries(PathPendingRoot).Any() Then IO.Directory.Delete(PathPendingRoot)
+        Catch
+        End Try
+    End Sub
+
+    ''' <summary>插件正在运行时无法直接覆盖（程序集占着 DLL），先放到 .pending，下次启动换入。</summary>
+    Private Function StagePendingUpdate(TempRoot As String, Info As PluginInfo, Existing As PluginInfo) As PluginImportResult
+        Try
+            IO.Directory.CreateDirectory(PathPendingRoot)
+            Dim StageDir = IO.Path.Combine(PathPendingRoot, Info.Id)
+            If IO.Directory.Exists(StageDir) Then IO.Directory.Delete(StageDir, True)
+            IO.Directory.Move(TempRoot, StageDir)
+            Logger.Info($"插件 {Info.DisplayName}（{Info.Id}）v{Info.Version} 已放入待生效队列，重启后替换 v{Existing.Version}")
+            RaisePluginInstalled(Info)
+            Return New PluginImportResult With {
+                .Success = True,
+                .NeedRestart = True,
+                .PluginId = Info.Id,
+                .PluginName = Info.DisplayName,
+                .Version = Info.Version,
+                .Folder = StageDir,
+                .Upgraded = True,
+                .Message = "NEED_RESTART"
+            }
+        Catch ex As Exception
+            Return ImportFail("ERR_WRITE_FAILED", "写入待生效目录失败：" & ex.GetBaseException().Message)
+        End Try
+    End Function
+
+    ''' <summary>清理 .trash / .backup 中超过保留天数的目录，以及空的 .tmp。</summary>
+    Public Function CleanUpOldDirectories(Optional Days As Integer = 30) As Integer
+        Dim Removed = 0
+        Dim Deadline = Date.Now.AddDays(-Days)
+        For Each Root In {PathTrashRoot, PathBackupRoot}
+            If Not IO.Directory.Exists(Root) Then Continue For
+            For Each PendingDir In IO.Directory.GetDirectories(Root)
+                Try
+                    If IO.Directory.GetLastWriteTime(PendingDir) < Deadline Then
+                        IO.Directory.Delete(PendingDir, True)
+                        Removed += 1
+                    End If
+                Catch
+                End Try
+            Next
+        Next
+        Dim TempRoot = IO.Path.Combine(PathPluginRoot, ".tmp")
+        Try
+            If IO.Directory.Exists(TempRoot) Then
+                For Each PendingDir In IO.Directory.GetDirectories(TempRoot)
+                    Try
+                        If IO.Directory.GetLastWriteTime(PendingDir) < Deadline Then
+                            IO.Directory.Delete(PendingDir, True)
+                            Removed += 1
+                        End If
+                    Catch
+                    End Try
+                Next
+                If Not IO.Directory.EnumerateFileSystemEntries(TempRoot).Any() Then IO.Directory.Delete(TempRoot)
+            End If
+        Catch
+        End Try
+        If Removed > 0 Then Logger.Info($"已清理 {Removed} 个插件临时目录（.trash / .backup / .tmp，保留 {Days} 天）")
+        Return Removed
+    End Function
+
+    ''' <summary>某个插件的回滚点（.backup 下的目录，按时间从新到旧）。</summary>
+    Private Function BackupFoldersFor(Id As String) As List(Of String)
+        Dim Result As New List(Of String)
+        If String.IsNullOrWhiteSpace(Id) OrElse Not IO.Directory.Exists(PathBackupRoot) Then Return Result
+        Try
+            For Each PendingDir In IO.Directory.GetDirectories(PathBackupRoot)
+                Dim Name = IO.Path.GetFileName(PendingDir)
+                If Name.StartsWith(Id & "-", StringComparison.OrdinalIgnoreCase) Then Result.Add(PendingDir)
+            Next
+            Result.Sort(Function(A, B) String.CompareOrdinal(B, A))
+        Catch
+        End Try
+        Return Result
+    End Function
+
+    ''' <summary>是否有可回滚的上一版。</summary>
+    Public Function HasBackup(Id As String) As Boolean
+        Return BackupFoldersFor(Id).Count > 0
+    End Function
+
+    ''' <summary>回滚到上一个版本：当前目录进 .trash，最近的备份移回原位。需要重启生效。</summary>
+    Public Function RollbackPlugin(Id As String) As Boolean
+        Dim Info = FindPluginById(Id)
+        If Info Is Nothing Then Return False
+        Dim Backups = BackupFoldersFor(Info.Id)
+        If Backups.Count = 0 Then Return False
+        Try
+            Dim BackupDir = Backups(0)
+            If Info.Loaded Then
+                ' 程序集已加载、DLL 被占用，无法移动目录：排队到下次启动换入
+                IO.Directory.CreateDirectory(PathPendingRoot)
+                Dim StageDir = IO.Path.Combine(PathPendingRoot, Info.Id)
+                If IO.Directory.Exists(StageDir) Then IO.Directory.Delete(StageDir, True)
+                CopyFolder(BackupDir, StageDir)
+                Logger.Info($"插件 {Info.DisplayName}（{Info.Id}）已安排回滚到 {IO.Path.GetFileName(BackupDir)}，重启启动器后生效")
+                Return True
+            End If
+            SetEnabled(Info, False)
+            Dim Trash = IO.Path.Combine(PathTrashRoot, Info.Id & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
+            IO.Directory.CreateDirectory(PathTrashRoot)
+            IO.Directory.Move(Info.Folder, Trash)
+            IO.Directory.Move(BackupDir, Info.Folder)
+            Refresh(False)
+            Logger.Info($"插件 {Info.DisplayName}（{Info.Id}）已回滚到 {IO.Path.GetFileName(BackupDir)}，重启后生效")
+            Return True
+        Catch ex As Exception
+            Logger.Warn($"插件 {Info.Id} 回滚失败：{ex.GetBaseException().Message}")
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>递归复制目录（回滚排队用）。</summary>
+    Private Sub CopyFolder(SourceDir As String, TargetDir As String)
+        IO.Directory.CreateDirectory(TargetDir)
+        For Each F In IO.Directory.GetFiles(SourceDir)
+            IO.File.Copy(F, IO.Path.Combine(TargetDir, IO.Path.GetFileName(F)), True)
+        Next
+        For Each D In IO.Directory.GetDirectories(SourceDir)
+            CopyFolder(D, IO.Path.Combine(TargetDir, IO.Path.GetFileName(D)))
+        Next
+    End Sub
+    ''' <summary>读取本地发布者公钥表（Plugins\publishers.json：{"发布者名":"base64(SPKI DER)"}）。</summary>
+    Private Sub LoadTrustedPublishers()
+        TrustedPublishers.Clear()
+        Try
+            If Not IO.File.Exists(PathPublishersFile) Then Return
+            Dim Json = JObject.Parse(IO.File.ReadAllText(PathPublishersFile, Encoding.UTF8))
+            For Each Prop In Json.Properties()
+                Dim Value = If(Prop.Value, "").ToString().Trim()
+                If Value <> "" Then TrustedPublishers(Prop.Name.Trim()) = Value
+            Next
+        Catch ex As Exception
+            Logger.Warn("读取插件发布者公钥失败：" & ex.GetBaseException().Message)
+        End Try
+    End Sub
+
+    ''' <summary>校验签名：signature = base64(ECDSA-P256-SHA256(id\nversion\ndllSha256))，公钥来自 publishers.json。</summary>
+    ''' <summary>把 SPKI DER 的 P-256 公钥转成 ECDsa（.NET Framework 没有 ImportSubjectPublicKeyInfo）。</summary>
+    Private Function ImportP256PublicKey(Der As Byte()) As Security.Cryptography.ECDsa
+        'SPKI 末尾固定是 03 42 00 04 || X(32) || Y(32)，取末 64 字节再套 BCRYPT ECC public blob
+        If Der Is Nothing OrElse Der.Length < 68 Then Return Nothing
+        Dim Blob(71) As Byte
+        Blob(0) = &H45 : Blob(1) = &H43 : Blob(2) = &H53 : Blob(3) = &H31 'ECS1 = ECDSA_PUBLIC_P256
+        Blob(4) = 32
+        Array.Copy(Der, Der.Length - 64, Blob, 8, 64)
+        Dim Key = Security.Cryptography.CngKey.Import(Blob, Security.Cryptography.CngKeyBlobFormat.EccPublicBlob)
+        Return New Security.Cryptography.ECDsaCng(Key)
+    End Function
+
+    Public Function VerifySignature(Info As PluginInfo) As PluginSignatureStatus
+        If Info Is Nothing OrElse String.IsNullOrWhiteSpace(Info.Signature) Then Return PluginSignatureStatus.Unsigned
+        If TrustedPublishers.Count = 0 Then LoadTrustedPublishers()
+        If TrustedPublishers.Count = 0 Then Return PluginSignatureStatus.UnknownPublisher
+        Dim Payload = $"{Info.Id}{vbLf}{Info.Version}{vbLf}{If(Info.DllSha256, "").ToLowerInvariant()}"
+        Dim Sig As Byte()
+        Try
+            Sig = Convert.FromBase64String(Info.Signature.Trim())
+        Catch
+            Return PluginSignatureStatus.Invalid
+        End Try
+        For Each Pair In TrustedPublishers
+            Try
+                Using Ecdsa = ImportP256PublicKey(Convert.FromBase64String(Pair.Value))
+
+                    If Ecdsa.VerifyData(Encoding.UTF8.GetBytes(Payload), Sig, Security.Cryptography.HashAlgorithmName.SHA256) Then
+                        Return PluginSignatureStatus.Signed
+                    End If
+                End Using
+            Catch
+            End Try
+        Next
+        Return PluginSignatureStatus.Invalid
+    End Function
+
+    ''' <summary>已授权主机快照（插件 id → 主机列表），供插件设置页展示与撤销。</summary>
+    Public Function ApprovedHostsSnapshot() As List(Of KeyValuePair(Of PluginInfo, List(Of String)))
+        Dim Result As New List(Of KeyValuePair(Of PluginInfo, List(Of String)))
+        For Each Info In Plugins.ToList()
+            Dim Hosts = ListApprovedHosts(Info.Id)
+            If Hosts.Count > 0 Then Result.Add(New KeyValuePair(Of PluginInfo, List(Of String))(Info, Hosts))
+        Next
+        Return Result
+    End Function
     ''' <summary>
     ''' 卸载全部插件（忽略单个插件的异常）。
     ''' </summary>
@@ -931,6 +1174,15 @@ Public Module ModPlugin
                 Dim ShaObject = TryCast(ShaToken, JObject)
                 Info.DllSha256 = If(ShaObject IsNot Nothing, If(ShaObject.Value(Of String)("dll"), ""), ShaToken.ToString()).Trim()
             End If
+            If String.IsNullOrWhiteSpace(Info.DllSha256) AndAlso Not String.IsNullOrWhiteSpace(Info.DllName) Then
+                Dim DllFull = IO.Path.Combine(Folder, Info.DllName)
+                If IO.File.Exists(DllFull) Then
+                    Try
+                        Info.DllSha256 = Sha256OfFile(DllFull)
+                    Catch
+                    End Try
+                End If
+            End If
             Dim MinApiToken = Json("minApiVersion")
             If MinApiToken IsNot Nothing Then
                 Dim MinApiValue As Integer
@@ -939,6 +1191,8 @@ Public Module ModPlugin
             Info.Homepage = If(Json.Value(Of String)("homepage"), "").Trim()
             Info.License = If(Json.Value(Of String)("license"), "").Trim()
             Info.Signature = If(Json.Value(Of String)("signature"), "").Trim()
+            Info.UpdateUrl = If(Json.Value(Of String)("update"), "").Trim()
+            Info.SignatureStatus = VerifySignature(Info)
             Dim Deps = Json.Value(Of JArray)("dependencies")
             If Deps IsNot Nothing Then
                 For Each D In Deps
@@ -2256,9 +2510,14 @@ Public Module ModPlugin
         Public Version As String = ""
         Public Folder As String = ""
         Public Upgraded As Boolean
+        ''' <summary>是否需要重启启动器才生效（插件正在运行时覆盖安装）。</summary>
+        Public NeedRestart As Boolean
         Public ReadOnly Property Display As String
             Get
-                If Success Then
+                If Success AndAlso NeedRestart Then
+                    Dim Ver2 As String = If(String.IsNullOrWhiteSpace(Version), "", " v" & Version)
+                    Return $"已就绪：{PluginName}（{PluginId}）{Ver2}，重启启动器后生效"
+                ElseIf Success Then
                     Dim Action As String = If(Upgraded, "已更新", "已导入")
                     Dim Ver As String = If(String.IsNullOrWhiteSpace(Version), "", " v" & Version)
                     Return $"{Action}：{PluginName}（{PluginId}）{Ver}"
@@ -2521,9 +2780,17 @@ Public Module ModPlugin
             End If
             Return ImportFail("ERR_WRITE_FAILED", "写入插件目录失败：" & ex.GetBaseException().Message)
         End Try
+        '保留这一份作为回滚点，只剪掉更旧的备份
         If Backup IsNot Nothing Then
             Try
-                IO.Directory.Delete(Backup, True)
+                Dim Backups = BackupFoldersFor(Info.Id)
+                For Index = 1 To Backups.Count - 1
+                    Try
+                        IO.Directory.Delete(Backups(Index), True)
+                    Catch
+                        '忽略
+                    End Try
+                Next
             Catch
                 '忽略
             End Try
@@ -2603,6 +2870,9 @@ Public Module ModPlugin
         Public Property Enabled As Boolean
         Public Property Loaded As Boolean
         Public Property MinApiVersion As Integer
+        Public Property UpdateUrl As String = ""
+        Public Property SignatureStatus As PluginSignatureStatus = PluginSignatureStatus.Unsigned
+        Public Property HasBackup As Boolean
         Public ReadOnly Property Permissions As New List(Of String)
 
         Public ReadOnly Property DisplayName As String
@@ -2641,7 +2911,10 @@ Public Module ModPlugin
                 .Description = Info.Description,
                 .Enabled = Info.Enabled,
                 .Loaded = Info.Loaded,
-                .MinApiVersion = Info.MinApiVersion
+                .MinApiVersion = Info.MinApiVersion,
+                .UpdateUrl = Info.UpdateUrl,
+                .SignatureStatus = Info.SignatureStatus,
+                .HasBackup = HasBackup(Info.Id)
             }
             For Each Permission In Info.Permissions
                 Result.Permissions.Add(Permission)
@@ -2684,6 +2957,34 @@ Public Module ModPlugin
         End Function
 
         ''' <summary>卸载插件（移入 Plugins\.trash），成功返回 True。</summary>
+        ''' <summary>插件声明的更新地址（清单 update 字段），没声明返回空字符串。</summary>
+        Public Function UpdateUrl(Id As String) As String
+            EnsureAllowed()
+            Dim Info = FindPluginById(Id)
+            Return If(Info Is Nothing, "", Info.UpdateUrl)
+        End Function
+
+        ''' <summary>是否有可回滚的上一版备份。</summary>
+        Public Function CanRollback(Id As String) As Boolean
+            EnsureAllowed()
+            Return HasBackup(Id)
+        End Function
+
+        ''' <summary>回滚到上一版（重启启动器后生效），成功返回 True。</summary>
+        Public Function Rollback(Id As String) As Boolean
+            EnsureAllowed()
+            If Owner IsNot Nothing AndAlso String.Equals(Id, Owner.Id, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException("插件不能回滚自己")
+            End If
+            Return RollbackPlugin(Id)
+        End Function
+
+        ''' <summary>列出本机已授权给该插件的主机（net.dynamic）。</summary>
+        Public Function ApprovedHosts(Id As String) As List(Of String)
+            EnsureAllowed()
+            Return ListApprovedHosts(Id)
+        End Function
+
         Public Function Uninstall(Id As String) As Boolean
             EnsureAllowed()
             Dim Info = FindPluginById(Id)
