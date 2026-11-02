@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -32,6 +32,12 @@ Public Module ModPlugin
     Private ReadOnly TrustedIds As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
 
     ''' <summary>
+    ''' net.dynamic 权限下用户逐次批准过的主机：插件 id → 主机集合。
+    ''' 和权限指纹一起存在 trust.json 的 hosts 字段里；权限变了不会清空已批准的主机（那是单独授权）。
+    ''' </summary>
+    Private ReadOnly TrustedHosts As New Dictionary(Of String, HashSet(Of String))(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>
     ''' 生成权限指纹，用于判断「插件被授予了新的权限」。
     ''' 实现是把权限名小写、排序后用逗号连接（例如 events,files,ui）；它只能检测变化，不能证明发布者身份。
     ''' </summary>
@@ -61,6 +67,41 @@ Public Module ModPlugin
         SaveTrustState()
     End Sub
 
+    ''' <summary>某个主机是否已被用户单独批准给这个插件（net.dynamic）。</summary>
+    Public Function IsHostApproved(Info As PluginInfo, Host As String) As Boolean
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) OrElse String.IsNullOrEmpty(Host) Then Return False
+        Dim Approved As HashSet(Of String) = Nothing
+        If Not TrustedHosts.TryGetValue(Info.Id, Approved) OrElse Approved Is Nothing Then Return False
+        Return Approved.Contains(Host)
+    End Function
+
+    ''' <summary>为插件的 net.dynamic 权限批准一个主机（写进 trust.json）。</summary>
+    Public Sub ApproveHost(Info As PluginInfo, Host As String)
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) OrElse String.IsNullOrEmpty(Host) Then Return
+        If Not TrustedHosts.ContainsKey(Info.Id) Then
+            TrustedHosts(Info.Id) = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        End If
+        TrustedHosts(Info.Id).Add(Host)
+        SaveTrustState()
+        Info.AddEvent($"已授权访问主机：{Host}")
+    End Sub
+
+    ''' <summary>撤销某个插件通过 net.dynamic 拿到的全部主机。</summary>
+    Public Sub RevokeHosts(Id As String)
+        If String.IsNullOrEmpty(Id) Then Return
+        If TrustedHosts.Remove(Id) Then SaveTrustState()
+    End Sub
+
+    ''' <summary>列出某个插件已批准的主机（插件设置页展示用）。</summary>
+    Public Function ListApprovedHosts(Id As String) As List(Of String)
+        Dim Result As New List(Of String)
+        Dim Approved As HashSet(Of String) = Nothing
+        If Not String.IsNullOrEmpty(Id) AndAlso TrustedHosts.TryGetValue(Id, Approved) AndAlso Approved IsNot Nothing Then
+            Result.AddRange(Approved.OrderBy(Function(S) S, StringComparer.OrdinalIgnoreCase))
+        End If
+        Return Result
+    End Function
+
     Private Sub LoadTrustState()
         TrustedIds.Clear()
         Try
@@ -75,6 +116,18 @@ Public Module ModPlugin
                     If Obj IsNot Nothing Then Hash = Obj.Value(Of String)("permissionsHash")
                     If Hash Is Nothing AndAlso Obj IsNot Nothing Then Hash = Obj.Value(Of String)("signature")
                     TrustedIds(P.Name) = If(Hash, "")
+                    ' net.dynamic 逐主机授权：{"id":{"permissionsHash":"…","hosts":["a.com"]}}
+                    If Obj IsNot Nothing Then
+                        Dim HostsNode = TryCast(Obj("hosts"), JArray)
+                        If HostsNode IsNot Nothing Then
+                            Dim Approved As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+                            For Each H In HostsNode
+                                Dim One As String = If(H, "").ToString().Trim()
+                                If One <> "" Then Approved.Add(One)
+                            Next
+                            If Approved.Count > 0 Then TrustedHosts(P.Name) = Approved
+                        End If
+                    End If
                 Next
                 Return
             End If
@@ -99,6 +152,25 @@ Public Module ModPlugin
             For Each Pair In TrustedIds
                 Dim Item As New JObject
                 Item("permissionsHash") = Pair.Value
+                Dim Approved As HashSet(Of String) = Nothing
+                If TrustedHosts.TryGetValue(Pair.Key, Approved) AndAlso Approved IsNot Nothing AndAlso Approved.Count > 0 Then
+                    Dim HostsArray As New JArray
+                    For Each One In Approved.OrderBy(Function(S) S, StringComparer.OrdinalIgnoreCase)
+                        HostsArray.Add(One)
+                    Next
+                    Item("hosts") = HostsArray
+                End If
+                PluginsNode(Pair.Key) = Item
+            Next
+            ' 只有主机授权、没有权限记录的插件也要写进文件
+            For Each Pair In TrustedHosts
+                If PluginsNode(Pair.Key) IsNot Nothing Then Continue For
+                Dim Item As New JObject
+                Dim HostsArray As New JArray
+                For Each One In Pair.Value.OrderBy(Function(S) S, StringComparer.OrdinalIgnoreCase)
+                    HostsArray.Add(One)
+                Next
+                Item("hosts") = HostsArray
                 PluginsNode(Pair.Key) = Item
             Next
             Dim Json As New JObject
@@ -119,6 +191,8 @@ Public Module ModPlugin
             Case "net" : Return "访问清单里授权的主机（发网络请求）"
             Case "args" : Return "修改游戏启动参数（JVM 参数与游戏参数）"
             Case "process" : Return "启动外部进程"
+            Case "plugins" : Return "查看、安装、启用、禁用或卸载其他插件（插件市场类插件需要）"
+            Case "net.dynamic" : Return "在运行时申请访问新的主机（每次申请都会弹窗询问，可随时在「插件设置」里撤销）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
     End Function
@@ -747,6 +821,49 @@ Public Module ModPlugin
         StartProcess("explorer", """" & PathPluginRoot & """")
     End Sub
 
+    ''' <summary>按 id 查找插件（忽略大小写），找不到返回 Nothing。</summary>
+    Public Function FindPluginById(Id As String) As PluginInfo
+        If String.IsNullOrWhiteSpace(Id) Then Return Nothing
+        Dim Key = Id.Trim()
+        SyncLock Plugins
+            Return Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, Key, StringComparison.OrdinalIgnoreCase))
+        End SyncLock
+    End Function
+
+    ''' <summary>
+    ''' 卸载插件：先停用并卸载，再把整个目录移入 Plugins\.trash 下（数据目录跟着走，需要时可手工恢复）。
+    ''' </summary>
+    Public Function UninstallPlugin(Id As String) As Boolean
+        Dim Info = FindPluginById(Id)
+        If Info Is Nothing Then Return False
+        Dim DisplayName As String = Info.DisplayName
+        Dim Version As String = Info.Version
+        Try
+            SetEnabled(Info, False)
+        Catch ex As Exception
+            Logger.Error(ex, "卸载插件前停用失败：" & DisplayName, LogBehavior.None)
+        End Try
+        Try
+            PluginServices.UnregisterByOwner(Info.Id)
+            RemoveUi(Info)
+            Dim TrashRoot As String = Path.Combine(PathPluginRoot, ".trash")
+            Directory.CreateDirectory(TrashRoot)
+            Dim Target As String = Path.Combine(TrashRoot, $"{Info.Id}-{Date.Now:yyyyMMddHHmmss}")
+            If Directory.Exists(Info.Folder) Then Directory.Move(Info.Folder, Target)
+            EnabledState.Remove(Info.Id)
+            TrustedHosts.Remove(Info.Id)
+            WriteEnabled()
+            SaveTrustState()
+            Refresh(True)
+            Logger.Info($"插件已卸载：{DisplayName}（{Id}）→ {Target}")
+            RaisePluginUninstalled(Id, Version)
+            Return True
+        Catch ex As Exception
+            Logger.Error(ex, "卸载插件失败：" & DisplayName, LogBehavior.None)
+            Return False
+        End Try
+    End Function
+
     ' ---- 清单与状态文件 ----
 
     Private Function ReadManifest(Folder As String) As PluginInfo
@@ -1232,6 +1349,19 @@ Public Module ModPlugin
         Return Cancel
     End Function
 
+    ' ================= 插件安装 / 卸载事件（v6.4） =================
+
+    ''' <summary>插件已安装或升级完成（在导入管线写盘、刷新之后触发）。</summary>
+    Public Sub RaisePluginInstalled(Info As PluginInfo)
+        If Info Is Nothing Then Return
+        EmitPluginEvent(PluginEvents.PluginInstalled, If(Info.Id, ""), If(Info.Version, ""))
+    End Sub
+
+    ''' <summary>插件已被卸载（Host.Plugins.Uninstall 成功后触发）。</summary>
+    Public Sub RaisePluginUninstalled(Id As String, Version As String)
+        EmitPluginEvent(PluginEvents.PluginUninstalled, If(Id, ""), If(Version, ""))
+    End Sub
+
     ' ================= 热重载（v4） =================
 
     Private _Watcher As FileSystemWatcher = Nothing
@@ -1479,6 +1609,30 @@ Public Module ModPlugin
         End Try
         If Host = "" Then Throw New ArgumentException("无效的网址：" & Url)
         If Info.Detail.Hosts.Any(Function(P) MatchHostPattern(Host, P)) Then Return
+        ' net.dynamic：清单里没列出的主机，可以在运行时逐个向用户申请
+        If Info.HasPermission("net.dynamic") Then
+            If IsHostApproved(Info, Host) Then Return
+            Dim Allow As Boolean = False
+            Try
+                ModBase.RunInUiWait(Sub()
+                                        Dim Choice As Integer = ModMain.MyMsgBox(
+                                            $"插件「{Info.DisplayName}」想访问网络主机：{vbCrLf}{Host}{vbCrLf}{vbCrLf}" &
+                                            $"它声明的固定主机：{String.Join("、", Info.Detail.Hosts)}{vbCrLf}" &
+                                            "批准后这个主机对该插件长期有效，可以在「插件设置」里撤销。",
+                                            "插件申请访问网络", "允许", "拒绝")
+                                        Allow = (Choice = 1)
+                                    End Sub)
+            Catch ex As Exception
+                Logger.Error(ex, "插件动态网络授权失败", LogBehavior.None)
+            End Try
+            If Allow Then
+                ApproveHost(Info, Host)
+                Logger.Info($"[插件 {Info.DisplayName}] 已授权访问主机 {Host}")
+                Return
+            End If
+            Info.AddEvent($"用户拒绝访问主机：{Host}")
+            Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 申请访问 {Host} 被拒绝")
+        End If
         Info.AddEvent($"拦截未授权的网络请求：{Host}")
         Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 net 权限只允许 {String.Join("、", Info.Detail.Hosts)}，已拦截 {Host}")
     End Sub
@@ -1501,11 +1655,14 @@ Public Module ModPlugin
         Public Const DownloadStarted As String = "下载开始"
         Public Const DownloadFinished As String = "下载完成"
         Public Const Closing As String = "关闭前"
+        Public Const PluginInstalled As String = "插件安装"
+        Public Const PluginUninstalled As String = "插件卸载"
 
         ''' <summary>全部事件名。</summary>
         Public Shared Function All() As String()
             Return {LauncherReady, PageChanged, GameLaunching, GameLaunched, GameExited, InstanceChanged, ThemeChanged,
-                    LinkRoomCreated, LinkRoomJoined, LinkRoomClosed, DownloadStarted, DownloadFinished, Closing}
+                    LinkRoomCreated, LinkRoomJoined, LinkRoomClosed, DownloadStarted, DownloadFinished, Closing,
+                    PluginInstalled, PluginUninstalled}
         End Function
 
         ''' <summary>事件的参数签名（开发模式控制台显示用）。</summary>
@@ -1531,6 +1688,8 @@ Public Module ModPlugin
                     Return "(target As String)"
                 Case DownloadFinished.ToLowerInvariant()
                     Return "(target As String, success As Boolean)"
+                Case PluginInstalled.ToLowerInvariant(), PluginUninstalled.ToLowerInvariant()
+                    Return "(pluginId As String, version As String)"
                 Case Else
                     Return "(...)"
             End Select
@@ -2376,6 +2535,7 @@ Public Module ModPlugin
             SetEnabled(Installed, True)
         End If
         Logger.Info($"插件导入成功：{Info.DisplayName}（{Info.Id}）v{Info.Version} ← {Origin}")
+        If Installed IsNot Nothing Then RaisePluginInstalled(Installed)
         Return New PluginImportResult With {
             .Success = True,
             .PluginId = Info.Id,
@@ -2430,6 +2590,110 @@ Public Module ModPlugin
     End Sub
 
 #End Region
+
+    ' ================= Host.Plugins（v6.4） =================
+
+    ''' <summary>暴露给其他插件的插件摘要（只读快照，避免把内部对象暴露出去）。</summary>
+    Public Class PluginSummary
+        Public Property Id As String = ""
+        Public Property Name As String = ""
+        Public Property Version As String = ""
+        Public Property Author As String = ""
+        Public Property Description As String = ""
+        Public Property Enabled As Boolean
+        Public Property Loaded As Boolean
+        Public Property MinApiVersion As Integer
+        Public ReadOnly Property Permissions As New List(Of String)
+
+        Public ReadOnly Property DisplayName As String
+            Get
+                Return If(String.IsNullOrWhiteSpace(Name), Id, Name)
+            End Get
+        End Property
+    End Class
+
+    ''' <summary>
+    ''' 宿主提供给插件的「管理其他插件」接口，需要 plugins 权限。
+    ''' </summary>
+    Public Class PluginHostPlugins
+        Friend ReadOnly Owner As PluginInfo
+
+        Friend Sub New(Owner As PluginInfo)
+            Me.Owner = Owner
+        End Sub
+
+        Private Sub EnsureAllowed()
+            If Owner Is Nothing Then Return
+            If Owner.Permissions.Count = 0 Then Return '没声明权限的老插件按无限制处理，和 HasPermission 保持一致
+            If Not Owner.HasPermission("plugins") Then
+                Owner.AddEvent("调用了未授权的插件管理接口")
+                Throw New UnauthorizedAccessException($"插件 {Owner.DisplayName} 没有声明 plugins 权限，不能管理其他插件")
+            End If
+        End Sub
+
+        Private Function ToSummary(Info As PluginInfo) As PluginSummary
+            If Info Is Nothing Then Return Nothing
+            Dim Result As New PluginSummary With {
+                .Id = Info.Id,
+                .Name = Info.Name,
+                .Version = Info.Version,
+                .Author = Info.Author,
+                .Description = Info.Description,
+                .Enabled = Info.Enabled,
+                .Loaded = Info.Loaded,
+                .MinApiVersion = Info.MinApiVersion
+            }
+            For Each Permission In Info.Permissions
+                Result.Permissions.Add(Permission)
+            Next
+            Return Result
+        End Function
+
+        ''' <summary>列出当前已发现的所有插件。</summary>
+        Public Function List() As List(Of PluginSummary)
+            EnsureAllowed()
+            Dim Result As New List(Of PluginSummary)
+            SyncLock Plugins
+                For Each Info In Plugins.ToList()
+                    Dim One = ToSummary(Info)
+                    If One IsNot Nothing Then Result.Add(One)
+                Next
+            End SyncLock
+            Return Result
+        End Function
+
+        ''' <summary>按 id 查找插件，找不到返回 Nothing。</summary>
+        Public Function Find(Id As String) As PluginSummary
+            EnsureAllowed()
+            Return ToSummary(FindPluginById(Id))
+        End Function
+
+        ''' <summary>导入一个插件包（.pclplugin / .zip / .dll），走与界面一致的安全管线。</summary>
+        Public Function ImportPackage(Path As String, Optional Overwrite As Boolean = True) As PluginImportResult
+            EnsureAllowed()
+            Return ImportPluginFile(Path, Overwrite)
+        End Function
+
+        ''' <summary>启用或停用插件，成功返回 True。</summary>
+        Public Function SetEnabled(Id As String, Value As Boolean) As Boolean
+            EnsureAllowed()
+            Dim Info = FindPluginById(Id)
+            If Info Is Nothing Then Return False
+            ModPlugin.SetEnabled(Info, Value)
+            Return True
+        End Function
+
+        ''' <summary>卸载插件（移入 Plugins\.trash），成功返回 True。</summary>
+        Public Function Uninstall(Id As String) As Boolean
+            EnsureAllowed()
+            Dim Info = FindPluginById(Id)
+            If Info Is Nothing Then Return False
+            If Owner IsNot Nothing AndAlso String.Equals(Info.Id, Owner.Id, StringComparison.OrdinalIgnoreCase) Then
+                Throw New InvalidOperationException("插件不能卸载自己")
+            End If
+            Return UninstallPlugin(Id)
+        End Function
+    End Class
 
 End Module
 
@@ -2652,10 +2916,14 @@ Public Class PluginHost
     ''' <summary>API v6：后台任务（会出现在「任务管理」里，可显示进度、可取消）。</summary>
     Public ReadOnly Tasks As PluginTaskManager
 
+    ''' <summary>API v6.4：管理其他插件（列出/导入/启停/卸载），需要 plugins 权限。</summary>
+    Public ReadOnly Plugins As ModPlugin.PluginHostPlugins
+
     Friend Sub New(Info As ModPlugin.PluginInfo)
         Me.Info = Info
         Me.Services = New PluginServiceAccessor(If(Info.Id, Info.DisplayName))
         Me.Tasks = New PluginTaskManager(If(Info.Id, Info.DisplayName))
+        Me.Plugins = New ModPlugin.PluginHostPlugins(Info)
         Me.Events.OwnerInfo = Info
     End Sub
 

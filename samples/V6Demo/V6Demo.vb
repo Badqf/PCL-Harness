@@ -1,4 +1,4 @@
-﻿Imports System
+Imports System
 Imports System.Threading
 
 Namespace V6Demo
@@ -38,6 +38,22 @@ Namespace V6Demo
                                                 DevLog("后台任务完成")
                                             End Sub)
             DevLog("V6 演示插件加载完成")
+            ' v6.4：Host.Plugins 自检（需要 plugins 权限，见 plugin.json）
+            Try
+                Dim AllPlugins = Host.Plugins.List()
+                DevLog($"Host.Plugins 看到 {AllPlugins.Count} 个插件")
+                Host.LogInfo($"Host.Plugins 看到 {AllPlugins.Count} 个插件")
+                For Each One In AllPlugins
+                    DevLog($"  · {One.DisplayName} v{One.Version}，启用={One.Enabled}，已加载={One.Loaded}")
+                    Host.LogInfo($"  · {One.DisplayName} v{One.Version}，启用={One.Enabled}，已加载={One.Loaded}")
+                Next
+            Catch ex As Exception
+                DevLog("Host.Plugins 自检失败（检查 plugin.json 里的 plugins 权限）：" & ex.Message)
+                Host.LogWarn("Host.Plugins 自检失败：" & ex.Message)
+            End Try
+            Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
+                                      DevLog($"收到插件安装事件：{PluginId} v{Version}")
+                                  End Sub)
         End Sub
 
         Public Overrides Sub OnUnload()

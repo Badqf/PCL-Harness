@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+        If LastVersion < 452 Then 'PCL Harness 3.7.3
+            FeatureCount += 2
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：插件 API v6.4 —— 插件可以用 Host.Plugins 查看、安装、启停、卸载其他插件（需要 plugins 权限）。"))
+            FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：网络权限支持 net.dynamic —— 访问清单外的主机时当场询问，允许后长期有效，可随时撤销。"))
+        End If
         If LastVersion < 451 Then 'PCL Harness 3.7.2
             FeatureCount += 2
             FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：开发版 SDK 支持 -SingleFile（把清单写进 DLL，可直接单文件分发导入）与 -Pack（编译后自动打 .pclplugin）。"))

@@ -602,3 +602,71 @@ End Class
 - 删除公开成员前先标 `Obsolete`，至少保留一个大版本。
 - 回归样本：`F:\PCL2-Release\PCLHarness\Plugins\hello`（v5「你好插件」）与 `samples\V6Demo`、`samples\InstanceMenu`。
 - v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。
+
+### 6.11 插件管理接口与动态网络（v6.4）
+
+插件市场不内置进本体，而是做成一个普通插件；本体为它（也为将来的同类插件）补了两项能力。
+
+**权限**
+
+| 权限 | 说明 |
+| --- | --- |
+| `plugins` | 查看、安装、启用、禁用、卸载其他插件 |
+| `net.dynamic` | 访问清单 `net.hosts` 之外的主机时，运行时弹窗申请；允许后长期有效，可撤销 |
+
+两者都要写进 `plugin.json` 的 `minApiVersion: 6` 插件的 `permissions` 数组。
+
+**Host.Plugins**
+
+```vb
+Dim All As List(Of PCL.PluginSummary) = Host.Plugins.List()
+For Each One In All
+    Host.LogInfo($"{One.DisplayName} v{One.Version} 启用={One.Enabled} 已加载={One.Loaded}")
+Next
+
+Dim Target = Host.Plugins.Find("pcl-harness-market")
+Dim Result = Host.Plugins.ImportPackage("D:\downloads\foo.pclplugin", Overwrite:=True)
+If Not Result.Success Then Host.LogWarn($"安装失败：{Result.Code} {Result.Message}")
+
+Host.Plugins.SetEnabled("v6demo", False)
+Host.Plugins.Uninstall("v6demo")
+```
+
+- `PluginSummary`：`Id`、`Name`、`Version`、`Author`、`Description`、`Enabled`、`Loaded`、`MinApiVersion`、`Permissions`（`List(Of String)`）、`DisplayName`。
+- `ImportPackage` 走的是启动器自己的导入管线（zip/单 DLL、`sha256` 校验、覆盖安装保留 `data\`、原子落盘），返回 `PluginImportResult`，`Code` 是 `ERR_*`。
+- `SetEnabled` / `Uninstall` 内部会 `Refresh(True)`，**不要缓存 `PluginSummary`**，每次用完就丢。
+- 插件不能卸载自己（会抛 `InvalidOperationException`）。
+- `List` / `Find` 带锁，任何线程都能调；`ImportPackage` / `SetEnabled` / `Uninstall` 会读写磁盘，必须放到后台线程（例如 `Host.Tasks.Run`），不要在 UI 线程直接调。
+
+**net.dynamic**
+
+访问一个不在 `net.hosts` 里的主机时，宿主会弹一次窗：
+
+```
+插件「XXX」想访问网络主机：api.example.com
+它声明的固定主机：raw.githubusercontent.com、ghfast.top
+批准后这个主机对该插件长期有效，可以在「插件设置」里撤销。
+```
+
+- 允许 → 写入 `Plugins\trust.json` 的 `hosts` 数组，之后同主机不再询问。
+- 拒绝 → 抛 `UnauthorizedAccessException`，事件记录里能看到「用户拒绝访问主机」。
+- 授权记录与权限指纹分开存：插件升级后权限没变，已批准的主机继续有效。
+
+**新事件**
+
+| 事件 | 参数 |
+| --- | --- |
+| `插件安装` | `(pluginId As String, version As String)` |
+| `插件卸载` | `(pluginId As String, version As String)` |
+
+```vb
+Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
+                              DevLog($"装好了：{PluginId} v{Version}")
+                          End Sub)
+```
+
+**别做这些**（本体不提供，也不打算提供）
+
+- 给插件用的「商场页」控件：市场插件自己用 `IPclPluginUi` 画页面。
+- 版本回滚、灰度、静默自动更新其他插件：由市场插件自己决定策略，宿主只提供 `ImportPackage`。
+- 索引抓取助手、签名验证服务：`net.dynamic` 只解决「能不能连」，内容校验由插件自己做（`sha256` 已经由导入管线强制校验）。
