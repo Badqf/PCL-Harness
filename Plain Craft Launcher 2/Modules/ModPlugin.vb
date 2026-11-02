@@ -2752,6 +2752,10 @@ Public Module ModPlugin
         If Existing IsNot Nothing AndAlso Not Overwrite Then
             Return ImportFail("ERR_EXISTS", $"已存在插件「{Existing.DisplayName}」v{Existing.Version}")
         End If
+        ' 运行中的插件：DLL 被 Assembly.LoadFrom 占用，直接换目录会失败；先放进 .pending，下次启动换入。
+        If Existing IsNot Nothing AndAlso Existing.Loaded Then
+            Return StagePendingUpdate(TempRoot, Info, Existing)
+        End If
         Dim WasEnabled As Boolean = Existing IsNot Nothing AndAlso Existing.Enabled
         Dim OldFingerprint As String = If(Existing IsNot Nothing, PermissionFingerprint(Existing), "")
 
