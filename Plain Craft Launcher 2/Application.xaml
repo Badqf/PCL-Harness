@@ -60,6 +60,9 @@
             <SolidColorBrush x:Key="ColorBrushRedBack">#804A2B2B</SolidColorBrush>
             <SolidColorBrush x:Key="ColorBrushRedLight">#ff4c4c</SolidColorBrush>
             <SolidColorBrush x:Key="ColorBrushRedDark">#ce2111</SolidColorBrush>
+            <SolidColorBrush x:Key="ColorBrushYellowBack">#80463C14</SolidColorBrush>
+            <SolidColorBrush x:Key="ColorBrushYellowLight">#ffc94c</SolidColorBrush>
+            <SolidColorBrush x:Key="ColorBrushYellowDark">#ce9b11</SolidColorBrush>
             <SolidColorBrush x:Key="ColorBrushHalfWhite" Color="#1AFFFFFF" />
             <SolidColorBrush x:Key="ColorBrushSemiWhite" Color="#bbffffff" />
             <SolidColorBrush x:Key="ColorBrushWhite" Color="#ffffff" />

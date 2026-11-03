@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 456 Then 'PCL Harness 3.7.7
+                FeatureCount += 3
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 中风险权限也改用醒目风险提示框——不再走普通确认框，而是和高风险一样先弹一次，只是配色换成黄色。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 中风险里只有 instance.install 和 account 会写明「可能的后果」，skin / launch / settings.global 三条不再重复说明。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 启动时只有高风险会再弹一次红框，中风险不在每次启动时打扰。"))
+            End If
             If LastVersion < 455 Then 'PCL Harness 3.7.6
                 FeatureCount += 2
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 醒目风险提示只对高风险权限出现——中风险权限不再额外弹一道，直接由权限确认框逐条说明，避免同一个窗口重复两次。"))

@@ -242,13 +242,15 @@ Public Module ModPlugin
     End Function
 
     ''' <summary>
-    ''' 权限会产生什么后果（风险弹窗正文用），只对高风险有意义。
+    ''' 权限会产生什么后果（风险弹窗正文用）。
+    ''' v7.2：中风险也走醒目提示框，但只有真正动到文件/账号的才写后果；
+    '''       纯界面或体验类的（skin / launch / settings.global）不写，避免噪音。
     ''' </summary>
     Public Function PermissionConsequence(Name As String) As String
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            'v7.1：中风险权限（skin / launch / settings.global / account / instance.install）
-            '      不再写后果——它们已经由启用时的权限确认框逐条说明，重复写反而噪音。
             Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
+            Case "instance.install" : Return "可以把文件写进当前实例的 mods、resourcepacks、shaderpacks 或 datapacks 目录，放进来的内容会随游戏加载。"
+            Case "account" : Return "可以读到当前登录账号的名称与 UUID（拿不到登录令牌），并能据此区分你和其他玩家。"
             Case Else : Return ""
         End Select
     End Function
@@ -662,9 +664,9 @@ Public Module ModPlugin
     Private RiskWarnShown As Boolean
 
     ''' <summary>
-    ''' v7.1：启动时对「已启用、声明了**高风险**权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
-    ''' 中风险不再单独弹窗（启用时的权限确认框已经逐条说明，重复弹窗只是噪音）。
-    ''' 取消时把这些插件就地禁用，避免高风险权限在用户没看清的情况下继续生效。
+    ''' v7.2：启动时只对「已启用、声明了高风险权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
+    ''' 中风险不参与启动检查——它只在启用那一刻用黄色窗提醒（见 PagePlugin），避免每次开启动器都被打扰。
+    ''' 取消时把这些插件就地禁用，避免高风险权限继续生效。
     ''' </summary>
     Public Sub WarnRiskyPlugins()
         If RiskWarnShown Then Return
@@ -686,19 +688,19 @@ Public Module ModPlugin
             Next
             Lines.Add("如果你不完全信任这些插件的来源，请点击「取消」，它们会被自动禁用。")
             Dim Choice As Integer = 0
-            ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "插件高风险权限提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True))
+            ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "插件高风险权限提示", "我已了解风险，并愿意继续", "取消", WarnLevel:=2))
             If Choice = 2 Then
                 For Each Info In Risky
                     Try
                         SetEnabled(Info, False)
                     Catch ex As Exception
-                        Logger.Error(ex, "禁用声明了高风险权限的插件失败：" & Info.DisplayName, LogBehavior.None)
+                        Logger.Error(ex, "禁用声明了风险权限的插件失败：" & Info.DisplayName, LogBehavior.None)
                     End Try
                 Next
                 ModMain.Hint("已禁用声明了高风险权限的插件", HintType.Blue, True)
             End If
         Catch ex As Exception
-            Logger.Error(ex, "显示插件高风险权限提示失败", LogBehavior.None)
+            Logger.Error(ex, "显示插件风险提示失败", LogBehavior.None)
         End Try
     End Sub
 

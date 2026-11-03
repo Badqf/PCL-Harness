@@ -14,9 +14,9 @@ Public Class MyMsgText
             LabTitle.Text = Converter.Title
             LabCaption.Text = Converter.Text
             Btn1.Text = Converter.Button1
-            If Converter.IsWarn Then
-                Btn1.ColorType = MyButton.ColorState.Red
-                LabTitle.SetResourceReference(TextBlock.ForegroundProperty, "ColorBrushRedLight")
+            If Converter.WarnLevel >= 1 Then
+                Btn1.ColorType = If(Converter.WarnLevel >= 2, MyButton.ColorState.Red, MyButton.ColorState.Yellow)
+                LabTitle.SetResourceReference(TextBlock.ForegroundProperty, If(Converter.WarnLevel >= 2, "ColorBrushRedLight", "ColorBrushYellowLight"))
             End If
             Btn2.Text = Converter.Button2
             Btn3.Text = Converter.Button3
@@ -33,11 +33,17 @@ Public Class MyMsgText
         Try
 
             'UI 初始化
-            If Btn2.IsVisible AndAlso Not Btn1.ColorType = MyButton.ColorState.Red Then Btn1.ColorType = MyButton.ColorState.Highlight
+            If Btn2.IsVisible AndAlso Btn1.ColorType = MyButton.ColorState.Normal Then Btn1.ColorType = MyButton.ColorState.Highlight
             Btn1.Focus()
             '动画
             Opacity = 0
-            AniStart(AaColor(FrmMain.PanMsg, Grid.BackgroundProperty, If(MyConverter.IsWarn, New MyColor(140, 80, 0, 0), New MyColor(90, 0, 0, 0)) - FrmMain.PanMsg.Background, 200), "PanMsg Background")
+            Dim WarnTint As MyColor = Nothing
+            Select Case MyConverter.WarnLevel
+                Case 2 : WarnTint = New MyColor(140, 80, 0, 0)
+                Case 1 : WarnTint = New MyColor(140, 80, 66, 0)
+                Case Else : WarnTint = New MyColor(90, 0, 0, 0)
+            End Select
+            AniStart(AaColor(FrmMain.PanMsg, Grid.BackgroundProperty, WarnTint - FrmMain.PanMsg.Background, 200), "PanMsg Background")
             AniStart({
                 AaOpacity(Me, 1, 120, 60),
                 AaDouble(Sub(i) TransformPos.Y += i, -TransformPos.Y, 300, 60, New AniEaseOutBack(AniEasePower.Weak)),

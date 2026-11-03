@@ -194,7 +194,22 @@ EndHint:
         ''' 点击第三个按钮将执行该方法，不关闭弹窗。
         ''' </summary>
         Public Button3Action As Action = Nothing
-        Public IsWarn As Boolean = False
+        ''' <summary>
+        ''' 弹窗的警示等级：0 = 普通，1 = 中风险（黄色），2 = 高风险（红色）。
+        ''' 只影响标题/分隔线/首个按钮的配色与弹窗背景蒙版，不改弹窗底色与正文色。
+        ''' </summary>
+        Public WarnLevel As Integer = 0
+        ''' <summary>
+        ''' 是否为警告弹窗（等同于 WarnLevel = 2）。保留旧名字给已有调用方。
+        ''' </summary>
+        Public Property IsWarn As Boolean
+            Get
+                Return WarnLevel >= 2
+            End Get
+            Set(value As Boolean)
+                WarnLevel = If(value, 2, 0)
+            End Set
+        End Property
         Public ForceWait As Boolean = False
         Public WaitFrame As New DispatcherFrame(True)
         ''' <summary>
@@ -226,20 +241,23 @@ EndHint:
     ''' <param name="Button1Action">点击第一个按钮将执行该方法，不关闭弹窗。</param>
     ''' <param name="Button2Action">点击第二个按钮将执行该方法，不关闭弹窗。</param>
     ''' <param name="Button3Action">点击第三个按钮将执行该方法，不关闭弹窗。</param>
-    ''' <param name="IsWarn">是否为警告弹窗，若为 True，弹窗配色和背景会变为红色。</param>
+    ''' <param name="IsWarn">是否为警告弹窗，若为 True，弹窗配色和背景会变为红色（等同于 WarnLevel = 2）。</param>
+    ''' <param name="WarnLevel">警示等级：0 = 普通，1 = 黄色，2 = 红色。优先级高于 IsWarn。</param>
     Public Function MyMsgBox(Caption As String, Optional Title As String = "提示",
                              Optional Button1 As String = "确定", Optional Button2 As String = "", Optional Button3 As String = "",
                              Optional IsWarn As Boolean = False, Optional HighLight As Boolean = True, Optional ForceWait As Boolean = False,
-                             Optional Button1Action As Action = Nothing, Optional Button2Action As Action = Nothing, Optional Button3Action As Action = Nothing) As Integer
+                             Optional Button1Action As Action = Nothing, Optional Button2Action As Action = Nothing, Optional Button3Action As Action = Nothing,
+                             Optional WarnLevel As Integer = 0) As Integer
         '将弹窗列入队列
-        Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Text, .Button1 = Button1, .Button2 = Button2, .Button3 = Button3, .Text = Caption, .IsWarn = IsWarn, .Title = Title, .HighLight = HighLight, .ForceWait = True, .Button1Action = Button1Action, .Button2Action = Button2Action, .Button3Action = Button3Action}
+        Dim Level As Integer = If(WarnLevel > 0, WarnLevel, If(IsWarn, 2, 0))
+        Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Text, .Button1 = Button1, .Button2 = Button2, .Button3 = Button3, .Text = Caption, .WarnLevel = Level, .Title = Title, .HighLight = HighLight, .ForceWait = True, .Button1Action = Button1Action, .Button2Action = Button2Action, .Button3Action = Button3Action}
         If Button2.Length > 0 OrElse ForceWait Then
             '若有多个按钮则开始等待
             If FrmMain Is Nothing OrElse FrmMain.PanMsg Is Nothing AndAlso RunInUi() Then
                 '主窗体尚未加载，用老土的弹窗来替代
                 If Button2.Length > 0 Then
                     Dim RawResult As MsgBoxResult =
-                        MsgBox(Caption, If(Button3.Length > 0, MsgBoxStyle.YesNoCancel, MsgBoxStyle.YesNo) + If(IsWarn, MsgBoxStyle.Critical, MsgBoxStyle.Question), Title)
+                        MsgBox(Caption, If(Button3.Length > 0, MsgBoxStyle.YesNoCancel, MsgBoxStyle.YesNo) + If(Level >= 2, MsgBoxStyle.Critical, If(Level = 1, MsgBoxStyle.Exclamation, MsgBoxStyle.Question)), Title)
                     Select Case RawResult
                         Case MsgBoxResult.Yes
                             Converter.Result = 1
@@ -249,7 +267,7 @@ EndHint:
                             Converter.Result = 3
                     End Select
                 Else
-                    MsgBox(Caption, MsgBoxStyle.OkOnly + If(IsWarn, MsgBoxStyle.Critical, MsgBoxStyle.Question), Title)
+                    MsgBox(Caption, MsgBoxStyle.OkOnly + If(Level >= 2, MsgBoxStyle.Critical, If(Level = 1, MsgBoxStyle.Exclamation, MsgBoxStyle.Question)), Title)
                     Converter.Result = 1
                 End If
                 Logger.Warn($"主窗体加载完成前出现意料外的等待弹窗：{Button1},{Button2},{Button3}")

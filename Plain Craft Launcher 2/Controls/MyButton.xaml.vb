@@ -47,6 +47,7 @@ Public Class MyButton
         Normal = 0
         Highlight = 1
         Red = 2
+        Yellow = 3
     End Enum
     '属性穿透
     Public Shared Shadows ReadOnly PaddingProperty As DependencyProperty = DependencyProperty.Register("Padding", GetType(Thickness), GetType(MyButton), New PropertyMetadata(New PropertyChangedCallback(
@@ -101,6 +102,14 @@ Public Class MyButton
                                 '红色
                                 AniStart({AaColor(PanFore, Border.BorderBrushProperty, "ColorBrushRedDark", AnimationColorOut)}, "MyButton Color " & Uuid)
                             End If
+                        Case ColorState.Yellow
+                            If IsMouseOver Then
+                                '黄色指向
+                                AniStart({AaColor(PanFore, Border.BorderBrushProperty, "ColorBrushYellowLight", AnimationColorIn)}, "MyButton Color " & Uuid)
+                            Else
+                                '黄色
+                                AniStart({AaColor(PanFore, Border.BorderBrushProperty, "ColorBrushYellowDark", AnimationColorOut)}, "MyButton Color " & Uuid)
+                            End If
                     End Select
                 Else
                     '不可用（Gray 4）
@@ -129,6 +138,12 @@ Public Class MyButton
                             Else
                                 PanFore.SetResourceReference(Border.BorderBrushProperty, "ColorBrushRedDark")
                             End If
+                        Case ColorState.Yellow
+                            If IsMouseOver Then
+                                PanFore.SetResourceReference(Border.BorderBrushProperty, "ColorBrushYellowLight")
+                            Else
+                                PanFore.SetResourceReference(Border.BorderBrushProperty, "ColorBrushYellowDark")
+                            End If
                     End Select
                 Else
                     PanFore.BorderBrush = ColorGray4
@@ -142,6 +157,17 @@ Public Class MyButton
 
     '鼠标点击判定（务必放在点击事件之后，以使得 Button_MouseUp 先于 Button_MouseLeave 执行）
     Private IsMouseDown As Boolean = False
+    ''' <summary>悬停时的背景色资源名：红色/黄色按钮有各自的底色，其余用通用悬停色。</summary>
+    Private Function GetBackBrushName() As String
+        Select Case _ColorType
+            Case ColorState.Red
+                Return "ColorBrushRedBack"
+            Case ColorState.Yellow
+                Return "ColorBrushYellowBack"
+            Case Else
+                Return "ColorBrushHover"
+        End Select
+    End Function
     Private Sub Button_MouseUp(sender As Object, e As MouseButtonEventArgs) Handles Me.MouseLeftButtonUp
         If Not IsMouseDown Then Return
         Logger.Info($"按下按钮：{Text}")
@@ -157,7 +183,7 @@ Public Class MyButton
                  }, "MyButton Scale " & Uuid)
     End Sub
     Private Sub Button_MouseEnter() Handles Me.MouseEnter
-        AniStart(AaColor(PanFore, BackgroundProperty, If(_ColorType = ColorState.Red, "ColorBrushRedBack", "ColorBrushHover"), AnimationColorIn), "MyButton Background " & Uuid)
+        AniStart(AaColor(PanFore, BackgroundProperty, GetBackBrushName(), AnimationColorIn), "MyButton Background " & Uuid)
     End Sub
     Private Sub Button_MouseUp() Handles Me.MouseLeftButtonUp
         If Not IsMouseDown Then Return
