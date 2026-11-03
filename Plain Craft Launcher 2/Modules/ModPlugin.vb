@@ -242,15 +242,12 @@ Public Module ModPlugin
     End Function
 
     ''' <summary>
-    ''' 权限会产生什么后果（风险弹窗正文用），只对中高风险有意义。
+    ''' 权限会产生什么后果（风险弹窗正文用），只对高风险有意义。
     ''' </summary>
     Public Function PermissionConsequence(Name As String) As String
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin" : Return "会改写你的离线皮肤设置；换成不合适的图片时游戏内可能显示为黑块或史蒂夫。"
-            Case "instance.install" : Return "会往当前实例的 mods / resourcepacks / shaderpacks / datapacks 写入文件，可能让游戏崩溃或存档异常。"
-            Case "launch" : Return "可能在你不想要的时候启动游戏，占用内存与 CPU，并可能影响正在运行的实例。"
-            Case "account" : Return "会读到你的用户名与 UUID；如果被上传，别人可以据此定位你的账号。"
-            Case "settings.global" : Return "会读到启动器的全局设置（含路径、语言、更新源等偏好），这些信息能推断你的使用习惯。"
+            'v7.1：中风险权限（skin / launch / settings.global / account / instance.install）
+            '      不再写后果——它们已经由启用时的权限确认框逐条说明，重复写反而噪音。
             Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
             Case Else : Return ""
         End Select
@@ -665,21 +662,22 @@ Public Module ModPlugin
     Private RiskWarnShown As Boolean
 
     ''' <summary>
-    ''' v7：启动时对「已启用、声明了中/高风险权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
+    ''' v7.1：启动时对「已启用、声明了**高风险**权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
+    ''' 中风险不再单独弹窗（启用时的权限确认框已经逐条说明，重复弹窗只是噪音）。
     ''' 取消时把这些插件就地禁用，避免高风险权限在用户没看清的情况下继续生效。
     ''' </summary>
     Public Sub WarnRiskyPlugins()
         If RiskWarnShown Then Return
         RiskWarnShown = True
         Try
-            Dim Risky = Plugins.Where(Function(P) P.Enabled AndAlso Not IsPromptSkipped(P) AndAlso HighestPermissionRisk(P) >= 1).ToList()
+            Dim Risky = Plugins.Where(Function(P) P.Enabled AndAlso Not IsPromptSkipped(P) AndAlso HighestPermissionRisk(P) >= 2).ToList()
             If Risky.Count = 0 Then Return
             Dim Lines As New List(Of String)
-            Lines.Add("以下插件已启用，并声明了会改动游戏文件、账号或界面外观的权限：")
+            Lines.Add("以下插件已启用，并声明了高风险权限：")
             Lines.Add("")
             For Each Info In Risky
                 Lines.Add($"【{Info.DisplayName}】 v{Info.Version}")
-                For Each Perm In Info.Permissions.Where(Function(X) PermissionRisk(X) >= 1).OrderBy(Function(X) X)
+                For Each Perm In Info.Permissions.Where(Function(X) PermissionRisk(X) >= 2).OrderBy(Function(X) X)
                     Lines.Add("  · " & Perm & "：" & DescribePermission(Perm))
                     Dim Cons = PermissionConsequence(Perm)
                     If Not String.IsNullOrEmpty(Cons) Then Lines.Add("      可能的后果：" & Cons)
@@ -688,19 +686,19 @@ Public Module ModPlugin
             Next
             Lines.Add("如果你不完全信任这些插件的来源，请点击「取消」，它们会被自动禁用。")
             Dim Choice As Integer = 0
-            ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "插件权限风险提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True))
+            ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "插件高风险权限提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True))
             If Choice = 2 Then
                 For Each Info In Risky
                     Try
                         SetEnabled(Info, False)
                     Catch ex As Exception
-                        Logger.Error(ex, "禁用声明了中高风险权限的插件失败：" & Info.DisplayName, LogBehavior.None)
+                        Logger.Error(ex, "禁用声明了高风险权限的插件失败：" & Info.DisplayName, LogBehavior.None)
                     End Try
                 Next
-                ModMain.Hint("已禁用声明了中高风险权限的插件", HintType.Blue, True)
+                ModMain.Hint("已禁用声明了高风险权限的插件", HintType.Blue, True)
             End If
         Catch ex As Exception
-            Logger.Error(ex, "显示插件权限风险提示失败", LogBehavior.None)
+            Logger.Error(ex, "显示插件高风险权限提示失败", LogBehavior.None)
         End Try
     End Sub
 

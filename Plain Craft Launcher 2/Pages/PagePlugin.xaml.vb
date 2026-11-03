@@ -424,19 +424,20 @@ Public Class PagePlugin
         Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
-                                   '中高风险权限必须先过一道醒目风险提示（每次启用都会提示，不因勾过「不再提醒」而跳过）
-                                   If Value AndAlso ModPlugin.HighestPermissionRisk(Info) >= 1 Then
+                                   'v7.1：只有高风险权限才单独弹一道醒目前置窗；中风险交给下面的权限确认框（避免重复）
+                                   If Value AndAlso ModPlugin.HighestPermissionRisk(Info) >= 2 Then
                                        Dim RiskLines As New List(Of String)
-                                       RiskLines.Add($"插件「{Info.DisplayName}」声明了会改动游戏或账号的中高风险权限：")
+                                       RiskLines.Add($"插件「{Info.DisplayName}」声明了高风险权限：")
                                        RiskLines.Add("")
                                        For Each Perm In Info.Permissions.OrderBy(Function(P) P)
-                                           If ModPlugin.PermissionRisk(Perm) < 1 Then Continue For
+                                           If ModPlugin.PermissionRisk(Perm) < 2 Then Continue For
                                            RiskLines.Add($"· {Perm}：{ModPlugin.DescribePermission(Perm)}")
-                                           RiskLines.Add($"  可能的后果：{ModPlugin.PermissionConsequence(Perm)}")
+                                           Dim Cons = ModPlugin.PermissionConsequence(Perm)
+                                           If Not String.IsNullOrEmpty(Cons) Then RiskLines.Add($"  可能的后果：{Cons}")
                                        Next
                                        RiskLines.Add("")
                                        RiskLines.Add("只有在你信任这个插件的来源时才继续；不放心就点「取消」，它不会被启用。")
-                                       Dim RiskChoice = MyMsgBox(String.Join(vbCrLf, RiskLines), "插件权限风险提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True)
+                                       Dim RiskChoice = MyMsgBox(String.Join(vbCrLf, RiskLines), "插件高风险权限提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True)
                                        If RiskChoice <> 1 Then
                                            Chk.Checked = False
                                            Return
