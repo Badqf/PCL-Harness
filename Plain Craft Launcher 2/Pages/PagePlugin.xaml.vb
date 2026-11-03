@@ -1,4 +1,4 @@
-﻿Imports System.Linq
+Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -424,6 +424,24 @@ Public Class PagePlugin
         Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
+                                   '中高风险权限必须先过一道醒目风险提示（每次启用都会提示，不因勾过「不再提醒」而跳过）
+                                   If Value AndAlso ModPlugin.HighestPermissionRisk(Info) >= 1 Then
+                                       Dim RiskLines As New List(Of String)
+                                       RiskLines.Add($"插件「{Info.DisplayName}」声明了会改动游戏或账号的中高风险权限：")
+                                       RiskLines.Add("")
+                                       For Each Perm In Info.Permissions.OrderBy(Function(P) P)
+                                           If ModPlugin.PermissionRisk(Perm) < 1 Then Continue For
+                                           RiskLines.Add($"· {Perm}：{ModPlugin.DescribePermission(Perm)}")
+                                           RiskLines.Add($"  可能的后果：{ModPlugin.PermissionConsequence(Perm)}")
+                                       Next
+                                       RiskLines.Add("")
+                                       RiskLines.Add("只有在你信任这个插件的来源时才继续；不放心就点「取消」，它不会被启用。")
+                                       Dim RiskChoice = MyMsgBox(String.Join(vbCrLf, RiskLines), "插件权限风险提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True)
+                                       If RiskChoice <> 1 Then
+                                           Chk.Checked = False
+                                           Return
+                                       End If
+                                   End If
                                    If Value AndAlso Not ModPlugin.IsTrusted(Info) Then
                                        Dim Lines As New List(Of String)
                                        Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
@@ -445,12 +463,14 @@ Public Class PagePlugin
                                        End If
                                        Lines.Add("")
                                        Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
-                                       Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
-                                       If Choice <> 1 Then
+                                       Lines.Add("选「不再提醒并启用」后，以后启用它时不再弹这个窗口（权限有变化会重新询问）。")
+                                       Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "不再提醒并启用", "取消")
+                                       If Choice <> 1 AndAlso Choice <> 2 Then
                                            Chk.Checked = False
                                            Return
                                        End If
                                        ModPlugin.TrustPlugin(Info)
+                                       If Choice = 2 Then ModPlugin.SetPromptSkipped(Info, True)
                                    End If
                                    Try
                                        ModPlugin.SetEnabled(Info, Value)

@@ -1,4 +1,4 @@
-﻿Imports System.IO
+Imports System.IO
 Imports System.Reflection
 Imports System.Text
 Imports Newtonsoft.Json.Linq
@@ -40,6 +40,12 @@ Public Module ModPlugin
     ''' 和权限指纹一起存在 trust.json 的 hosts 字段里；权限变了不会清空已批准的主机（那是单独授权）。
     ''' </summary>
     Private ReadOnly TrustedHosts As New Dictionary(Of String, HashSet(Of String))(StringComparer.OrdinalIgnoreCase)
+
+    ''' <summary>
+    ''' 用户勾选过「不再提醒」的插件 id（权限指纹变化后会失效，重新弹窗）。
+    ''' 和权限指纹一起存在 trust.json 的 skipPrompt 字段里。
+    ''' </summary>
+    Private ReadOnly SkipPromptIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
 
     ''' <summary>
     ''' 生成权限指纹，用于判断「插件被授予了新的权限」。
@@ -108,6 +114,9 @@ Public Module ModPlugin
 
     Private Sub LoadTrustState()
         TrustedIds.Clear()
+        SyncLock SkipPromptIds
+            SkipPromptIds.Clear()
+        End SyncLock
         Try
             If Not IO.File.Exists(PathTrustFile) Then Return
             Dim Json = JObject.Parse(IO.File.ReadAllText(PathTrustFile, Encoding.UTF8))
@@ -130,6 +139,12 @@ Public Module ModPlugin
                                 If One <> "" Then Approved.Add(One)
                             Next
                             If Approved.Count > 0 Then TrustedHosts(P.Name) = Approved
+                        End If
+                        ' 「不再提醒」：{"id":{"permissionsHash":"…","skipPrompt":true}}
+                        If Obj.Value(Of Boolean?)("skipPrompt") = True Then
+                            SyncLock SkipPromptIds
+                                SkipPromptIds.Add(P.Name)
+                            End SyncLock
                         End If
                     End If
                 Next
@@ -164,6 +179,9 @@ Public Module ModPlugin
                     Next
                     Item("hosts") = HostsArray
                 End If
+                SyncLock SkipPromptIds
+                    If SkipPromptIds.Contains(Pair.Key) Then Item("skipPrompt") = True
+                End SyncLock
                 PluginsNode(Pair.Key) = Item
             Next
             ' 只有主机授权、没有权限记录的插件也要写进文件
@@ -197,9 +215,79 @@ Public Module ModPlugin
             Case "process" : Return "启动外部进程"
             Case "plugins" : Return "查看、安装、启用、禁用或卸载其他插件（插件市场类插件需要）"
             Case "net.dynamic" : Return "在运行时申请访问新的主机（每次申请都会弹窗询问，可随时在「插件设置」里撤销）"
+            Case "instance.read" : Return "读取当前游戏实例的信息（名称、加载器、版本号、模组数量等，只读）"
+            Case "logs.read" : Return "读取游戏日志与崩溃报告（用于分析启动失败原因，只读）"
+            Case "skin" : Return "修改离线皮肤（会改变你在游戏里看到的外观）"
+            Case "instance.install" : Return "往当前实例安装内容（mods / resourcepacks / shaderpacks / datapacks，会改动游戏文件）"
+            Case "launch" : Return "主动启动游戏（会在你未点「启动游戏」时也把游戏跑起来）"
+            Case "account" : Return "读取当前账号信息（用户名、UUID、登录方式，只读）"
+            Case "settings.global" : Return "读取启动器的全局设置（只读，包含你的路径、语言等偏好）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
     End Function
+
+    ''' <summary>
+    ''' 权限的风险等级：0 = 低（只影响插件自己）、1 = 中（会改动游戏、账号或启动行为）、2 = 高（会改动系统或启动器自身）。
+    ''' 中高风险在启用与启动时都要弹出风险提示。
+    ''' </summary>
+    Public Function PermissionRisk(Name As String) As Integer
+        Select Case If(Name, "").Trim().ToLowerInvariant()
+            Case "skin", "instance.install", "launch", "account", "settings.global"
+                Return 1
+            Case "process"
+                Return 2
+            Case Else
+                Return 0
+        End Select
+    End Function
+
+    ''' <summary>
+    ''' 权限会产生什么后果（风险弹窗正文用），只对中高风险有意义。
+    ''' </summary>
+    Public Function PermissionConsequence(Name As String) As String
+        Select Case If(Name, "").Trim().ToLowerInvariant()
+            Case "skin" : Return "会改写你的离线皮肤设置；换成不合适的图片时游戏内可能显示为黑块或史蒂夫。"
+            Case "instance.install" : Return "会往当前实例的 mods / resourcepacks / shaderpacks / datapacks 写入文件，可能让游戏崩溃或存档异常。"
+            Case "launch" : Return "可能在你不想要的时候启动游戏，占用内存与 CPU，并可能影响正在运行的实例。"
+            Case "account" : Return "会读到你的用户名与 UUID；如果被上传，别人可以据此定位你的账号。"
+            Case "settings.global" : Return "会读到启动器的全局设置（含路径、语言、更新源等偏好），这些信息能推断你的使用习惯。"
+            Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
+            Case Else : Return ""
+        End Select
+    End Function
+
+    ''' <summary>某个插件声明里最高的风险等级（0/1/2）。</summary>
+    Public Function HighestPermissionRisk(Info As PluginInfo) As Integer
+        If Info Is Nothing Then Return 0
+        Dim Top As Integer = 0
+        For Each P In Info.Permissions
+            Dim R = PermissionRisk(P)
+            If R > Top Then Top = R
+        Next
+        Return Top
+    End Function
+
+    ''' <summary>用户是否对该插件勾选过「不再提醒」（权限有变化时视为没有再勾）。</summary>
+    Public Function IsPromptSkipped(Info As PluginInfo) As Boolean
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return False
+        SyncLock SkipPromptIds
+            If Not SkipPromptIds.Contains(Info.Id) Then Return False
+        End SyncLock
+        Return IsTrusted(Info)
+    End Function
+
+    ''' <summary>记录或取消「不再提醒」（只有能通过权限确认时才有意义）。</summary>
+    Public Sub SetPromptSkipped(Info As PluginInfo, Value As Boolean)
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
+        SyncLock SkipPromptIds
+            If Value Then
+                SkipPromptIds.Add(Info.Id)
+            Else
+                SkipPromptIds.Remove(Info.Id)
+            End If
+        End SyncLock
+        SaveTrustState()
+    End Sub
 
     ''' <summary>
     ''' 已启用的插件 ID 集合（内存里的权威状态，见 WriteEnabled）。
@@ -231,9 +319,11 @@ Public Module ModPlugin
     ''' v3 事件钩子；
     ''' v4 生命周期与联机/下载事件、内嵌卡片与状态栏小组件、权限与依赖、热重载与事件日志；
     ''' v5 事件总线、强类型设置、日志分级、Ask；
-    ''' v6 事件总线全覆盖（含优先级/一次性/异步）、插件服务注册与依赖版本约束、后台任务与进度、开发模式控制台。
+    ''' v6 事件总线全覆盖（含优先级/一次性/异步）、插件服务注册与依赖版本约束、后台任务与进度、开发模式控制台；
+    ''' v7 ui / events 权限真正生效、权限必须显式声明（新插件不再默认全开）、实例信息与日志读取、换肤、
+    '''    内容安装、启动游戏、账号信息、全局设置只读，以及中高风险权限的风险确认。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 6
+    Public Const ApiVersionUi As Integer = 7
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -316,9 +406,19 @@ Public Module ModPlugin
         End Sub
         ''' <summary>是否声明了某个权限。</summary>
         Public Function HasPermission(Name As String) As Boolean
-            If Permissions.Count = 0 Then Return True '未声明权限的旧插件不限制，保持兼容
+            If Permissions.Count = 0 Then
+                'v7 起要求显式声明：旧插件（minApiVersion <= 6）继续保持不限制，新插件一律视为没有权限
+                Return MinApiVersion <= 6
+            End If
             Return Permissions.Contains(Name)
         End Function
+
+        ''' <summary>没有该权限时抛统一的未授权异常（Host API 的统一入口）。</summary>
+        Public Sub EnsurePermission(Name As String)
+            If HasPermission(Name) Then Return
+            AddEvent("调用了未授权的接口：" & Name)
+            Throw New UnauthorizedAccessException($"插件 {DisplayName} 没有 {Name} 权限，请在清单里声明后重新启用")
+        End Sub
         Public ReadOnly Property DisplayName As String
             Get
                 Return If(String.IsNullOrWhiteSpace(Name), Id, Name)
@@ -535,6 +635,7 @@ Public Module ModPlugin
             End If
             StartWatcher()
             WriteEnabledExample()
+            WarnRiskyPlugins()
         Catch ex As Exception
             ScanError = ex.Message
             Logger.Error(ex, "扫描插件目录失败", LogBehavior.None)
@@ -558,6 +659,48 @@ Public Module ModPlugin
             RunInUi(Sub() ModMain.Hint(Message, HintType.Red, True))
         Catch ex As Exception
             Logger.Error(ex, "提示插件失败信息时出错", LogBehavior.None)
+        End Try
+    End Sub
+
+    Private RiskWarnShown As Boolean
+
+    ''' <summary>
+    ''' v7：启动时对「已启用、声明了中/高风险权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
+    ''' 取消时把这些插件就地禁用，避免高风险权限在用户没看清的情况下继续生效。
+    ''' </summary>
+    Public Sub WarnRiskyPlugins()
+        If RiskWarnShown Then Return
+        RiskWarnShown = True
+        Try
+            Dim Risky = Plugins.Where(Function(P) P.Enabled AndAlso Not IsPromptSkipped(P) AndAlso HighestPermissionRisk(P) >= 1).ToList()
+            If Risky.Count = 0 Then Return
+            Dim Lines As New List(Of String)
+            Lines.Add("以下插件已启用，并声明了会改动游戏文件、账号或界面外观的权限：")
+            Lines.Add("")
+            For Each Info In Risky
+                Lines.Add($"【{Info.DisplayName}】 v{Info.Version}")
+                For Each Perm In Info.Permissions.Where(Function(X) PermissionRisk(X) >= 1).OrderBy(Function(X) X)
+                    Lines.Add("  · " & Perm & "：" & DescribePermission(Perm))
+                    Dim Cons = PermissionConsequence(Perm)
+                    If Not String.IsNullOrEmpty(Cons) Then Lines.Add("      可能的后果：" & Cons)
+                Next
+                Lines.Add("")
+            Next
+            Lines.Add("如果你不完全信任这些插件的来源，请点击「取消」，它们会被自动禁用。")
+            Dim Choice As Integer = 0
+            ModBase.RunInUiWait(Sub() Choice = ModMain.MyMsgBox(String.Join(vbCrLf, Lines), "插件权限风险提示", "我已了解风险，并愿意继续", "取消", IsWarn:=True))
+            If Choice = 2 Then
+                For Each Info In Risky
+                    Try
+                        SetEnabled(Info, False)
+                    Catch ex As Exception
+                        Logger.Error(ex, "禁用声明了中高风险权限的插件失败：" & Info.DisplayName, LogBehavior.None)
+                    End Try
+                Next
+                ModMain.Hint("已禁用声明了中高风险权限的插件", HintType.Blue, True)
+            End If
+        Catch ex As Exception
+            Logger.Error(ex, "显示插件权限风险提示失败", LogBehavior.None)
         End Try
     End Sub
 
@@ -1270,10 +1413,20 @@ Public Module ModPlugin
         '重复启用同一插件时，先清掉它上一次注册的条目，避免标题栏入口与设置项重复
         RemoveUi(Info)
         '事件钩子：实现了 IPclPluginEvents 就登记，不需要再实现 IPclPluginUi
+        'v7：events 权限真正生效，没声明就完全不登记（旧插件仍按 MinApiVersion <= 6 放行）
         If TypeOf Info.Instance Is IPclPluginEvents Then
-            PluginEventHandlers.Add((CType(Info.Instance, IPclPluginEvents), Info))
+            If Info.HasPermission("events") Then
+                PluginEventHandlers.Add((CType(Info.Instance, IPclPluginEvents), Info))
+            Else
+                Info.AddEvent("没有 events 权限，事件钩子已跳过")
+            End If
         End If
         If Not TypeOf Info.Instance Is IPclPluginUi Then Return
+        'v7：ui 权限真正生效，没声明就不采集任何界面扩展
+        If Not Info.HasPermission("ui") Then
+            Info.AddEvent("没有 ui 权限，界面扩展已跳过")
+            Return
+        End If
         Dim Ui = CType(Info.Instance, IPclPluginUi)
         Try
             Dim Pages = Ui.GetPages()
@@ -2069,6 +2222,12 @@ Public Module ModPlugin
 
         Public Sub [On](EventName As String, Handler As [Delegate], Optional Priority As Integer = 0, Optional OnlyOnce As Boolean = False, Optional Owner As String = "")
             If String.IsNullOrWhiteSpace(EventName) OrElse Handler Is Nothing Then Return
+            'v7：事件总线同样受 events 权限约束，否则「实现 IPclPluginEvents」的闸门可以被绕开
+            If OwnerInfo IsNot Nothing AndAlso Not OwnerInfo.HasPermission("events") Then
+                OwnerInfo.AddEvent($"没有 events 权限，订阅被拒绝：{EventName}")
+                PluginDevLog.Trace("事件总线", $"拒绝订阅 {EventName}：缺少 events 权限")
+                Return
+            End If
             SyncLock _Handlers
                 Dim Items As List(Of Subscription) = Nothing
                 If Not _Handlers.TryGetValue(EventName, Items) Then
@@ -3209,6 +3368,56 @@ Public MustInherit Class PclPluginBase
 End Class
 
 ''' <summary>
+''' 当前游戏实例的信息快照（API v7，需要 instance.read 权限，只读）。
+''' </summary>
+Public Class PluginInstanceSnapshot
+    ''' <summary>是否选中了某个实例；为 False 时其它字段都不可信。</summary>
+    Public Property Available As Boolean
+    ''' <summary>实例名（通常是版本文件夹名）。</summary>
+    Public Property Name As String = ""
+    ''' <summary>版本 id，例如 1.21.5-Fabric 0.16.14。</summary>
+    Public Property VersionId As String = ""
+    ''' <summary>继承的父版本名（没有则为空）。</summary>
+    Public Property InheritName As String = ""
+    ''' <summary>版本目录（以 \ 结尾）。</summary>
+    Public Property PathVersion As String = ""
+    ''' <summary>版本隔离目录（以 \ 结尾）。</summary>
+    Public Property PathIndie As String = ""
+    ''' <summary>该实例是否支持安装 Mod。</summary>
+    Public Property Modable As Boolean
+    ''' <summary>实例的发布日期。</summary>
+    Public Property ReleaseTime As Date = Date.MinValue
+End Class
+
+''' <summary>
+''' 当前账号的信息快照（API v7，需要 account 权限，只读）。
+''' </summary>
+Public Class PluginAccountSnapshot
+    ''' <summary>是否已登录。</summary>
+    Public Property Available As Boolean
+    ''' <summary>玩家名。</summary>
+    Public Property Name As String = ""
+    ''' <summary>UUID（只有微软登录才有，其它登录方式为空）。</summary>
+    Public Property Uuid As String = ""
+    ''' <summary>登录方式：Ms / Legacy / Nide / Auth / None。</summary>
+    Public Property LoginType As String = "None"
+End Class
+
+''' <summary>
+''' 一个游戏日志文件（API v7，需要 logs.read 权限，只读）。
+''' </summary>
+Public Class PluginLogFile
+    ''' <summary>相对实例目录的路径，例如 logs\latest.log。</summary>
+    Public Property Path As String = ""
+    ''' <summary>文件名。</summary>
+    Public Property Name As String = ""
+    ''' <summary>最后写入时间。</summary>
+    Public Property ModifiedAt As Date = Date.MinValue
+    ''' <summary>字节数。</summary>
+    Public Property Size As Long
+End Class
+
+''' <summary>
 ''' 提供给插件的宿主对象。
 ''' </summary>
 Public Class PluginHost
@@ -3301,6 +3510,219 @@ Public Class PluginHost
                             ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = CType(Page, FormMain.PageType)})
                         End Sub)
     End Sub
+
+    ' ================= v7 新增能力（都需要在清单里显式声明对应权限） =================
+
+    ''' <summary>API v7：当前实例的信息快照（需要 instance.read，只读）。没有权限会抛异常。</summary>
+    Public ReadOnly Property InstanceInfo As PluginInstanceSnapshot
+        Get
+            Info.EnsurePermission("instance.read")
+            Dim Snap As New PluginInstanceSnapshot
+            Try
+                Dim Inst = McInstanceSelected
+                If Inst Is Nothing Then Return Snap
+                Snap.Available = True
+                Snap.Name = If(Inst.Name, "")
+                Snap.PathVersion = If(Inst.PathVersion, "")
+                Snap.PathIndie = If(Inst.PathIndie, "")
+                Snap.InheritName = If(Inst.InheritName, "")
+                Snap.Modable = Inst.Modable
+                Snap.ReleaseTime = Inst.ReleaseTime
+                Try
+                    Dim Json = Inst.JsonObject
+                    If Json IsNot Nothing AndAlso Json("id") IsNot Nothing Then Snap.VersionId = Json("id").ToString()
+                Catch ex As Exception
+                    Logger.Warn(ex, "读取实例版本 id 失败")
+                End Try
+            Catch ex As Exception
+                Info.AddEvent("读取实例信息失败：" & ex.Message)
+            End Try
+            Return Snap
+        End Get
+    End Property
+
+    ''' <summary>API v7：当前账号的信息快照（需要 account，只读）。没有权限会抛异常。</summary>
+    Public ReadOnly Property AccountInfo As PluginAccountSnapshot
+        Get
+            Info.EnsurePermission("account")
+            Dim Snap As New PluginAccountSnapshot
+            Try
+                Dim Name As String = If(McLoginName(), "")
+                If String.IsNullOrWhiteSpace(Name) Then Return Snap
+                Snap.Available = True
+                Snap.Name = Name
+                Dim TypeName As String = "None"
+                Try
+                    TypeName = Settings.GetSafe("LoginType").ToString()
+                Catch ex As Exception
+                    Logger.Warn(ex, "读取登录方式失败")
+                End Try
+                Snap.LoginType = TypeName
+                If String.Equals(TypeName, "5", StringComparison.OrdinalIgnoreCase) Then
+                    Try
+                        Snap.Uuid = If(Settings.GetSafe("CacheMsV2Uuid").ToString(), "")
+                    Catch ex As Exception
+                        Logger.Warn(ex, "读取账号 UUID 失败")
+                    End Try
+                End If
+            Catch ex As Exception
+                Info.AddEvent("读取账号信息失败：" & ex.Message)
+            End Try
+            Return Snap
+        End Get
+    End Property
+
+    ''' <summary>
+    ''' API v7：列出当前实例的日志与崩溃报告（需要 logs.read，只读）。
+    ''' 返回 values 相对实例目录，可直接交给 ReadLog。
+    ''' </summary>
+    Public Function ListLogs() As List(Of PluginLogFile)
+        Info.EnsurePermission("logs.read")
+        Dim Result As New List(Of PluginLogFile)
+        Try
+            Dim Inst = McInstanceSelected
+            If Inst Is Nothing OrElse String.IsNullOrEmpty(Inst.PathIndie) Then Return Result
+            For Each Rel In New String() {"logs", "crash-reports"}
+                Dim Dir = IO.Path.Combine(Inst.PathIndie, Rel)
+                If Not IO.Directory.Exists(Dir) Then Continue For
+                For Each File In IO.Directory.GetFiles(Dir)
+                    Dim Ext = IO.Path.GetExtension(File).ToLowerInvariant()
+                    If Ext <> ".log" AndAlso Ext <> ".txt" Then Continue For
+                    Dim Fi As New IO.FileInfo(File)
+                    Result.Add(New PluginLogFile With {
+                        .Path = Rel & "\" & Fi.Name,
+                        .Name = Fi.Name,
+                        .ModifiedAt = Fi.LastWriteTime,
+                        .Size = Fi.Length})
+                Next
+            Next
+            Result.Sort(Function(A, B) B.ModifiedAt.CompareTo(A.ModifiedAt))
+        Catch ex As Exception
+            Info.AddEvent("读取日志列表失败：" & ex.Message)
+        End Try
+        Return Result
+    End Function
+
+    ''' <summary>
+    ''' API v7：读取某个日志的尾部若干行（需要 logs.read，只读）。
+    ''' Path 请使用 ListLogs 返回的相对路径；越界或不存在都会返回空字符串。
+    ''' </summary>
+    Public Function ReadLog(Path As String, Optional MaxLines As Integer = 200) As String
+        Info.EnsurePermission("logs.read")
+        If String.IsNullOrWhiteSpace(Path) Then Return ""
+        If MaxLines <= 0 Then MaxLines = 200
+        If MaxLines > 2000 Then MaxLines = 2000
+        Try
+            Dim Inst = McInstanceSelected
+            If Inst Is Nothing OrElse String.IsNullOrEmpty(Inst.PathIndie) Then Return ""
+            Dim Rel = Path.Replace("/", "\").TrimStart("\"c)
+            If Rel.Contains("..") Then Return ""
+            Dim Root = IO.Path.GetFullPath(Inst.PathIndie)
+            Dim Full = IO.Path.GetFullPath(IO.Path.Combine(Root, Rel))
+            If Not Full.StartsWith(Root, StringComparison.OrdinalIgnoreCase) Then Return ""
+            If Not IO.File.Exists(Full) Then Return ""
+            Dim All As String
+            Using Fs As New IO.FileStream(Full, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.ReadWrite)
+                Using Reader As New IO.StreamReader(Fs, Text.Encoding.UTF8)
+                    All = Reader.ReadToEnd()
+                End Using
+            End Using
+            Dim Lines = All.Replace(vbCrLf, vbLf).Split(CChar(vbLf))
+            If Lines.Length <= MaxLines Then Return String.Join(vbCrLf, Lines)
+            Return String.Join(vbCrLf, Lines.Skip(Lines.Length - MaxLines))
+        Catch ex As Exception
+            Info.AddEvent("读取日志失败：" & ex.Message)
+            Return ""
+        End Try
+    End Function
+
+    ''' <summary>API v7：切换内置皮肤（0=正版 / 1=Steve / 2=Alex，需要 skin）。</summary>
+    Public Function SetBuiltInSkin(Kind As Integer) As Boolean
+        Info.EnsurePermission("skin")
+        Try
+            If Kind < 0 OrElse Kind > 2 Then Return False
+            Settings.Set("LaunchSkinType", Kind)
+            Info.AddEvent("已切换内置皮肤：" & Kind.ToString())
+            Return True
+        Catch ex As Exception
+            Info.AddEvent("切换皮肤失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>API v7：把一张 PNG 设为本地皮肤（需要 skin）。源文件还必须过 files 权限检查。</summary>
+    Public Function SetLocalSkin(PngPath As String, Optional Slim As Boolean = False) As Boolean
+        Info.EnsurePermission("skin")
+        Try
+            If String.IsNullOrWhiteSpace(PngPath) OrElse Not IO.File.Exists(PngPath) Then Return False
+            If Not String.Equals(IO.Path.GetExtension(PngPath), ".png", StringComparison.OrdinalIgnoreCase) Then Return False
+            CheckFileAccess(PngPath, False)
+            Dim Target = Paths.AppDataThenName & "CustomSkin.png"
+            IO.Directory.CreateDirectory(Paths.AppDataThenName)
+            IO.File.Copy(PngPath, Target, True)
+            Settings.Set("LaunchSkinType", 4)
+            Settings.Set("LaunchSkinSlim", Slim)
+            Info.AddEvent("已设置本地皮肤：" & IO.Path.GetFileName(PngPath))
+            Return True
+        Catch ex As Exception
+            Info.AddEvent("设置本地皮肤失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' API v7：把本地文件安装进当前实例（需要 instance.install）。
+    ''' Folder 只接受 mods / resourcepacks / shaderpacks / datapacks。
+    ''' </summary>
+    Public Function InstallContent(LocalFile As String, Optional Folder As String = "mods") As Boolean
+        Info.EnsurePermission("instance.install")
+        Try
+            If String.IsNullOrWhiteSpace(LocalFile) OrElse Not IO.File.Exists(LocalFile) Then Return False
+            CheckFileAccess(LocalFile, False)
+            Dim Name = If(Folder, "mods").Trim().ToLowerInvariant()
+            If Name <> "mods" AndAlso Name <> "resourcepacks" AndAlso Name <> "shaderpacks" AndAlso Name <> "datapacks" Then Return False
+            Dim Inst = McInstanceSelected
+            If Inst Is Nothing OrElse String.IsNullOrEmpty(Inst.PathIndie) Then Return False
+            Dim TargetDir = IO.Path.Combine(Inst.PathIndie, Name)
+            IO.Directory.CreateDirectory(TargetDir)
+            Dim Target = IO.Path.Combine(TargetDir, IO.Path.GetFileName(LocalFile))
+            IO.File.Copy(LocalFile, Target, True)
+            Info.AddEvent($"已安装到 {Name}：{IO.Path.GetFileName(LocalFile)}")
+            Return True
+        Catch ex As Exception
+            Info.AddEvent("安装内容失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>API v7：启动当前实例（需要 launch）。已经在启动或没有选中实例时返回 False。</summary>
+    Public Function LaunchGame() As Boolean
+        Info.EnsurePermission("launch")
+        Try
+            If String.IsNullOrEmpty(InstanceName) Then Return False
+            Dim Ok As Boolean = False
+            ModBase.RunInUiWait(Sub() Ok = McLaunchStart())
+            If Ok Then Info.AddEvent("已请求启动游戏：" & InstanceName) Else Info.AddEvent("启动游戏被拒绝：" & InstanceName)
+            Return Ok
+        Catch ex As Exception
+            Info.AddEvent("启动游戏失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>API v7：读取启动器的全局设置（需要 settings.global，只读；读不到返回空字符串）。</summary>
+    Public Function GetGlobalSetting(Key As String) As String
+        Info.EnsurePermission("settings.global")
+        If String.IsNullOrWhiteSpace(Key) Then Return ""
+        Try
+            Dim Value = Settings.GetSafe(Key.Trim())
+            If Value Is Nothing Then Return ""
+            Return Value.ToString()
+        Catch ex As Exception
+            Info.AddEvent("读取全局设置失败：" & Key.Trim() & "，" & ex.Message)
+            Return ""
+        End Try
+    End Function
 
     ''' <summary>在 UI 线程执行（插件自己的线程里操作界面时用）。</summary>
     Public Sub RunInUi(Action As Action)

@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,16 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 454 Then 'PCL Harness 3.7.5
+                BugCount += 3
+                FeatureCount += 6
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：ui / events 权限现在真的会拦——没声明 ui 的插件不会注册任何页面、入口、设置或卡片，没声明 events 的插件收不到任何启动器事件。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复：新插件（minApiVersion ≥ 7）必须在清单里显式声明权限，不再像旧插件那样默认全开；旧插件保持原有行为。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增：插件 API v7 —— 实例信息（instance.read）、游戏日志与崩溃报告（logs.read）、换肤（skin）、装模组/资源包（instance.install）、启动游戏（launch）、账号信息（account）、全局设置只读（settings.global）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：中高风险权限的醒目风险提示——启用这类插件时逐条列出「会产生的后果」，按钮是「我已了解风险，并愿意继续」和「取消」；启动时也会对已启用的这类插件弹一次提示，取消则自动禁用。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：权限确认框多了「不再提醒并启用」，勾过之后启用该插件不再弹窗；插件权限有变化时会重新询问。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增：Host.ListLogs / Host.ReadLog 可以列出并读取 logs 与 crash-reports 里的文件，方便插件做启动失败分析。"))
+            End If
             If LastVersion < 453 Then 'PCL Harness 3.7.4
                 BugCount += 1
                 FeatureCount += 6

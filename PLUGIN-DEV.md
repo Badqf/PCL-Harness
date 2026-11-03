@@ -1,4 +1,4 @@
-﻿# PCL Harness 插件开发指南（API v6）
+# PCL Harness 插件开发指南（API v6）
 
 > 适用版本：PCL Harness 3.2.x（插件 API v5，上游 2.14.0.0 合并后）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
@@ -720,3 +720,88 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 - 给插件用的「商场页」控件：市场插件自己用 `IPclPluginUi` 画页面。
 - 灰度与静默自动更新：宿主只提供 `ImportPackage`（排队到重启）与 `Rollback`，谁该更新、什么时候更新由市场插件自己决定。
 - 索引抓取助手：`net.dynamic` 只解决「能不能连」，索引结构校验由插件自己做；包本身的 `sha256` 由导入管线强制校验，发布者签名由宿主验（见 6.7）。
+
+### 6.12 权限 v7：显式声明、风险分级与实例/日志接口（v7）
+
+**行为变更（只影响 `minApiVersion: 7` 的新插件）**
+
+- `permissions` 必须显式写。不写等于**没有任何权限**，`ui` / `events` / `files` / `net` / `args` / `plugins` 全部不可用。
+- `minApiVersion` 为 5 或 6 的老插件保持原样：不写 `permissions` 仍然放行（兼容优先），但界面会提示「未声明权限」。
+- `ui` 现在真的拦：没有 `ui` 权限就不会采集你的页面、导航入口、设置项与卡片，事件记录里写「没有 ui 权限，界面扩展已跳过」。
+- `events` 两条路径都拦：既不会调 `OnLoad` 之后的 `IPclPluginEvents` 回调，也不允许 `Host.Events.On/Once` 订阅任何事件（会记「没有 events 权限，订阅被拒绝：…」）。
+
+**权限表**
+
+| 权限 | 风险 | 说明 |
+| --- | --- | --- |
+| `ui` | 低 | 添加页面、标题栏入口、设置项与卡片 |
+| `events` | 低 | 订阅启动器事件（含事件总线） |
+| `files` | 低 | 按 `files.read` / `files.write` 白名单读写文件 |
+| `net` | 低 | 访问 `net.hosts` 里声明的主机 |
+| `args` | 低 | 追加 JVM / 游戏参数 |
+| `models` 等原有权限 | 低 | 见 6.7 |
+| `instance.read` | 低 | 读实例名称、加载器、版本、目录、模组数量 |
+| `logs.read` | 低 | 读游戏日志与崩溃报告 |
+| `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
+| `instance.install` | **中** | 往 mods / resourcepacks / shaderpacks / datapacks 写入 |
+| `launch` | **中** | 主动启动游戏 |
+| `account` | **中** | 读用户名、UUID、登录方式 |
+| `settings.global` | **中** | 读启动器全局设置（只读） |
+| `plugins` | 中 | 管理其他插件（见 6.11） |
+| `net.dynamic` | 中 | 运行时申请 `net.hosts` 之外的主机 |
+
+**中风险以上会弹两次窗**
+
+1. 启用时：先弹「插件权限风险提示」，逐条列出权限与「可能的后果」，按钮是「我已了解风险，并愿意继续」/「取消」；确认后再弹常规权限确认框（第三个按钮「不再提醒并启用」，写 `trust.json` 的 `skipPrompt`）。
+2. 启动时：只要已启用插件带中/高风险权限，会再弹一次同样的风险窗；点「取消」自动禁用该插件。
+3. `skipPrompt` 只对**常规确认框**生效，风险窗每次启动都会出现；权限一变（指纹变化）`skipPrompt` 自动失效。
+
+**新接口**
+
+```vb
+' logs.read
+Dim L = Host.ListLogs()                       ' PluginLogFileList：Files As List(Of PluginLogFile)
+For Each F In L.Files
+    Host.LogInfo($"{F.Kind} {F.Name} {F.Size} {F.Modified}")
+Next
+Dim Text = Host.ReadLog(L.Files(0).Path)      ' 最多读 2 MiB，超出截断并标记
+
+' instance.read
+Dim I = Host.InstanceInfo()                    ' Name/Loader/Version/Path/ModCount/IsModable
+Host.LogInfo($"{I.Name} · {I.Loader} · {I.Version} · {I.ModCount} 个模组")
+
+' skin（中风险）
+Host.SetBuiltInSkin(2)                        ' 1 = Steve，2 = Alex
+Host.SetLocalSkin("D:\pics\me.png")           ' 复制为 CustomSkin.png
+
+' instance.install（中风险，只许四个目录）
+Dim R = Host.InstallContent("mods", "D:\dl\jei.jar")
+If Not R.Success Then Host.LogWarn(R.Message)
+
+' launch（中风险）
+Host.LaunchGame()
+
+' account（中风险，只读）
+Dim A = Host.AccountInfo()                    ' Name/Uuid/Kind
+
+' settings.global（中风险，只读）
+Dim Lang = Host.GetGlobalSetting("UiLanguage")
+```
+
+- 所有新接口都会先 `EnsurePermission`，无权限直接抛 `UnauthorizedAccessException`，同时写一条事件记录。
+- `InstallContent` 的目标目录只接受 `mods`、`resourcepacks`、`shaderpacks`、`datapacks`，其它名字抛 `ArgumentException`；文件仍走 `files.write` 白名单校验。
+- 日志路径固定在 `<实例目录>\logs\latest.log`、`logs\debug.log` 与 `crash-reports\*.txt`，不接受任意路径，避免变成万能读文件接口。
+
+**示例清单**
+
+```json
+{
+  "id": "crash-helper",
+  "name": "崩溃分析助手",
+  "version": "1.0.0",
+  "entry": "CrashHelper.Plugin",
+  "dll": "CrashHelper.Plugin.dll",
+  "minApiVersion": 7,
+  "permissions": ["logs.read", "instance.read", "ui"]
+}
+```
