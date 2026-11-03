@@ -424,7 +424,7 @@ Public Class PagePlugin
         Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
-                                   'v7.2：中风险也弹醒目提示框（黄色），高风险用红色；两者都不写「可能的后果」以外的说明
+                                   'v7.2.1：中风险也弹醒目提示框（黄色），高风险用红色；风险窗已逐条列出权限，确认后不再重复弹权限确认框
                                    Dim RiskLevel As Integer = ModPlugin.HighestPermissionRisk(Info)
                                    If Value AndAlso RiskLevel >= 1 Then
                                        Dim IsHigh As Boolean = RiskLevel >= 2
@@ -444,8 +444,10 @@ Public Class PagePlugin
                                            Chk.Checked = False
                                            Return
                                        End If
+                                       'v7.2.1：风险窗已经把权限逐条列清楚了，这里直接记为已确认，不再弹一次权限确认框
+                                       ModPlugin.TrustPlugin(Info)
                                    End If
-                                   If Value AndAlso Not ModPlugin.IsTrusted(Info) Then
+                                   If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
                                        Dim Lines As New List(Of String)
                                        Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
                                        Lines.Add("")

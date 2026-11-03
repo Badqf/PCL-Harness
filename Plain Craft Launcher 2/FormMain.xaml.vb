@@ -23,6 +23,10 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 457 Then 'PCL Harness 3.7.8
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 风险和权限只确认一次——中/高风险插件在醒目窗里已经逐条列出权限，确认后不再弹「启用插件前确认权限」。"))
+            End If
             If LastVersion < 456 Then 'PCL Harness 3.7.7
                 FeatureCount += 3
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 中风险权限也改用醒目风险提示框——不再走普通确认框，而是和高风险一样先弹一次，只是配色换成黄色。"))
