@@ -106,12 +106,25 @@ Public Module ModPlugin
         Dim OldSig As String = Nothing
         'v7.4（安全审计 V5）：权限真的变了才清掉「不再提醒」，避免和「不再提醒并启用」的点击顺序打架
         If TrustedIds.TryGetValue(Key, OldSig) AndAlso Not String.Equals(OldSig, NewSig, StringComparison.Ordinal) Then
-            SkipPromptIds.Remove(Info.Id)
+            SkipPromptIds.Remove(Key)
         End If
         TrustedIds(Key) = NewSig
         SaveTrustState()
     End Sub
 
+    ''' <summary>清除某个插件的权限确认记录（v7.5，安全审计 3.8 R5），下次启用会重新询问。</summary>
+    Public Sub RevokeTrust(Info As PluginInfo)
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
+        Dim Key = TrustKey(Info)
+        If String.IsNullOrEmpty(Key) Then Return
+        SyncLock TrustedIds
+            TrustedIds.Remove(Key)
+        End SyncLock
+        SyncLock SkipPromptIds
+            SkipPromptIds.Remove(Key)
+        End SyncLock
+        SaveTrustState()
+    End Sub
     ''' <summary>某个主机是否已被用户单独批准给这个插件（net.dynamic）。</summary>
     Public Function IsHostApproved(Info As PluginInfo, Host As String) As Boolean
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) OrElse String.IsNullOrEmpty(Host) Then Return False
@@ -934,7 +947,17 @@ Public Module ModPlugin
                     Return
                 End If
             End If
-            Dim Asm = Assembly.LoadFrom(DllPath)
+            'v7.5（安全审计 3.8 R10）：按字节流加载，两个插件用同名 DLL 时不再共享同一份程序集
+            EnsurePluginResolver()
+            Dim Asm As Reflection.Assembly
+            Try
+                Asm = Reflection.Assembly.Load(IO.File.ReadAllBytes(DllPath))
+            Catch ex As Exception
+                Info.[Error] = "加载失败：" & ex.GetBaseException().Message
+                Info.AddEvent("加载失败：" & ex.GetBaseException().Message)
+                Logger.Warn(ex, "插件加载失败：" & Info.DisplayName)
+                Return
+            End Try
             Dim Type As Type = Nothing
             If Not String.IsNullOrEmpty(Info.EntryType) Then Type = Asm.GetType(Info.EntryType, False, True)
             If Type Is Nothing Then
@@ -1217,6 +1240,38 @@ Public Module ModPlugin
             End Try
         Next
         Return PluginSignatureStatus.Invalid
+    End Function
+
+    ' ================= v7.5（安全审计 3.8 R10）：插件按字节流隔离加载 =================
+
+    Private ReadOnly PluginResolverLock As New Object
+    Private PluginResolverReady As Boolean
+
+    ''' <summary>注册一次依赖解析器：插件自带的其他 DLL 也从字节流加载，避免按路径复用同一份程序集。</summary>
+    Private Sub EnsurePluginResolver()
+        SyncLock PluginResolverLock
+            If PluginResolverReady Then Return
+            AddHandler AppDomain.CurrentDomain.AssemblyResolve, AddressOf ResolvePluginDependency
+            PluginResolverReady = True
+        End SyncLock
+    End Sub
+
+    ''' <summary>插件目录里的同名 DLL 从字节流加载（v7.5 R10：同名程序集不再互相复用）。</summary>
+    Private Function ResolvePluginDependency(sender As Object, Args As ResolveEventArgs) As Reflection.Assembly
+        Try
+            Dim Requested = If(Args Is Nothing, "", If(Args.Name, ""))
+            Dim SimpleName = Requested.Split(","c)(0).Trim()
+            If SimpleName = "" Then Return Nothing
+            For Each Item In Plugins.ToList()
+                If Item Is Nothing OrElse String.IsNullOrWhiteSpace(Item.Folder) Then Continue For
+                Dim Candidate = IO.Path.Combine(Item.Folder, SimpleName & ".dll")
+                If Not IO.File.Exists(Candidate) Then Continue For
+                Return Reflection.Assembly.Load(IO.File.ReadAllBytes(Candidate))
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "解析插件依赖失败：" & If(Args Is Nothing, "", Args.Name))
+        End Try
+        Return Nothing
     End Function
 
     ''' <summary>已授权主机快照（插件 id → 主机列表），供插件设置页展示与撤销。</summary>
@@ -4313,12 +4368,47 @@ Public Class PluginHost
     End Function
 
     ''' <summary>下载到本地文件（需要 net + files 权限），成功返回 True。</summary>
+    ''' <summary>HttpDownload 的结果分类（v7.5，安全审计 3.8 R9）；调用方可以区分未授权、主机被拒、超限和一般失败。</summary>
+    Public Enum PluginDownloadResult
+        Ok = 0
+        ''' <summary>没有 net 权限。</summary>
+        NotPermitted = 1
+        ''' <summary>目标主机不在白名单里（或重定向跳到了白名单外）。</summary>
+        HostDenied = 2
+        ''' <summary>目标路径没有 files 写权限。</summary>
+        PathDenied = 3
+        ''' <summary>超过 512 MB 上限。</summary>
+        TooLarge = 4
+        ''' <summary>其他失败（网络、磁盘等）。</summary>
+        Failed = 5
+    End Enum
+
+    ''' <summary>「超限」的识别前缀（v7.5）；放在异常消息里，调用方无需解析中文文案。</summary>
+    Private Const TooLargeMarker As String = "[TOO_LARGE] "
+
+    ''' <summary>下载到本地文件（需要 net + files 权限），成功返回 True。失败会删除半截文件。</summary>
     Public Function HttpDownload(Url As String, LocalPath As String) As Boolean
+        Return HttpDownloadResult(Url, LocalPath) = PluginDownloadResult.Ok
+    End Function
+
+    ''' <summary>下载并返回结果分类（需要 net + files 权限）；失败会删除半截文件（v7.5，安全审计 3.8 R9）。</summary>
+    ''' <summary>下载并返回结果分类（需要 net + files 权限）；失败会删除半截文件（v7.5，安全审计 3.8 R9）。</summary>
+    Public Function HttpDownloadResult(Url As String, LocalPath As String) As PluginDownloadResult
+        'v7.5（安全审计 3.8 R9）：按「授权 → 主机 → 路径」分段判定，异常类型就能区分原因，不必猜消息
+        If Not Info.HasPermission("net") Then Return PluginDownloadResult.NotPermitted
         Try
-            'v7.4（安全审计 V4）：下载同样要求 net 权限，并逐跳校验重定向
-            If Not Info.HasPermission("net") Then Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 没有 net 权限")
             EnsureHostAllowed(Info, Url)
+        Catch ex As UnauthorizedAccessException
+            Info.AddEvent("HttpDownload 被拒绝（主机）：" & ex.Message)
+            Return PluginDownloadResult.HostDenied
+        End Try
+        Try
             CheckFileAccess(LocalPath, True)
+        Catch ex As UnauthorizedAccessException
+            Info.AddEvent("HttpDownload 被拒绝（路径）：" & ex.Message)
+            Return PluginDownloadResult.PathDenied
+        End Try
+        Try
             IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(IO.Path.GetFullPath(LocalPath)))
             Using Response = OpenHttp(Url)
                 Using Input = Response.GetResponseStream()
@@ -4330,12 +4420,12 @@ Public Class PluginHost
                             If Read <= 0 Then Exit While
                             Output.Write(Buffer, 0, Read)
                             Total += Read
-                            If Total > 512L * 1024 * 1024 Then Throw New IO.IOException("下载超过 512 MB 上限，已中止")
+                            If Total > 512L * 1024 * 1024 Then Throw New IO.IOException(TooLargeMarker & "下载超过 512 MB 上限，已中止")
                         End While
                     End Using
                 End Using
             End Using
-            Return True
+            Return PluginDownloadResult.Ok
         Catch ex As Exception
             Info.AddEvent("HttpDownload 失败：" & ex.GetBaseException().Message)
             'v7.5（安全审计 3.8 R9）：失败时清掉半截文件，避免留下一个看起来「下载完成」的残缺文件
@@ -4344,11 +4434,13 @@ Public Class PluginHost
             Catch DeleteEx As Exception
                 Info.AddEvent("清理未完成的下载失败：" & DeleteEx.GetBaseException().Message)
             End Try
-            Return False
+            Dim Raw = ex.GetBaseException()
+            If TypeOf Raw Is IO.IOException AndAlso Raw.Message.StartsWith(TooLargeMarker, StringComparison.Ordinal) Then Return PluginDownloadResult.TooLarge
+            If TypeOf Raw Is UnauthorizedAccessException Then Return PluginDownloadResult.NotPermitted
+            Return PluginDownloadResult.Failed
         End Try
     End Function
 
-    ''' <summary>追加 JVM 参数（例如 "-Xmx4G"）；需要 args 权限。</summary>
     Public Sub AppendJvmArgs(Text As String)
         If Not Info.HasPermission("args") Then Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 没有 args 权限")
         If String.IsNullOrWhiteSpace(Text) Then Return

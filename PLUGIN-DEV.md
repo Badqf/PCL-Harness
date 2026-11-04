@@ -169,7 +169,8 @@ End Class
 Host.WriteTextFile(Host.DataFolder & "\counter.txt", "42")
 Dim Text = Host.ReadTextFile(path)          ' 需要 files 权限（data 目录除外）
 Host.HttpGetString(url)                     ' 需要 net 权限
-Host.HttpDownload(url, localPath)           ' 需要 net + files
+Host.HttpDownload(url, localPath)           ' 需要 net + files，失败只返回 False
+Host.HttpDownloadResult(url, localPath)     ' 同上，但返回 PluginDownloadResult 分类
 ```
 
 ### 参数注入
@@ -280,6 +281,32 @@ ModPlugin.SetSetting(Host.Info, "greeting", "新值")
 
 ---
 
+## 5.5 隔离加载与下载结果（v7.5）
+
+**每个插件拿到独立程序集**
+
+v7.5 起宿主用 `Assembly.Load(IO.File.ReadAllBytes(dllPath))` 加载插件，而不是按路径 `LoadFrom`。两个插件各自带同名 `Plugin.dll`（同版本、无强名）也不会再命中同一份程序集，静态字段、单例、`data` 目录写入都不会串台。
+
+插件之间的依赖用 `AppDomain.AssemblyResolve` 兜底：宿主按简单名到各插件目录找同名 DLL，同样以字节流加载。**注意**：
+
+- 依赖不要跨插件复用同一份 DLL——即使加载成功了，两边也是各自的副本，静态状态不共享。
+- 需要共享状态时请用文件或事件总线（`Host.Events`），不要指望静态字段。
+
+**下载会告诉你失败原因**
+
+```vb
+Dim R = Host.HttpDownloadResult(url, localPath)
+Select Case R
+    Case PluginDownloadResult.Ok
+    Case PluginDownloadResult.NotPermitted   ' 清单里没有 net 权限
+    Case PluginDownloadResult.HostDenied     ' 主机不在白名单
+    Case PluginDownloadResult.PathDenied     ' 目标路径不在 files.write 里
+    Case PluginDownloadResult.TooLarge       ' 超过 512 MB
+    Case Else                                ' 网络错误等，见事件记录
+End Select
+```
+
+`Host.HttpDownload(url, localPath)` 保留为布尔包装（等价于 `R = Ok`），旧代码不用改。失败时宿主会先删掉半截文件再返回，不会留下「看起来下载成功」的残缺文件。
 ## 6. 依赖与加载顺序
 
 ```json
@@ -537,7 +564,7 @@ $spki = $key.ExportSubjectPublicKeyInfo()
 
 **排队更新（`.pending`）**
 
-覆盖安装一个**正在运行**的插件时，宿主不会强行替换目录（DLL 被 `Assembly.LoadFrom` 占着），而是把它暂存到 `Plugins\.pending\<id>` 并返回 `PluginImportResult.NeedRestart = True`：
+覆盖安装一个**正在运行**的插件时，宿主不会强行替换目录（v7.5 起改按字节流加载，文件本身不再被独占，但已加载的程序集无法卸载），而是把它暂存到 `Plugins\.pending\<id>` 并返回 `PluginImportResult.NeedRestart = True`：
 
 ```vb
 Dim r = Host.Plugins.ImportPackage(pkgPath, Overwrite:=True)
@@ -754,7 +781,7 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 
 1. 中风险与高风险都会先弹同一道「风险提示」窗（框体、按钮、文案结构一样），区别只在配色与后果说明：含 `process` 是**红色**窗、标题「插件高风险权限提示」；其余含中风险的是**黄色**窗、标题「插件权限风险提示」（由 `WarnLevel` 0/1/2 控制，只改标题色、分隔线、首个按钮描边与窗口背后的蒙版，弹窗底色与正文字色不变）。
 2. 窗里逐条列出该等级及以上的权限（黄窗列全部中风险，红窗只列 `process`）；**「可能的后果」只对 `process` / `instance.install` / `account` / `args` / `plugins` 写**（后两者因能注入参数、能启用别的插件，v7.4 起也归中风险），`launch` / `settings.global` / `skin` / `instance.select` / `mods.write` 不写。
-3. 确认后**不再弹**常规权限确认框——权限已经在风险窗里逐条列出，直接记入 `trust.json`（v3.7.8 起）。只有**低风险**插件（未声明任何中/高风险权限）才走常规确认框（第三个按钮「不再提醒并启用」写 `skipPrompt`）。
+3. 确认后**不再弹**常规权限确认框——权限已经在风险窗里逐条列出，直接记入 `trust.json`（v3.7.8 起）。只有**低风险**插件（未声明任何中/高风险权限）才走常规确认框；v7.5 起确认框只保留「仍然启用」/「取消」两个按钮，点一次就记住这份权限指纹。
 4. 启动时：**只有高风险**（`process`）会弹这道红窗并强制再确认一次；中风险不参与启动检查——它只在启用那一刻用黄窗提醒，避免每次开启动器都被打扰。点「取消」自动禁用这些插件。
 5. `skipPrompt` 只对**常规确认框**生效，风险窗每次启动都会出现；权限一变（指纹变化）`skipPrompt` 自动失效。
 
@@ -888,9 +915,9 @@ v7.4 起，`plugin.json` 没有 `permissions`（或写成空数组）时，插�
 
 **5. 权限变化一定会重新确认**
 
-`skipPrompt`（「不再提醒并启用」）只影响启用时的常规确认框：权限集合或作用域一变（指纹不同），它会自动失效；**高风险插件（含 `process`）每次启动都会再弹一次红窗**，与 `skipPrompt` 无关。
+v7.5 起确认框只有「仍然启用」/「取消」两个按钮，**点一次就把这份权限指纹记进 `trust.json`**；之后重启、禁用再启用都不会再问。指纹一变（权限集合或作用域不同）自动失效，重新询问。插件卡片上的「重新确认权限」可以手动撤销这条记录（`ModPlugin.RevokeTrust`），下次启用会重新询问。
 
-**完全没写 `permissions` 的插件不提供「不再提醒并启用」**：确认框只有「仍然启用」/「取消」，每次启用都要再确认一次（v7.4，安全审计 V1）。
+**完全没写 `permissions` 的插件不弹确认框**（v7.5，安全审计 R5）：启用时只出一条提示「它无法读写文件、联网或启动游戏」，卡片 meta 标注「权限：未声明（零权限）」，也不会写 `trust.json`。
 
 **6. 加载期校验**
 

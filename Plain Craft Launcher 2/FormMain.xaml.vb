@@ -23,6 +23,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 461 Then 'PCL Harness 3.8.2
+                FeatureCount += 4
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 两个插件用同一个同名 DLL 时不再共享同一份程序集，各自独立加载，互不干扰（安全审计 R10）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 权限确认改成「点一次就记住」，卡片上新增「重新确认权限」可以撤销；权限清单变了仍会重新询问（R5）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 零权限插件启用时只显示一条提示，不再弹确认框（R5）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 插件下载接口会返回具体失败原因（未授权、主机被拒、路径被拒、超过 512 MB），失败时自动清掉半截文件（R9）。"))
+                BugCount += 1
+            End If
             If LastVersion < 460 Then 'PCL Harness 3.8.1
                 FeatureCount += 4
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有声明 plugins 权限的插件不能再导入/启用其他插件（安全审计 R1）。"))

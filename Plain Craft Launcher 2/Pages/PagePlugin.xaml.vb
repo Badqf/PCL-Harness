@@ -373,7 +373,7 @@ Public Class PagePlugin
         End If
 
         Dim MetaExtra As New List(Of String)
-        If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions))
+        If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions)) Else MetaExtra.Add("权限：未声明（零权限）")
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
         If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
         '签名状态（P1-1）
@@ -426,7 +426,8 @@ Public Class PagePlugin
                                    Dim Value As Boolean = Chk.Checked
                                    'v7.2.1：中风险也弹醒目提示框（黄色），高风险用红色；风险窗已逐条列出权限，确认后不再重复弹权限确认框
                                    Dim RiskLevel As Integer = ModPlugin.HighestPermissionRisk(Info)
-                                   If Value AndAlso RiskLevel >= 1 Then
+                                   'v7.5（安全审计 3.8 R5）：已经确认过同一份权限指纹就不再打扰；高风险插件每次启动仍会单独提示一次
+                                   If Value AndAlso RiskLevel >= 1 AndAlso Not ModPlugin.IsTrusted(Info) Then
                                        Dim IsHigh As Boolean = RiskLevel >= 2
                                        Dim RiskLines As New List(Of String)
                                        RiskLines.Add($"插件「{Info.DisplayName}」" & If(IsHigh, "声明了高风险权限：", "声明了需要留意的权限："))
@@ -448,47 +449,40 @@ Public Class PagePlugin
                                        ModPlugin.TrustPlugin(Info)
                                    End If
                                    If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
-                                       Dim Lines As New List(Of String)
-                                       Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
-                                       Lines.Add("")
+                                       'v7.5（安全审计 3.8 R5）：零权限插件什么都做不了，改为一条提示，不弹模态框打扰
                                        If Info.Permissions.Count = 0 Then
-                                            Lines.Add("· 未声明 permissions：这个插件没有任何权限（v7.4 起）")
+                                           Hint($"{Info.DisplayName} 未声明任何权限：它无法读写文件、联网或启动游戏", HintType.Blue)
                                        Else
+                                           Dim Lines As New List(Of String)
+                                           Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
+                                           Lines.Add("")
                                            For Each Perm In Info.Permissions.OrderBy(Function(P) P)
                                                Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
                                            Next
+                                           Lines.Add("")
+                                           Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
+                                           'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
+                                           Select Case Info.SignatureStatus
+                                               Case ModPlugin.PluginSignatureStatus.Signed
+                                                   Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
+                                                   Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
+                                               Case ModPlugin.PluginSignatureStatus.UnknownPublisher
+                                                   Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
+                                               Case ModPlugin.PluginSignatureStatus.Invalid
+                                                   Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
+                                               Case Else
+                                                   Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
+                                           End Select
+                                           Lines.Add("")
+                                           Lines.Add("确认后会记住这个插件当前的权限；权限或作用域有变化时会再次询问。")
+                                           Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
+                                           If Choice <> 1 Then
+                                               Chk.Checked = False
+                                               Return
+                                           End If
+                                           'v7.5（安全审计 3.8 R5）：点一次「仍然启用」就记住；想撤销请点卡片上的「重新确认权限」
+                                           ModPlugin.TrustPlugin(Info)
                                        End If
-                                       Lines.Add("")
-                                       Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
-                                                                              'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
-                                       Select Case Info.SignatureStatus
-                                           Case ModPlugin.PluginSignatureStatus.Signed
-                                               Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
-                                               Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
-                                           Case ModPlugin.PluginSignatureStatus.UnknownPublisher
-                                               Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
-                                           Case ModPlugin.PluginSignatureStatus.Invalid
-                                               Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
-                                           Case Else
-                                               Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
-                                       End Select
-                                       Lines.Add("")
-                                       Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
-                                       Lines.Add(If(Info.Permissions.Count = 0, "未声明权限的插件不能用「不再提醒」：每次启用都会再问一次。", "选「不再提醒并启用」后，以后启用它时不再弹这个窗口（权限有变化会重新询问）。"))
-                                       Dim NoPerms = (Info.Permissions.Count = 0)
-                                       'v7.4（安全审计 V1）：没声明任何权限的插件不允许用「不再提醒并启用」
-                                       Dim Choice As Integer
-                                       If NoPerms Then
-                                           Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "", "取消")
-                                       Else
-                                           Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "不再提醒并启用", "取消")
-                                       End If
-                                       If Choice <> 1 AndAlso (NoPerms OrElse Choice <> 2) Then
-                                           Chk.Checked = False
-                                           Return
-                                       End If
-                                       ModPlugin.TrustPlugin(Info)
-                                       If Not NoPerms AndAlso Choice = 2 Then ModPlugin.SetPromptSkipped(Info, True)
                                    End If
                                    Try
                                        ModPlugin.SetEnabled(Info, Value)
@@ -545,6 +539,15 @@ Public Class PagePlugin
                                                               RefreshNav()
                                                               RefreshCurrentSection()
                                                           End Sub))
+        End If
+        'v7.5（安全审计 3.8 R5）：记住是可撤销的——清掉确认记录，下次启用重新询问
+        If ModPlugin.IsTrusted(Info) Then
+            PanBtn.Children.Add(MkButtonSmall("重新确认权限", Sub()
+                                                               ModPlugin.RevokeTrust(Info)
+                                                               Hint($"已清除「{Info.DisplayName}」的权限确认记录，下次启用会重新询问", HintType.Blue)
+                                                               RefreshNav()
+                                                               RefreshCurrentSection()
+                                                               End Sub))
         End If
         If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
 
