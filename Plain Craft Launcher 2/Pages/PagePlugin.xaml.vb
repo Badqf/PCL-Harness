@@ -63,10 +63,17 @@ Public Class PagePlugin
 
     Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True, Optional PreserveScroll As Boolean = False)
         Dim KeepOffset As Double = If(PanBack Is Nothing, 0.0, PanBack.VerticalOffset)
+        'v7.6.1：清空内容会让可滚动范围瞬间塌成 0，ScrollViewer 会把位置夹回顶部并渲染一帧，看起来就是“闪一下”。
+        '重建期间先用 MinHeight 把范围撑住，等新内容排好版再撤掉，全程不发生夹取。
+        Dim GuardHeight As Double = 0.0
+        If PreserveScroll AndAlso PanContent IsNot Nothing AndAlso PanBack IsNot Nothing Then
+            GuardHeight = Math.Max(PanContent.ActualHeight, PanBack.ExtentHeight)
+        End If
         SectionIndex = Index
         If PanContent Is Nothing Then Return
         If DevTimer IsNot Nothing Then DevTimer.Stop()
         DevLogBox = Nothing
+        If GuardHeight > 0 Then PanContent.MinHeight = GuardHeight
         PanContent.Children.Clear()
         Select Case Index
             Case 1
@@ -81,14 +88,22 @@ Public Class PagePlugin
         '启用/禁用、回滚这类操作只重建当前分区，不能把人手里的滚动位置也重置掉
         If PanBack IsNot Nothing Then
             If PreserveScroll Then
+                PanBack.UpdateLayout()
                 PanBack.ScrollToVerticalOffset(KeepOffset)
-                '重建后布局还没算完，等 Loaded 优先级再校正一次（内容变短时会被自动夹住）
+                '新内容排好版后再撤掉撑高、并把位置对齐到同一处（此时范围已由真实内容决定）
                 Dispatcher.BeginInvoke(New Action(Sub()
-                                                      If PanBack IsNot Nothing Then PanBack.ScrollToVerticalOffset(KeepOffset)
+                                                      If PanContent IsNot Nothing Then PanContent.MinHeight = 0
+                                                      If PanBack IsNot Nothing Then
+                                                          PanBack.UpdateLayout()
+                                                          PanBack.ScrollToVerticalOffset(KeepOffset)
+                                                      End If
                                                   End Sub), System.Windows.Threading.DispatcherPriority.Loaded)
             Else
+                If PanContent IsNot Nothing Then PanContent.MinHeight = 0
                 PanBack.ScrollToVerticalOffset(0)
             End If
+        Else
+            If PanContent IsNot Nothing Then PanContent.MinHeight = 0
         End If
         '和 PCL 原生页面切换一致：卡片依次淡入 + 上浮（不套 MyPageRight 的状态机，避免 PageOnEnterAnimationFinished 冲突）
         If Animate AndAlso IsLoaded Then AnimateContent()
