@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 458 Then 'PCL Harness 3.7.9
+                FeatureCount += 3
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件可以列出并切换当前游戏实例（Instances.List / Selected / Select，新增 instance.select 权限）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件可以列出模组/资源包/光影，并启用或禁用它们（Mods.List / SetModEnabled，新增 mods.read / mods.write 权限）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 插件目录的过期清理与旧回滚点改为移到回收站，误删还能找回。"))
+            End If
             If LastVersion < 457 Then 'PCL Harness 3.7.8
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 风险和权限只确认一次——中/高风险插件在醒目窗里已经逐条列出权限，确认后不再弹「启用插件前确认权限」。"))

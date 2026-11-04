@@ -807,3 +807,55 @@ Dim Lang = Host.GetGlobalSetting("UiLanguage")
   "permissions": ["logs.read", "instance.read", "ui"]
 }
 ```
+
+### 6.13 实例与内容管理（v7.3）
+
+**新增权限**
+
+| 权限 | 风险 | 说明 |
+| --- | --- | --- |
+| `instance.select` | **中** | 切换当前选中的游戏实例（改变之后「启动游戏」用的版本） |
+| `mods.read` | 低 | 查看 mods / resourcepacks / shaderpacks 列表 |
+| `mods.write` | **中** | 启用或禁用这些目录里的文件（会重命名成 `.disabled`） |
+
+`instance.select` 与 `mods.write` 都走 v7.2 起的黄色风险窗，其中只有 `mods.write` 带「可能的后果」；`instance.select` 不写。
+
+**新接口**
+
+```vb
+' instance.read：列出全部实例（不返回绝对路径，只给名字与元信息）
+For Each I In Host.ListInstances()
+    Host.LogInfo($"{I.Name} · {I.Folder} · {I.VersionId} · {If(I.IsSelected, "当前", "")}")
+Next
+
+' instance.read：当前选中的实例（没选版本时返回 Nothing）
+Dim Cur = Host.SelectedInstance()
+If Cur IsNot Nothing Then Host.LogInfo($"当前：{Cur.Name}")
+
+' instance.select（中风险）：切到别的版本，成功返回 True 并提示一次
+If Host.SelectInstance("1.20.1-Fabric") Then
+    Host.Hint("已切到 1.20.1-Fabric")
+End If
+
+' mods.read：列模组 / 资源包 / 光影
+For Each M In Host.ListMods()
+    Host.LogInfo($"{M.FileName} · {M.Name} · {If(M.Enabled, "启用", "禁用")} · {M.Size} 字节")
+Next
+Dim Packs = Host.ListResourcePacks()
+Dim Shaders = Host.ListShaderPacks()
+
+' mods.write（中风险）：启用或禁用，FileName 直接用上面返回的字段
+Host.SetModEnabled("jei-1.20.1-forge.jar", False)     ' 改名成 .disabled
+Host.SetModEnabled("jei-1.20.1-forge.jar", True)      ' 改回原名
+Host.SetResourcePackEnabled("Faithful.zip", False)
+Host.SetShaderPackEnabled("BSL.zip", True)
+```
+
+**规则**
+
+- 底层是 `ListContents(Kind, InstanceName)` / `SetContentEnabled(FileName, Enabled, Kind, InstanceName)`，`ListMods` 之类只是包装；`mods` 只认 `.jar`，`resourcepacks` / `shaderpacks` 只认 `.zip`。
+- `FileName` 永远是不带 `.disabled` / `.old` 的原名，可以直接回传给 `SetContentEnabled`；条目里的 `Enabled` 表示当前是否生效。
+- 禁用 = 重命名成 `.disabled`，启用 = 改回原名；如果同名文件已有另一份禁用副本，接口返回 `False` 并在事件记录里说明，**不会覆盖**。
+- 所有接口都可以选 `InstanceName` 指向任意实例（默认当前实例）；目标目录不存在时会自动创建。
+- 切换实例只改「下次启动用哪个版本」，不会自动启动游戏；要启动请另外调用 `LaunchGame()`（需要 `launch`）。
+- `instance.read` 是 v7 就有的老权限，`ListInstances` / `SelectedInstance` 复用它，不需要额外声明；`mods.read` 只读，`mods.write` 才会改文件。

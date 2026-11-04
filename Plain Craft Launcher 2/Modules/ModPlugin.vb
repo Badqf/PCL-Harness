@@ -222,6 +222,9 @@ Public Module ModPlugin
             Case "launch" : Return "主动启动游戏（会在你未点「启动游戏」时也把游戏跑起来）"
             Case "account" : Return "读取当前账号信息（用户名、UUID、登录方式，只读）"
             Case "settings.global" : Return "读取启动器的全局设置（只读，包含你的路径、语言等偏好）"
+            Case "instance.select" : Return "切换当前选中的游戏实例（会改变之后「启动游戏」用的版本）"
+            Case "mods.read" : Return "查看当前实例的模组、资源包与光影列表（只读）"
+            Case "mods.write" : Return "启用或禁用当前实例里的模组、资源包与光影（会改动游戏文件）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
     End Function
@@ -232,7 +235,7 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionRisk(Name As String) As Integer
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin", "instance.install", "launch", "account", "settings.global"
+            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write"
                 Return 1
             Case "process"
                 Return 2
@@ -251,6 +254,7 @@ Public Module ModPlugin
             Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
             Case "instance.install" : Return "可以把文件写进当前实例的 mods、resourcepacks、shaderpacks 或 datapacks 目录，放进来的内容会随游戏加载。"
             Case "account" : Return "可以读到当前登录账号的名称与 UUID（拿不到登录令牌），并能据此区分你和其他玩家。"
+            Case "mods.write" : Return "可以改写当前实例 mods / resourcepacks / shaderpacks 里文件的启用状态（重命名成 .disabled），游戏下次启动会加载不同内容。"
             Case Else : Return ""
         End Select
     End Function
@@ -987,7 +991,8 @@ Public Module ModPlugin
             For Each PendingDir In IO.Directory.GetDirectories(Root)
                 Try
                     If IO.Directory.GetLastWriteTime(PendingDir) < Deadline Then
-                        IO.Directory.Delete(PendingDir, True)
+                        'v7.3：.trash / .backup 里可能是用户想找回的插件目录，过期清理也走回收站
+                        MeloongCore.DirectoryUtils.Delete(PendingDir, True)
                         Removed += 1
                     End If
                 Catch
@@ -2949,7 +2954,8 @@ Public Module ModPlugin
                 Dim Backups = BackupFoldersFor(Info.Id)
                 For Index = 1 To Backups.Count - 1
                     Try
-                        IO.Directory.Delete(Backups(Index), True)
+                        'v7.3：旧回滚点也走回收站，误删还能找回
+                        MeloongCore.DirectoryUtils.Delete(Backups(Index), True)
                     Catch
                         '忽略
                     End Try
@@ -3390,6 +3396,41 @@ Public Class PluginInstanceSnapshot
 End Class
 
 ''' <summary>
+''' 一个已加载的游戏实例（API v7.3，需要 instance.read 权限，只读）。只给名字，不提供绝对路径。
+''' </summary>
+Public Class PluginInstanceEntry
+    ''' <summary>实例名（通常是版本文件夹名）。</summary>
+    Public Property Name As String = ""
+    ''' <summary>所属 .minecraft 文件夹的名字（不是完整路径）。</summary>
+    Public Property Folder As String = ""
+    ''' <summary>版本 id，例如 1.21.5-Fabric 0.16.14。</summary>
+    Public Property VersionId As String = ""
+    ''' <summary>继承的父版本名（没有则为空）。</summary>
+    Public Property InheritName As String = ""
+    ''' <summary>该实例是否支持安装 Mod。</summary>
+    Public Property Modable As Boolean
+    ''' <summary>是否是当前选中的实例。</summary>
+    Public Property IsSelected As Boolean
+    ''' <summary>实例的发布日期。</summary>
+    Public Property ReleaseTime As Date = Date.MinValue
+End Class
+
+''' <summary>
+''' 当前实例里的一个内容文件（模组 / 资源包 / 光影，API v7.3，需要 mods.read 权限，只读）。
+''' </summary>
+Public Class PluginContentEntry
+    ''' <summary>文件名（不含 .disabled / .old 后缀），可以直接传给 SetModEnabled。</summary>
+    Public Property FileName As String = ""
+    ''' <summary>显示名（去掉了 .jar / .zip 扩展名）。</summary>
+    Public Property Name As String = ""
+    ''' <summary>类型：mods / resourcepacks / shaderpacks。</summary>
+    Public Property Kind As String = "mods"
+    ''' <summary>当前是否启用。</summary>
+    Public Property Enabled As Boolean
+    ''' <summary>文件大小（字节）。</summary>
+    Public Property Size As Long
+End Class
+''' <summary>
 ''' 当前账号的信息快照（API v7，需要 account 权限，只读）。
 ''' </summary>
 Public Class PluginAccountSnapshot
@@ -3541,6 +3582,311 @@ Public Class PluginHost
         End Get
     End Property
 
+    ''' <summary>
+    ''' API v7.3：列出所有 .minecraft 文件夹里已加载的游戏实例（需要 instance.read，只读）。
+    ''' 只返回名字与版本信息，不含绝对路径。
+    ''' </summary>
+    Public Function ListInstances() As List(Of PluginInstanceEntry)
+        Info.EnsurePermission("instance.read")
+        Dim Result As New List(Of PluginInstanceEntry)
+        Try
+            Dim Selected = McInstanceSelected
+            Dim SelectedPath As String = If(Selected Is Nothing, "", If(Selected.PathVersion, ""))
+            For Each Folder In McFolderList.ToArray()
+                Try
+                    Dim VersionsDir = IO.Path.Combine(Folder.Location, "versions")
+                    If Not IO.Directory.Exists(VersionsDir) Then Continue For
+                    For Each VersionDir In IO.Directory.GetDirectories(VersionsDir)
+                        Dim FolderName = IO.Path.GetFileName(VersionDir)
+                        If FolderName.StartsWithF(".") Then Continue For
+                        Try
+                            Dim Inst As New McInstance(VersionDir)
+                            If Inst Is Nothing Then Continue For
+                            Result.Add(New PluginInstanceEntry With {
+                                .Name = If(Inst.Name, FolderName),
+                                .Folder = If(Folder.Name, ""),
+                                .VersionId = TryGetVersionId(Inst),
+                                .InheritName = If(Inst.InheritName, ""),
+                                .Modable = Inst.Modable,
+                                .IsSelected = SelectedPath <> "" AndAlso String.Equals(If(Inst.PathVersion, ""), SelectedPath, StringComparison.OrdinalIgnoreCase),
+                                .ReleaseTime = Inst.ReleaseTime})
+                        Catch ex As Exception
+                            Logger.Warn(ex, "枚举实例失败：" & VersionDir)
+                        End Try
+                    Next
+                Catch ex As Exception
+                    Logger.Warn(ex, "枚举实例文件夹失败：" & If(Folder.Location, ""))
+                End Try
+            Next
+        Catch ex As Exception
+            Info.AddEvent("枚举实例失败：" & ex.Message)
+        End Try
+        Return Result
+    End Function
+
+    ''' <summary>
+    ''' API v7.3：当前选中的实例（需要 instance.read，只读）。没有选中时返回 Nothing。
+    ''' </summary>
+    Public Function SelectedInstance() As PluginInstanceEntry
+        Info.EnsurePermission("instance.read")
+        Dim Inst = McInstanceSelected
+        If Inst Is Nothing Then Return Nothing
+        Dim FolderName As String = ""
+        Try
+            Dim VersionPath As String = If(Inst.PathVersion, "")
+            For Each Folder In McFolderList
+                If String.IsNullOrEmpty(Folder.Location) Then Continue For
+                Dim Prefix = IO.Path.Combine(Folder.Location, "versions") & "\"
+                If VersionPath.StartsWithF(Prefix, True) Then
+                    FolderName = If(Folder.Name, "")
+                    Exit For
+                End If
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "匹配实例所属文件夹失败")
+        End Try
+        Return New PluginInstanceEntry With {
+            .Name = If(Inst.Name, ""),
+            .Folder = FolderName,
+            .VersionId = TryGetVersionId(Inst),
+            .InheritName = If(Inst.InheritName, ""),
+            .Modable = Inst.Modable,
+            .IsSelected = True,
+            .ReleaseTime = Inst.ReleaseTime}
+    End Function
+
+    ''' <summary>
+    ''' API v7.3：把当前选中的实例切换成指定名字的实例（需要 instance.select）。
+    ''' 找不到、正在被修改或校验未通过时返回 False。
+    ''' </summary>
+    Public Function SelectInstance(InstanceName As String) As Boolean
+        Info.EnsurePermission("instance.select")
+        Dim Key = If(InstanceName, "").Trim()
+        If Key = "" Then Return False
+        Dim Target As McInstance = Nothing
+        Try
+            For Each Folder In McFolderList.ToArray()
+                Dim VersionDir = IO.Path.Combine(Folder.Location, "versions", Key)
+                If Not IO.Directory.Exists(VersionDir) Then Continue For
+                Target = New McInstance(VersionDir)
+                Exit For
+            Next
+        Catch ex As Exception
+            Info.AddEvent("查找实例失败：" & ex.Message)
+            Return False
+        End Try
+        If Target Is Nothing Then
+            Info.AddEvent($"切换实例失败：找不到 {Key}")
+            Return False
+        End If
+        Try
+            If McInstanceLock.IsLocked(Target) Then
+                Info.AddEvent($"切换实例失败：{Key} 正在被修改")
+                Return False
+            End If
+            If Not Target.Check() Then
+                Info.AddEvent($"切换实例失败：{Key} 校验未通过")
+                Return False
+            End If
+        Catch ex As Exception
+            Info.AddEvent("切换实例失败：" & ex.Message)
+            Return False
+        End Try
+        Try
+            Dim Ok As Boolean = False
+            ModBase.RunInUiWait(Sub()
+                                    McInstanceSelected = Target
+                                    Ok = True
+                                End Sub)
+            If Ok Then
+                ModMain.Hint($"插件已切换实例：{If(Target.Name, Key)}", HintType.Blue)
+                Info.AddEvent($"已切换实例：{If(Target.Name, Key)}")
+            End If
+            Return Ok
+        Catch ex As Exception
+            Info.AddEvent("切换实例失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' API v7.3：列出当前实例里的一类内容文件（需要 mods.read，只读）。
+    ''' Kind 支持 mods / resourcepacks / shaderpacks。
+    ''' </summary>
+    Public Function ListContents(Optional Kind As String = "mods", Optional InstanceName As String = "") As List(Of PluginContentEntry)
+        Info.EnsurePermission("mods.read")
+        Dim Result As New List(Of PluginContentEntry)
+        Dim Normalized = NormalizeContentKind(Kind, "mods")
+        If Normalized = "" Then
+            Info.AddEvent("读取内容列表失败：未知类型 " & If(Kind, ""))
+            Return Result
+        End If
+        Dim Dir = ResolveContentDir(Normalized, InstanceName)
+        If String.IsNullOrEmpty(Dir) Then Return Result
+        Dim Suffix = ContentFileSuffix(Normalized)
+        Try
+            For Each FilePath In IO.Directory.GetFiles(Dir)
+                Dim FileName = IO.Path.GetFileName(FilePath)
+                Dim Base = FileName
+                Dim Enabled As Boolean = True
+                If Base.EndsWithF(".disabled", True) Then
+                    Base = Base.Substring(0, Base.Length - 9)
+                    Enabled = False
+                ElseIf Base.EndsWithF(".old", True) Then
+                    Base = Base.Substring(0, Base.Length - 4)
+                    Enabled = False
+                End If
+                If Not Base.EndsWithF(Suffix, True) Then Continue For
+                Try
+                    Result.Add(New PluginContentEntry With {
+                        .FileName = Base,
+                        .Name = IO.Path.GetFileNameWithoutExtension(Base),
+                        .Kind = Normalized,
+                        .Enabled = Enabled,
+                        .Size = New IO.FileInfo(FilePath).Length})
+                Catch ex As Exception
+                    Logger.Warn(ex, "读取内容文件失败：" & FilePath)
+                End Try
+            Next
+        Catch ex As Exception
+            Info.AddEvent("读取内容列表失败：" & ex.Message)
+        End Try
+        Return Result
+    End Function
+
+    ''' <summary>
+    ''' API v7.3：启用或禁用当前实例里的一类内容文件（需要 mods.write）。
+    ''' 禁用即把文件改名成 .disabled；已存在同名禁用副本时不覆盖，直接返回 False。
+    ''' </summary>
+    Public Function SetContentEnabled(FileName As String, Enabled As Boolean, Optional Kind As String = "mods", Optional InstanceName As String = "") As Boolean
+        Info.EnsurePermission("mods.write")
+        Dim Normalized = NormalizeContentKind(Kind, "mods")
+        If Normalized = "" Then Return False
+        Dim Base = IO.Path.GetFileName(If(FileName, "").Trim())
+        If Base = "" Then Return False
+        If Base.EndsWithF(".disabled", True) Then Base = Base.Substring(0, Base.Length - 9)
+        If Base.EndsWithF(".old", True) Then Base = Base.Substring(0, Base.Length - 4)
+        Dim Dir = ResolveContentDir(Normalized, InstanceName)
+        If String.IsNullOrEmpty(Dir) Then Return False
+        Dim Active = IO.Path.Combine(Dir, Base)
+        Dim Disabled = Active & ".disabled"
+        Dim Backup = Active & ".old"
+        Try
+            If Enabled Then
+                If IO.File.Exists(Active) Then Return True
+                Dim Source = If(IO.File.Exists(Disabled), Disabled, If(IO.File.Exists(Backup), Backup, ""))
+                If Source = "" Then
+                    Info.AddEvent($"启用失败：找不到 {Base}")
+                    Return False
+                End If
+                IO.File.Move(Source, Active)
+            Else
+                If Not IO.File.Exists(Active) Then Return True
+                If IO.File.Exists(Disabled) OrElse IO.File.Exists(Backup) Then
+                    Info.AddEvent($"禁用失败：{Base} 已存在禁用副本，请先在启动器里处理冲突")
+                    Return False
+                End If
+                IO.File.Move(Active, Disabled)
+            End If
+            Info.AddEvent($"{If(Enabled, "已启用", "已禁用")}：{Normalized}/{Base}")
+            Return True
+        Catch ex As Exception
+            Info.AddEvent("修改内容启用状态失败：" & ex.Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>API v7.3：列出模组（mods.read）。</summary>
+    Public Function ListMods(Optional InstanceName As String = "") As List(Of PluginContentEntry)
+        Return ListContents("mods", InstanceName)
+    End Function
+
+    ''' <summary>API v7.3：启用或禁用模组（mods.write）。</summary>
+    Public Function SetModEnabled(FileName As String, Enabled As Boolean, Optional InstanceName As String = "") As Boolean
+        Return SetContentEnabled(FileName, Enabled, "mods", InstanceName)
+    End Function
+
+    ''' <summary>API v7.3：列出资源包（mods.read）。</summary>
+    Public Function ListResourcePacks(Optional InstanceName As String = "") As List(Of PluginContentEntry)
+        Return ListContents("resourcepacks", InstanceName)
+    End Function
+
+    ''' <summary>API v7.3：启用或禁用资源包（mods.write）。</summary>
+    Public Function SetResourcePackEnabled(FileName As String, Enabled As Boolean, Optional InstanceName As String = "") As Boolean
+        Return SetContentEnabled(FileName, Enabled, "resourcepacks", InstanceName)
+    End Function
+
+    ''' <summary>API v7.3：列出光影包（mods.read）。</summary>
+    Public Function ListShaderPacks(Optional InstanceName As String = "") As List(Of PluginContentEntry)
+        Return ListContents("shaderpacks", InstanceName)
+    End Function
+
+    ''' <summary>API v7.3：启用或禁用光影包（mods.write）。</summary>
+    Public Function SetShaderPackEnabled(FileName As String, Enabled As Boolean, Optional InstanceName As String = "") As Boolean
+        Return SetContentEnabled(FileName, Enabled, "shaderpacks", InstanceName)
+    End Function
+
+    Private Function TryGetVersionId(Inst As McInstance) As String
+        Try
+            Dim Json = Inst.JsonObject
+            If Json IsNot Nothing AndAlso Json("id") IsNot Nothing Then Return Json("id").ToString()
+        Catch ex As Exception
+            Logger.Warn(ex, "读取实例版本 id 失败")
+        End Try
+        Return ""
+    End Function
+
+    Private Function NormalizeContentKind(Kind As String, DefaultKind As String) As String
+        Dim Name = If(Kind, "").Trim().ToLowerInvariant()
+        If Name = "" Then Name = DefaultKind
+        Select Case Name
+            Case "mods", "resourcepacks", "shaderpacks"
+                Return Name
+            Case Else
+                Return ""
+        End Select
+    End Function
+
+    Private Function ContentFileSuffix(Kind As String) As String
+        If Kind = "mods" Then Return ".jar"
+        Return ".zip"
+    End Function
+
+    Private Function ResolveInstanceRoot(InstanceName As String) As String
+        Dim Key = If(InstanceName, "").Trim()
+        If Key = "" Then
+            Dim Inst = McInstanceSelected
+            If Inst Is Nothing Then Return ""
+            Return If(Inst.PathIndie, "")
+        End If
+        Try
+            For Each Folder In McFolderList.ToArray()
+                Dim VersionDir = IO.Path.Combine(Folder.Location, "versions", Key)
+                If Not IO.Directory.Exists(VersionDir) Then Continue For
+                Dim Inst As New McInstance(VersionDir)
+                If Inst IsNot Nothing Then Return If(Inst.PathIndie, "")
+            Next
+        Catch ex As Exception
+            Logger.Warn(ex, "查找实例目录失败：" & Key)
+        End Try
+        Return ""
+    End Function
+
+    Private Function ResolveContentDir(Kind As String, InstanceName As String) As String
+        Dim Root = ResolveInstanceRoot(InstanceName)
+        If String.IsNullOrEmpty(Root) Then
+            Info.AddEvent("读取内容目录失败：没有可用的实例")
+            Return ""
+        End If
+        Dim Dir = IO.Path.Combine(Root, Kind)
+        Try
+            If Not IO.Directory.Exists(Dir) Then IO.Directory.CreateDirectory(Dir)
+        Catch ex As Exception
+            Logger.Warn(ex, "创建内容目录失败：" & Dir)
+            Return ""
+        End Try
+        Return Dir
+    End Function
     ''' <summary>API v7：当前账号的信息快照（需要 account，只读）。没有权限会抛异常。</summary>
     Public ReadOnly Property AccountInfo As PluginAccountSnapshot
         Get
