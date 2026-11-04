@@ -23,6 +23,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 459 Then 'PCL Harness 3.8.0
+                FeatureCount += 5
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 没写 permissions 的插件不再拥有全部权限，改为「没有任何权限」（安全审计 V1）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: files 的对象写法里空列表改为「该方向一律拒绝」，不再等于不限制（V2）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: net 空 hosts 不再放行、重定向逐跳校验、下载补 net 权限与体积上限（V4/V7）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 签名覆盖权限清单，改动清单会校验失败并拒绝加载（V3/V8）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: args / plugins 权限升为中风险；插件目录清理改为移入回收站。"))
+            End If
             If LastVersion < 458 Then 'PCL Harness 3.7.9
                 FeatureCount += 3
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件可以列出并切换当前游戏实例（Instances.List / Selected / Select，新增 instance.select 权限）。"))

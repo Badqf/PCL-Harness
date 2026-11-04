@@ -36,6 +36,9 @@ if (-not $manifest.id) { Fail 'plugin.json 缺少 id' }
 
 $id = [string]$manifest.id
 $version = if ($manifest.version) { [string]$manifest.version } else { '0.0.0' }
+# v7.4（安全审计 S1）：id / version 会拼进输出路径与暂存目录，先校验再使用
+if ($id -notmatch '^[a-z0-9][a-z0-9_\-\.]{0,63}$') { Fail "plugin.json 的 id 不合法（只允许小写字母、数字与 . _ -，最长 64）：$id" }
+if ($version -notmatch '^[0-9A-Za-z][0-9A-Za-z._\-]{0,31}$') { Fail "plugin.json 的 version 不合法（只允许字母数字与 . _ -）：$version" }
 
 if (-not $Output) {
     $Output = Join-Path (Split-Path -Parent $root) "$id-$version.pclplugin"

@@ -26,15 +26,9 @@
    ```
 
 3. 把 `samples\HelloPlugin` 整个文件夹复制到 `PCLHarness\Plugins\`，重启启动器。插件页里应出现「你好插件」，并弹出一条提示。
-   **注意：新插件默认是停用的**（`plugins.json` 里没有记录就不会加载），要在插件页点一下「启用」——启用会立即热重载，不用重启。`@ 'step3'
+   **注意：新插件默认是停用的**（`plugins.json` 里没有记录就不会加载），要在插件页点一下「启用」——启用会立即热重载，不用重启。
 
-$t=Rep $t '全部手动指定：' @'
 编译脚本已处理两件事：`/codepage:65001`（源码即使不带 BOM，中文也不会乱码）和引用 `Microsoft.VisualBasic.dll`（可以直接用 `vbCrLf`；不想引用就改用 `Environment.NewLine`）。自己拼 vbc 命令行时缺这两项会分别得到「中文乱码」和 `BC30451: 未声明名称`。
-
-全部手动指定：'@ 'compile-notes'
-
-$t=Rep $t '两处都会被扫描。每个插件目录里放 `plugin.json` + 编译好的 dll；`data\` 是插件自己的数据目录，由启动器创建。' @'
-两处都会被扫描。每个插件目录里放 `plugin.json` + 编译好的 dll；`data\` 是插件自己的数据目录，由启动器创建，运行时对应 `Host.DataFolder`，真实路径是 `PCLHarness\Plugins\<插件id>\data\`（不是 `PluginData\`）。
 
    开发阶段可以直接把输出目录指到 `PCLHarness\Plugins\<你的插件>\`，编译完在插件页点「重新扫描」，或改一下 `plugin.json` 的时间戳即可热重载。
 
@@ -65,13 +59,12 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Project samples\DemoPlugin `
 
 ## 权限
 
-`plugin.json` 的 `permissions` 只认三种：`net`、`files`、`args`（宿主实际校验的字符串；`file` 单数、`ui`、`process`、`events` 都不会生效）。
+`plugin.json` 的 `permissions` 决定插件能做什么，完整清单见 `PLUGIN-DEV.md` 第 2 节。常用的是 `files`、`net`、`args`、`ui`、`events`、`instance.install`、`plugins` 等。
 
-- 不写 = 全部放行（兼容旧插件）
-- 写了之后超范围调用会抛 `UnauthorizedAccessException` 
-- v5 还可写成对象进一步收缩范围：`{"net":{"hosts":[...]},"files":{"read":[...],"write":[...]}}`
-
-详见 `PLUGIN-DEV.md` 第 2 节。
+- **不写 = 没有任何权限**（v7.4 起；调用受保护的接口会抛 `UnauthorizedAccessException`，旧插件同样需要声明）。
+- 写了之后超范围调用会抛 `UnauthorizedAccessException`，并在插件页的「事件记录」里留一条记录。
+- 对象写法可进一步收缩范围：`{"net":{"hosts":["api.example.com","*.github.com"]},"files":{"read":["…"],"write":["…"]}}`；写成 `true` 或字符串表示该方向不限。
+- 空列表表示**该方向一律拒绝**：`"read":[]` 不能读、`"write":[]` 不能写、`"hosts":[]` 不能访问任何主机；键名拼错同样得到空列表，因此是失败而不是放行。
 
 ## 版本对应
 
@@ -89,6 +82,27 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Project samples\DemoPlugin `
 | 插件页看不到 / 日志里没有插件行 | 先确认 `plugin.json` 在 `PCLHarness\Plugins\<id>\` 这一层；新插件默认停用，要在插件页点「启用」。日志会写「插件 X 默认未启用…」和「扫描完成：共 N 个插件，已启用 M 个」 |
 | 中文变成乱码 | 源码存成 UTF-8；自拼 vbc 要加 `/codepage:65001`（`build.ps1` 已加） |
 | `BC30451: 未声明名称 vbCrLf` | 给 vbc 加 `/r:Microsoft.VisualBasic.dll`（`build.ps1` 已加），或改用 `Environment.NewLine` |
+
+## 错误码
+
+导入 / 加载插件失败时，插件页会显示 `[错误码] 说明`，常见错误码如下：
+
+| 错误码 | 含义 |
+| --- | --- |
+| `ERR_NO_MANIFEST` | 插件目录里没有 `plugin.json` |
+| `ERR_BAD_JSON` | `plugin.json` 不是合法 JSON |
+| `ERR_BAD_ID` | `id` 不合法（只允许小写字母、数字与 `. _ -`，最长 64） |
+| `ERR_MIN_API` | 插件要求的 `minApiVersion` 高于当前启动器 |
+| `ERR_NO_DLL` | 清单里写了 `dll`，但文件不存在 |
+| `ERR_SHA` | `dll` 的 sha256 与清单不符（文件被改过） |
+| `ERR_MISSING_DEP` | 缺少清单声明的依赖插件，或版本不满足 |
+| `ERR_AMBIGUOUS_MANIFEST` | 同一目录里有多份清单，无法判断用哪份 |
+| `ERR_NOT_ARCHIVE` | 导入的包不是有效的 zip / `.pclplugin` |
+| `ERR_UNSAFE_PATH` | 包内出现 `..` 或绝对路径（拒绝解压到目录外） |
+| `ERR_EXISTS` | 目标插件目录已存在（需要覆盖安装） |
+| `ERR_WRITE_FAILED` | 写入插件目录失败（权限或占用） |
+| `ERR_NOT_FOUND` | 指定的插件 / 回滚点不存在 |
+| `ERR_SKIPPED` | 该插件被跳过（例如清单里声明了不兼容的 API，或已被熔断禁用） |
 
 ## 许可
 

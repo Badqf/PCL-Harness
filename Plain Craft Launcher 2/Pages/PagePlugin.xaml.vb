@@ -1,4 +1,4 @@
-Imports System.Linq
+﻿Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -390,7 +390,7 @@ Public Class PagePlugin
                 SigText = "签名来自未知发布者"
                 SigColor = "ColorBrushRedLight"
             Case Else
-                SigText = If(String.IsNullOrWhiteSpace(Info.Signature), "未签名（来源需自行确认）", "发布者声明（未验证）")
+                SigText = If(String.IsNullOrWhiteSpace(Info.Signature), "未签名（来源需自行确认）", "签名无法确认发布者")
         End Select
         MetaExtra.Add(SigText)
         If Not String.IsNullOrWhiteSpace(Info.UpdateUrl) Then MetaExtra.Add("已声明更新地址")
@@ -452,7 +452,7 @@ Public Class PagePlugin
                                        Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
                                        Lines.Add("")
                                        If Info.Permissions.Count = 0 Then
-                                           Lines.Add("· 未声明权限（按默认权限运行，不额外放行）")
+                                            Lines.Add("· 未声明 permissions：这个插件没有任何权限（v7.4 起）")
                                        Else
                                            For Each Perm In Info.Permissions.OrderBy(Function(P) P)
                                                Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
@@ -463,19 +463,26 @@ Public Class PagePlugin
                                        If String.IsNullOrWhiteSpace(Info.Signature) Then
                                            Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
                                        Else
-                                           Lines.Add($"发布者声明（未验证）：{Info.Signature}")
-                                           Lines.Add("注意：启动器还没有校验这份声明，任何人都能填写它，不要当作身份证明。")
+                                                Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
+                                                Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
                                        End If
                                        Lines.Add("")
                                        Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
-                                       Lines.Add("选「不再提醒并启用」后，以后启用它时不再弹这个窗口（权限有变化会重新询问）。")
-                                       Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "不再提醒并启用", "取消")
-                                       If Choice <> 1 AndAlso Choice <> 2 Then
+                                       Lines.Add(If(Info.Permissions.Count = 0, "未声明权限的插件不能用「不再提醒」：每次启用都会再问一次。", "选「不再提醒并启用」后，以后启用它时不再弹这个窗口（权限有变化会重新询问）。"))
+                                       Dim NoPerms = (Info.Permissions.Count = 0)
+                                       'v7.4（安全审计 V1）：没声明任何权限的插件不允许用「不再提醒并启用」
+                                       Dim Choice As Integer
+                                       If NoPerms Then
+                                           Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "", "取消")
+                                       Else
+                                           Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "不再提醒并启用", "取消")
+                                       End If
+                                       If Choice <> 1 AndAlso (NoPerms OrElse Choice <> 2) Then
                                            Chk.Checked = False
                                            Return
                                        End If
                                        ModPlugin.TrustPlugin(Info)
-                                       If Choice = 2 Then ModPlugin.SetPromptSkipped(Info, True)
+                                       If Not NoPerms AndAlso Choice = 2 Then ModPlugin.SetPromptSkipped(Info, True)
                                    End If
                                    Try
                                        ModPlugin.SetEnabled(Info, Value)
@@ -915,8 +922,8 @@ Public Class PagePlugin
         AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
 
         AddDocTitle(Body, "权限指纹与签名（v6.3）")
-        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未声明权限也会写明，未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（schema 2），其中 permissionsHash 是把权限名小写、排序、逗号连接得到的字符串（如 events,files,ui）——它只是权限指纹，不含密钥、不是哈希摘要、也不是密码学签名，作用仅是权限集合变了就再问一次。")
-        AddDocText(Body, "清单里的 signature 字段目前【只读不验】：界面显示为「发布者声明（未验证）」，任何人填任意字符串都会原样显示，请不要把它当作身份证明，也不要基于它做安全判断。计划中的真实验签：ECDsa P-256 + SHA-256，签 sha256(包字节)，清单增加 publisher（公钥）与 signature，验签通过才显示「已验证发布者」并在 trust.json 记录公钥指纹；SDK 会提供 tools\sign-plugin.ps1。可选字段还有 homepage、license。")
+        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未声明 permissions 会写明「这个插件没有任何权限」（v7.4 起），未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（schema 2），其中 permissionsHash 是把权限名小写、排序、逗号连接得到的字符串，v7.4 起还会附上 net.hosts / files.read / files.write 的作用域摘要——它只是权限指纹，不含密钥、不是哈希摘要、也不是密码学签名，作用仅是权限或作用域变了就再问一次。")
+        AddDocText(Body, "清单里的 signature 由宿主真实校验（ECDsa P-256 + SHA-256，见 6.7）：载荷是 id + 版本 + DLL 的 sha256 + 权限指纹的 sha256，所以改动清单里的权限或路径同样会校验失败，失败时插件会被拒绝加载。没有签名仍然可以加载，但界面会显示「未签名（来源需自行确认）」。可选字段还有 homepage、license。")
         AddDocTitle(Body, "实例右键菜单（v6.2）")
         AddDocText(Body, "实现 IPclPluginInstanceMenu 就能往「版本选择」页里每个实例卡片的右键菜单里加操作（插件项 → 分隔线 → 「实例设置」）：每次打开菜单时按当前实例调用一次，返回 PluginMenuItem（Text + Action），Action 抛异常会被隔离并计入熔断。完整示例见开发版 SDK 的 samples\InstanceMenu。")
         AddDocCode(Body, "Public Class MyPlugin" & vbCrLf & "    Inherits PCL.PclPluginBase" & vbCrLf & "    Implements PCL.IPclPluginInstanceMenu" & vbCrLf & "    Public Function GetInstanceMenuItems(Instance As PCL.PluginInstanceInfo) As IEnumerable(Of PCL.PluginMenuItem) _" & vbCrLf & "        Implements PCL.IPclPluginInstanceMenu.GetInstanceMenuItems" & vbCrLf & "        Return {New PCL.PluginMenuItem With {.Text = ""导出实例信息（我的插件）"", .Action = Sub() Host.Message(Instance.Folder)}}" & vbCrLf & "    End Function" & vbCrLf & "End Class")
@@ -929,7 +936,7 @@ Public Class PagePlugin
         AddDocCode(Body, "{""minApiVersion"": 5," & vbCrLf & " ""sha256"": ""DLL 的 SHA-256""," & vbCrLf & " ""permissions"": {" & vbCrLf & "   ""net"": {""hosts"": [""api.github.com"", ""*.example.com""]}," & vbCrLf & "   ""files"": {""read"": [""Downloads/""], ""write"": [""PCLHarness/PluginOut/""]}}}")
         AddDocText(Body, "permissions 写成对象可以做细化：net.hosts 是允许访问的域名（支持 *. 前缀通配与 *），files.read / files.write 是允许读写的路径（插件自己的数据目录始终可访问）。sha256 用于 DLL 完整性校验，与 plugin.json 不一致时拒绝加载；minApiVersion 高于启动器支持的版本时也会拒绝加载并提示更新。")
         AddDocCode(Body, "Host.Events.On(""页面切换"", Sub(Page As Integer, SubType As Integer) Host.LogInfo($""{Page}/{SubType}"") End Sub, Priority:=10)" & vbCrLf & "Dim N As Integer = Host.GetSetting(""loadCount"", 0)" & vbCrLf & "Host.SetSetting(""loadCount"", N + 1)" & vbCrLf & "Host.LogWarn(""这是一条警告"")")
-        AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。未声明 permissions 的老插件行为完全不变。")
+        AddDocText(Body, "v5 宿主 API：Host.Events.On / Off（事件订阅，内置事件 ""页面切换""(Page, SubType)）、Host.GetSetting(Of T) / SetSetting(Of T)（强类型设置）、Host.LogDebug / LogInfo / LogWarn / LogError（日志分级）、Host.Ask（带按钮的对话框，返回按钮文字）。v7.4 起未声明 permissions 一律视为零权限（含 minApiVersion 5/6 的老插件）。")
         AddDocTitle(Body, "示例")
         AddDocText(Body, "两个完整示例都在开发版 SDK 里（Release 附件的 SDK 包，仓库里对应 samples/V6Demo 与 samples/DemoPlugin）：V6Demo 是当前版本示例，演示服务注册、优先级事件、一次性事件、后台任务；DemoPlugin 是 v5 示例，演示自定义页面、标题栏入口与两个设置项。编译：用 tools/sdk/build.ps1 指定 -Project 插件目录、-Launcher 启动器路径，它会处理引用、UTF-8 与 vbCrLf；也可以手动把 PCL Harness.exe 作为引用，用 vbc /target:library 生成 DLL，放进插件文件夹即可（源码存 UTF-8，自拼命令行要加 /codepage:65001，否则中文乱码；vbCrLf 需要引用 Microsoft.VisualBasic，否则改用 Environment.NewLine）。")
         AddDocTitle(Body, "发布与导入（v6.4）")

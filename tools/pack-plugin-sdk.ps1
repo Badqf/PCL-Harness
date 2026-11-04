@@ -36,6 +36,11 @@ if (-not $Version) {
     $Version = $m.Matches[0].Groups[1].Value
 }
 if (-not $OutputDirectory) { $OutputDirectory = Split-Path $repo -Parent }
+# v7.4（安全审计 S1）：版本号会拼进输出路径，先校验再使用
+$Version = ([string]$Version).Trim()
+if ($Version -notmatch '^[0-9A-Za-z][0-9A-Za-z._\-]{0,31}$') {
+    throw "版本号不合法（只允许字母数字与 . _ -）：$Version"
+}
 
 $name = "PCL-Harness-Plugin-SDK-$Version"
 $stage = Join-Path ([System.IO.Path]::GetTempPath()) "$name-$([guid]::NewGuid().ToString('N').Substring(0, 8))"

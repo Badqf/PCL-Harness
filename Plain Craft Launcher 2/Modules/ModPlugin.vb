@@ -53,8 +53,19 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionFingerprint(Info As PluginInfo) As String
         If Info Is Nothing Then Return ""
+        'v7.4（安全审计 V3）：指纹必须覆盖权限的「作用域」，否则把 hosts / 可读写路径从 A 改成 B 后
+        '指纹不变，导入覆盖时会被静默地当成同一套授权继续启用。
         Dim Parts = Info.Permissions.Select(Function(P) P.ToLowerInvariant()).OrderBy(Function(P) P).ToList()
-        Return String.Join(",", Parts)
+        Dim Builder As New Text.StringBuilder()
+        Builder.Append("p=" & String.Join(",", Parts))
+        Dim Detail = Info.Detail
+        If Detail IsNot Nothing Then
+            If Detail.NetAny Then Builder.Append(";net=*")
+            If Detail.Hosts.Count > 0 Then Builder.Append(";hosts=" & String.Join(",", Detail.Hosts.Select(Function(X) X.ToLowerInvariant()).OrderBy(Function(X) X)))
+            If Detail.ReadPaths.Count > 0 Then Builder.Append(";read=" & String.Join(",", Detail.ReadPaths.OrderBy(Function(X) X)))
+            If Detail.WritePaths.Count > 0 Then Builder.Append(";write=" & String.Join(",", Detail.WritePaths.OrderBy(Function(X) X)))
+        End If
+        Return Builder.ToString()
     End Function
 
     ''' <summary>旧名字，保留给已有调用方；请改用 PermissionFingerprint。</summary>
@@ -63,17 +74,40 @@ Public Module ModPlugin
     End Function
 
     ''' <summary>某个插件名下的权限是否已经被用户确认过（且权限没有变化）。</summary>
+    ''' <summary>
+    ''' 信任键（v7.4，安全审计 V9）：Id + 安装目录名。
+    ''' 只按 Id 键控时，另一个目录里同 Id 的插件会共用同一份免确认记录。
+    ''' </summary>
+    Public Function TrustKey(Info As PluginInfo) As String
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return ""
+        Dim Folder = ""
+        Try
+            If Not String.IsNullOrEmpty(Info.Folder) Then Folder = IO.Path.GetFileName(Info.Folder.TrimEnd("\"c)).ToLowerInvariant()
+        Catch
+            Folder = ""
+        End Try
+        Return Info.Id & "|" & Folder
+    End Function
+
     Public Function IsTrusted(Info As PluginInfo) As Boolean
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return False
+        Dim Key = TrustKey(Info)
         Dim Sig As String = Nothing
-        If Not TrustedIds.TryGetValue(Info.Id, Sig) Then Return False
+        If Not TrustedIds.TryGetValue(Key, Sig) Then Return False
         Return String.Equals(Sig, PermissionFingerprint(Info), StringComparison.Ordinal)
     End Function
 
     ''' <summary>记录用户已确认某插件的当前权限。</summary>
     Public Sub TrustPlugin(Info As PluginInfo)
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
-        TrustedIds(Info.Id) = PermissionFingerprint(Info)
+        Dim Key = TrustKey(Info)
+        Dim NewSig = PermissionFingerprint(Info)
+        Dim OldSig As String = Nothing
+        'v7.4（安全审计 V5）：权限真的变了才清掉「不再提醒」，避免和「不再提醒并启用」的点击顺序打架
+        If TrustedIds.TryGetValue(Key, OldSig) AndAlso Not String.Equals(OldSig, NewSig, StringComparison.Ordinal) Then
+            SkipPromptIds.Remove(Info.Id)
+        End If
+        TrustedIds(Key) = NewSig
         SaveTrustState()
     End Sub
 
@@ -235,7 +269,8 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionRisk(Name As String) As Integer
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write"
+            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins"
+                'v7.4（安全审计 V9）：args 能注入 -javaagent、plugins 能安装/启用别的插件，二者都等价于执行任意代码
                 Return 1
             Case "process"
                 Return 2
@@ -255,6 +290,8 @@ Public Module ModPlugin
             Case "instance.install" : Return "可以把文件写进当前实例的 mods、resourcepacks、shaderpacks 或 datapacks 目录，放进来的内容会随游戏加载。"
             Case "account" : Return "可以读到当前登录账号的名称与 UUID（拿不到登录令牌），并能据此区分你和其他玩家。"
             Case "mods.write" : Return "可以改写当前实例 mods / resourcepacks / shaderpacks 里文件的启用状态（重命名成 .disabled），游戏下次启动会加载不同内容。"
+            Case "args" : Return "可以往游戏启动命令里追加 JVM / 游戏参数（例如 -javaagent），等同于往游戏进程里注入代码。"
+            Case "plugins" : Return "可以导入、启用或卸载其它插件，等于间接获得那些插件的全部权限。"
             Case Else : Return ""
         End Select
     End Function
@@ -409,10 +446,9 @@ Public Module ModPlugin
         End Sub
         ''' <summary>是否声明了某个权限。</summary>
         Public Function HasPermission(Name As String) As Boolean
-            If Permissions.Count = 0 Then
-                'v7 起要求显式声明：旧插件（minApiVersion <= 6）继续保持不限制，新插件一律视为没有权限
-                Return MinApiVersion <= 6
-            End If
+            'v7.4（安全审计 V1）：没声明 permissions 的插件视为「没有任何权限」。
+            '旧版的「不声明 = 全部放行」会让插件静默拿到所有能力，已移除。
+            If Permissions.Count = 0 Then Return False
             Return Permissions.Contains(Name)
         End Function
 
@@ -668,7 +704,7 @@ Public Module ModPlugin
     Private RiskWarnShown As Boolean
 
     ''' <summary>
-    ''' v7.2：启动时只对「已启用、声明了高风险权限、且没勾过不再提醒」的插件弹一次醒目风险提示。
+    ''' v7.2：启动时只对「已启用、声明了高风险权限」的插件弹一次醒目风险提示（v7.4 起不受「不再提醒」影响）。
     ''' 中风险不参与启动检查——它只在启用那一刻用黄色窗提醒（见 PagePlugin），避免每次开启动器都被打扰。
     ''' 取消时把这些插件就地禁用，避免高风险权限继续生效。
     ''' </summary>
@@ -676,7 +712,8 @@ Public Module ModPlugin
         If RiskWarnShown Then Return
         RiskWarnShown = True
         Try
-            Dim Risky = Plugins.Where(Function(P) P.Enabled AndAlso Not IsPromptSkipped(P) AndAlso HighestPermissionRisk(P) >= 2).ToList()
+            'v7.4（安全审计 V5）：「不再提醒」只对启用时的确认框生效，高风险插件每次启动都要再确认一次
+            Dim Risky = Plugins.Where(Function(P) P.Enabled AndAlso HighestPermissionRisk(P) >= 2).ToList()
             If Risky.Count = 0 Then Return
             Dim Lines As New List(Of String)
             Lines.Add("以下插件已启用，并声明了高风险权限：")
@@ -848,7 +885,26 @@ Public Module ModPlugin
                 Info.Loaded = False
                 Return
             End If
-            Dim DllPath = Path.Combine(Info.Folder, If(String.IsNullOrEmpty(Info.DllName), Info.Id & ".dll", Info.DllName))
+            'v7.4（安全审计 V8）：签名校验为「无效」时说明有人在签名后改过文件，直接拒绝加载
+            If Info.SignatureStatus = PluginSignatureStatus.Invalid Then
+                Info.[Error] = "签名校验失败：文件在签名之后被修改过，已拒绝加载（可删除 signature 字段后重新导入）"
+                Info.AddEvent("加载失败：签名无效")
+                Return
+            End If
+            'v7.4（安全审计 V9）：dll 只能是插件目录里的文件名，禁止 ..\..\ 之类穿越
+            Dim DllNameCandidate = If(String.IsNullOrEmpty(Info.DllName), Info.Id & ".dll", Info.DllName)
+            If DllNameCandidate.Contains("\") OrElse DllNameCandidate.Contains("/") OrElse DllNameCandidate.Contains("..") OrElse DllNameCandidate.IndexOfAny(IO.Path.GetInvalidFileNameChars()) >= 0 Then
+                Info.[Error] = "plugin.json 的 dll 字段不合法（只能是文件名）：" & Info.DllName
+                Info.AddEvent("加载失败：dll 字段不合法")
+                Return
+            End If
+            Dim DllPath = Path.Combine(Info.Folder, DllNameCandidate)
+            Dim PluginRoot = IO.Path.GetFullPath(Info.Folder).TrimEnd("\"c) & "\"
+            If Not IO.Path.GetFullPath(DllPath).StartsWith(PluginRoot, StringComparison.OrdinalIgnoreCase) Then
+                Info.[Error] = "plugin.json 的 dll 字段指向了插件目录之外，已拒绝加载"
+                Info.AddEvent("加载失败：dll 越界")
+                Return
+            End If
             If Not File.Exists(DllPath) Then
                 Info.[Error] = "找不到 DLL：" & DllPath
                 Return
@@ -860,6 +916,12 @@ Public Module ModPlugin
             End If
             If Not String.IsNullOrWhiteSpace(Info.DllSha256) Then
                 Dim ActualHash = Sha256OfFile(DllPath)
+                If String.IsNullOrEmpty(ActualHash) Then
+                    'v7.4（安全审计 V9）：算不出哈希时不能静默跳过校验
+                    Info.[Error] = "DLL 校验失败：无法读取文件计算 sha256，已拒绝加载"
+                    Info.AddEvent("校验失败：无法计算 sha256")
+                    Return
+                End If
                 If Not String.Equals(ActualHash, Info.DllSha256, StringComparison.OrdinalIgnoreCase) Then
                     Dim Want = Info.DllSha256.Substring(0, Math.Min(12, Info.DllSha256.Length))
                     Dim Got = ActualHash.Substring(0, Math.Min(12, ActualHash.Length))
@@ -1112,7 +1174,9 @@ Public Module ModPlugin
         If Info Is Nothing OrElse String.IsNullOrWhiteSpace(Info.Signature) Then Return PluginSignatureStatus.Unsigned
         If TrustedPublishers.Count = 0 Then LoadTrustedPublishers()
         If TrustedPublishers.Count = 0 Then Return PluginSignatureStatus.UnknownPublisher
-        Dim Payload = $"{Info.Id}{vbLf}{Info.Version}{vbLf}{If(Info.DllSha256, "").ToLowerInvariant()}"
+        'v7.4（安全审计 V8）：载荷必须覆盖清单（权限 + hosts + 可读写路径），
+        '否则别人可以保留合法签名、只替换 plugin.json 里的权限，把签名当摆设。
+        Dim Payload = $"{Info.Id}{vbLf}{Info.Version}{vbLf}{If(Info.DllSha256, "").ToLowerInvariant()}{vbLf}{Sha256OfText(PermissionFingerprint(Info))}"
         Dim Sig As Byte()
         Try
             Sig = Convert.FromBase64String(Info.Signature.Trim())
@@ -1288,6 +1352,9 @@ Public Module ModPlugin
                             Info.Permissions.Add(Key)
                             Select Case Key
                                 Case "net"
+                                    'v7.4（安全审计 V7）：net 写成 true / 字符串时表示允许任意主机；
+                                    '写成对象时只认 hosts 里的条目，写错键名会得到空列表 → EnsureHostAllowed 直接拒绝
+                                    If TryCast(Prop.Value, JObject) Is Nothing Then Info.Detail.NetAny = True
                                     For Each H In ReadStringList(Prop.Value)
                                         Info.Detail.Hosts.Add(H)
                                     Next
@@ -1418,7 +1485,7 @@ Public Module ModPlugin
         '重复启用同一插件时，先清掉它上一次注册的条目，避免标题栏入口与设置项重复
         RemoveUi(Info)
         '事件钩子：实现了 IPclPluginEvents 就登记，不需要再实现 IPclPluginUi
-        'v7：events 权限真正生效，没声明就完全不登记（旧插件仍按 MinApiVersion <= 6 放行）
+        'v7：events 权限真正生效，没声明就完全不登记（v7.4 起旧插件同样需要声明）
         If TypeOf Info.Instance Is IPclPluginEvents Then
             If Info.HasPermission("events") Then
                 PluginEventHandlers.Add((CType(Info.Instance, IPclPluginEvents), Info))
@@ -1942,6 +2009,8 @@ Public Module ModPlugin
         Public HasDetail As Boolean
         ''' <summary>net 允许访问的主机，支持 *.example.com 与 * 。</summary>
         Public ReadOnly Hosts As New List(Of String)
+        ''' <summary>net 写成 true 或字符串时表示「任意主机」（v7.4，安全审计 V7）。</summary>
+        Public NetAny As Boolean
         ''' <summary>files 允许读取的路径（支持 * 通配）。</summary>
         Public ReadOnly ReadPaths As New List(Of String)
         ''' <summary>files 允许写入的路径（支持 * 通配）。</summary>
@@ -1992,6 +2061,23 @@ Public Module ModPlugin
         Return F.ToLowerInvariant() Like P.ToLowerInvariant()
     End Function
 
+    ''' <summary>计算一段文本的 SHA-256（小写十六进制），用于签名载荷里的清单指纹（v7.4，安全审计 V8）。</summary>
+    Public Function Sha256OfText(Value As String) As String
+        Try
+            Using Sha = Security.Cryptography.SHA256.Create()
+                Dim Bytes = Sha.ComputeHash(Encoding.UTF8.GetBytes(If(Value, "")))
+                Dim Builder As New Text.StringBuilder()
+                For Each B In Bytes
+                    Builder.Append(B.ToString("x2"))
+                Next
+                Return Builder.ToString()
+            End Using
+        Catch ex As Exception
+            Logger.Warn(ex, "计算文本 sha256 失败", LogBehavior.None)
+            Return ""
+        End Try
+    End Function
+
     ''' <summary>计算文件的 SHA-256（小写十六进制）；失败返回空字符串。</summary>
     Public Function Sha256OfFile(FilePath As String) As String
         Try
@@ -2013,7 +2099,10 @@ Public Module ModPlugin
     ''' <summary>检查网址是否在插件的 net 白名单里（未声明 hosts 时按全部允许处理）。</summary>
     Public Sub EnsureHostAllowed(Info As PluginInfo, Url As String)
         If Info Is Nothing OrElse Not Info.Detail.HasDetail Then Return
-        If Info.Detail.Hosts.Count = 0 Then Return
+        If Info.Detail.Hosts.Count = 0 AndAlso Not Info.Detail.NetAny Then
+            'v7.4（安全审计 V7）：写了 net 却没给出主机（含键名拼错）→ 一律拒绝，不再 fail-open
+            Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 声明了 net 权限，但没有列出可访问的主机（plugin.json 的 permissions.net 应写成 {""hosts"": [ … ]} 或 true），已拒绝：" & Url)
+        End If
         Dim Host As String = ""
         Try
             Host = New Uri(Url).Host
@@ -4107,8 +4196,12 @@ Public Class PluginHost
             If Not Info.Detail.HasDetail Then Return
             Dim FullPath = IO.Path.GetFullPath(Path)
             Dim Patterns = If(ForWrite, Info.Detail.WritePaths, Info.Detail.ReadPaths)
-            If Patterns.Count = 0 Then Return
             Dim OwnData = IO.Path.GetFullPath(DataFolder).TrimEnd("\"c) & "\"
+            If Patterns.Count = 0 Then
+                'v7.4（安全审计 V2）：声明了 files 却没给这个方向的路径时，该方向一律拒绝
+                If FullPath.StartsWith(OwnData, StringComparison.OrdinalIgnoreCase) Then Return
+                Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 声明了 files 权限，但没有列出{If(ForWrite, "可写", "可读")}路径，此方向一律拒绝：{FullPath}")
+            End If
             If FullPath.StartsWith(OwnData, StringComparison.OrdinalIgnoreCase) Then Return
             If Patterns.Any(Function(P) PathMatches(P, FullPath)) Then Return
             Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 files 权限未包含该路径：{FullPath}（plugin.json 中 permissions.files 只允许 {String.Join("、", Patterns)}）")
@@ -4121,7 +4214,8 @@ Public Class PluginHost
         Catch
             '忽略
         End Try
-        If Allowed.Any(Function(A) Full.StartsWith(A, StringComparison.OrdinalIgnoreCase)) Then Return
+        'v7.4（安全审计 V6）：围栏必须按目录边界比较，否则 versions\1.20 会放行 versions\1.20.1
+        If Allowed.Any(Function(A) Full.StartsWith(If(A.EndsWith("\"c), A, A & "\"), StringComparison.OrdinalIgnoreCase)) Then Return
         Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 没有 files 权限，只能访问自己的 data 目录：" & Full)
     End Sub
 
@@ -4143,17 +4237,49 @@ Public Class PluginHost
         Return IO.File.Exists(Path)
     End Function
 
-    ''' <summary>发起一个 GET 请求并返回文本（需要 net 权限；未声明权限时按默认允许处理）。</summary>
+    ''' <summary>
+    ''' 按允许列表逐跳校验重定向（v7.4，安全审计 V4）。最多 5 跳，每一跳都重新校验主机。
+    ''' </summary>
+    Private Function OpenHttp(Url As String) As Net.HttpWebResponse
+        Dim Current = Url
+        For Hop As Integer = 1 To 5
+            EnsureHostAllowed(Info, Current)
+            Dim Request = CType(Net.WebRequest.Create(Current), Net.HttpWebRequest)
+            Request.AllowAutoRedirect = False
+            Request.Timeout = 15000
+            Request.ReadWriteTimeout = 15000
+            Request.UserAgent = "PCLHarness-Plugin/" & ApiVersionUi
+            Dim Response = CType(Request.GetResponse(), Net.HttpWebResponse)
+            Dim Code = CInt(Response.StatusCode)
+            If Code = 301 OrElse Code = 302 OrElse Code = 303 OrElse Code = 307 OrElse Code = 308 Then
+                Dim Location = Response.Headers("Location")
+                Response.Dispose()
+                If String.IsNullOrWhiteSpace(Location) Then Throw New IO.IOException("重定向响应缺少 Location：" & Current)
+                Current = New Uri(New Uri(Current), Location).AbsoluteUri
+                Continue For
+            End If
+            Return Response
+        Next
+        Throw New IO.IOException("重定向次数过多（超过 5 次）：" & Url)
+    End Function
+
+    ''' <summary>发起一个 GET 请求并返回文本（需要 net 权限，最多读取 8 MiB）。</summary>
     Public Function HttpGetString(Url As String) As String
         If Not Info.HasPermission("net") Then Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 没有 net 权限")
-        EnsureHostAllowed(Info, Url)
-        Dim Request = CType(Net.WebRequest.Create(Url), Net.HttpWebRequest)
-        Request.Timeout = 15000
-        Request.ReadWriteTimeout = 15000
-        Request.UserAgent = "PCLHarness-Plugin/" & ApiVersionUi
-        Using Response = Request.GetResponse()
+        Using Response = OpenHttp(Url)
             Using Reader As New IO.StreamReader(Response.GetResponseStream(), Encoding.UTF8)
-                Return Reader.ReadToEnd()
+                Dim Buffer(8191) As Char
+                Dim Builder As New Text.StringBuilder()
+                Dim Total As Long = 0
+                While True
+                    Dim Read = Reader.Read(Buffer, 0, Buffer.Length)
+                    If Read <= 0 Then Exit While
+                    Builder.Append(Buffer, 0, Read)
+                    Total += Read
+                    'v7.4（安全审计 V4）：没有上限的 ReadToEnd 会被超大响应拖垮内存
+                    If Total > 8L * 1024 * 1024 Then Throw New IO.IOException("响应超过 8 MB 上限，已中止")
+                End While
+                Return Builder.ToString()
             End Using
         End Using
     End Function
@@ -4161,12 +4287,25 @@ Public Class PluginHost
     ''' <summary>下载到本地文件（需要 net + files 权限），成功返回 True。</summary>
     Public Function HttpDownload(Url As String, LocalPath As String) As Boolean
         Try
+            'v7.4（安全审计 V4）：下载同样要求 net 权限，并逐跳校验重定向
+            If Not Info.HasPermission("net") Then Throw New UnauthorizedAccessException("插件 " & Info.DisplayName & " 没有 net 权限")
             EnsureHostAllowed(Info, Url)
             CheckFileAccess(LocalPath, True)
-            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(LocalPath))
-            Using Client As New Net.WebClient()
-                Client.Headers.Add("User-Agent", "PCLHarness-Plugin/" & ApiVersionUi)
-                Client.DownloadFile(Url, LocalPath)
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(IO.Path.GetFullPath(LocalPath)))
+            Using Response = OpenHttp(Url)
+                Using Input = Response.GetResponseStream()
+                    Using Output As New IO.FileStream(LocalPath, IO.FileMode.Create, IO.FileAccess.Write, IO.FileShare.None)
+                        Dim Buffer(81919) As Byte
+                        Dim Total As Long = 0
+                        While True
+                            Dim Read = Input.Read(Buffer, 0, Buffer.Length)
+                            If Read <= 0 Then Exit While
+                            Output.Write(Buffer, 0, Read)
+                            Total += Read
+                            If Total > 512L * 1024 * 1024 Then Throw New IO.IOException("下载超过 512 MB 上限，已中止")
+                        End While
+                    End Using
+                End Using
             End Using
             Return True
         Catch ex As Exception

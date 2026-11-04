@@ -37,11 +37,7 @@ $ErrorActionPreference = "Stop"
 
 function Find-Vbc {
     $candidates = @(
-        $env:PCL_HARNESS_VBC,
-        (Join-Path $env:USERPROFILE "roslyn\tasks\vbc.exe"),
-        "C:\Users\$env:USERNAME\roslyn\tasks\vbc.exe",
-        "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\vbc.exe",
-        "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\vbc.exe"
+        $env:PCL_HARNESS_VBC
     )
     foreach ($base in @("C:\Program Files\Microsoft Visual Studio", "C:\Program Files (x86)\Microsoft Visual Studio")) {
         if (Test-Path $base) {
@@ -50,7 +46,30 @@ function Find-Vbc {
                 Select-Object -ExpandProperty FullName
         }
     }
-    return $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    # v7.4（安全审计 S1）：%USERPROFILE%\roslyn 可被普通程序写入，先用文件签名确认它确实是微软的 Roslyn，
+    # 再放到 Framework 自带编译器之前——因为 v4.0.30319 的 legacy vbc 只支持 VB 10，
+    # 连 $"..." 这样的插值字符串都会报 BC30037，普通插件根本编不过。
+    $userVbc = Join-Path $env:USERPROFILE "roslyn\tasks\vbc.exe"
+    if (Test-Path $userVbc) {
+        $info = (Get-Item $userVbc).VersionInfo
+        if ($info.CompanyName -like "*Microsoft*") {
+            $candidates += $userVbc
+        } else {
+            Write-Warning "忽略 $userVbc：它不是微软签发的编译器。"
+        }
+    }
+    $candidates += @(
+        "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\vbc.exe",
+        "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\vbc.exe"
+    )
+    $found = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if ($found -and $found -eq $userVbc) {
+        Write-Warning "正在使用用户目录里的编译器（$found）——该目录可被普通程序写入，请确认来源可信；推荐安装 Visual Studio Build Tools。"
+    }
+    if ($found -and $found -match '\\v4\.0\.30319\\vbc\.exe$') {
+        Write-Warning "找不到 Roslyn 编译器，退回 .NET Framework 自带的 legacy vbc：它只支持 VB 10，使用插值字符串、nameof 等新语法会编译失败。"
+    }
+    return $found
 }
 
 function Resolve-ReferenceDir {
@@ -102,8 +121,16 @@ if (-not $sources) { throw "目录里没有 .vb 源码：$projectDir" }
 $jsonPath = Join-Path $projectDir "plugin.json"
 if (-not (Test-Path $jsonPath)) { throw "缺少 plugin.json：$jsonPath" }
 $manifest = Get-Content $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$dllName = if ($manifest.dll) { $manifest.dll } else { "Plugin.dll" }
+$dllName = if ($manifest.dll) { [string]$manifest.dll } else { "Plugin.dll" }
+# v7.4（安全审计 S1）：dll 只能是文件名，且输出必须落在插件目录内
+if ($dllName -match '[\\/]' -or $dllName.Contains('..') -or ($dllName -notmatch '^[A-Za-z0-9._\-]+\.dll$')) {
+    throw "plugin.json 的 dll 字段不合法（只能是文件名，例如 Demo.Plugin.dll）：$dllName"
+}
 $outDll = Join-Path $projectDir $dllName
+$projectFull = [System.IO.Path]::GetFullPath($projectDir).TrimEnd('\') + '\'
+if (-not [System.IO.Path]::GetFullPath($outDll).StartsWith($projectFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "输出路径越界：$outDll"
+}
 
 $launcherExe = Find-Launcher
 if (-not $launcherExe -or -not (Test-Path $launcherExe)) {
@@ -145,9 +172,12 @@ Write-Host "输出       : $outDll"
 
 $effectiveRefs = $refs
 if ($isLegacyVbc) {
-    # 旧版 vbc（Framework v4.0.30319）会自动引用 mscorlib，显式再引用会报 BC2000
-    $effectiveRefs = $refs | Where-Object { $_ -ne "$ReferencePath\mscorlib.dll" }
-    $vbcArgs = @("/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
+    # 旧版 vbc（Framework v4.0.30319）会从自己目录自动引用 mscorlib / Microsoft.VisualBasic / System，
+    # 显式再 /r: 它们就会 BC2000（v7.4：之前只剔除 mscorlib，仍会撞上 Microsoft.VisualBasic）
+    $effectiveRefs = $refs | Where-Object {
+        $_ -notin @("$ReferencePath\mscorlib.dll", "$ReferencePath\Microsoft.VisualBasic.dll", "$ReferencePath\System.dll")
+    }
+    $vbcArgs = @("/noconfig", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
 } else {
     $vbcArgs = @("/noconfig", "/nostdlib", "/nologo", "/target:library", "/out:$outDll", "/optionstrict-", "/optionexplicit+", "/optioninfer+", "/codepage:65001", "/imports:Microsoft.VisualBasic,System,System.Collections.Generic,System.Linq,System.Text", "/r:$launcherExe")
 }
@@ -156,7 +186,12 @@ foreach ($r in $effectiveRefs) { $vbcArgs += "/r:$r" }
 # -SingleFile：把清单写进程序集元数据，让 DLL 自己就能被识别/导入
 $metaFile = $null
 if ($SingleFile) {
-    function Esc([object]$v) { return ([string]$v).Replace('"', '""') }
+    function Esc([object]$v) {
+        # v7.4（安全审计 S1）：只转义引号不够，换行可以注入任意 VB 代码
+        $s = [string]$v
+        if ($s -match "[`r`n`t]") { throw "清单字段里不能包含换行/制表符：$s" }
+        return $s.Replace('"', '""')
+    }
     $perm = ""
     if ($manifest.permissions) { $perm = (@($manifest.permissions) -join ",") }
     $meta = @("Imports System.Reflection")
@@ -174,8 +209,9 @@ if ($SingleFile) {
 
 $vbcArgs += $sources
 
-& $VbcPath @vbcArgs
+$vbcOutput = & $VbcPath @vbcArgs 2>&1
 $code = $LASTEXITCODE
+if ($code -ne 0) { $vbcOutput | ForEach-Object { Write-Host $_ -ForegroundColor DarkYellow } }
 if ($metaFile -and (Test-Path $metaFile)) { Remove-Item $metaFile -Force }
 if ($code -ne 0) { throw "编译失败（exit $code）" }
 
@@ -184,7 +220,9 @@ Write-Host ""
 Write-Host "OK: $outDll ($size bytes)" -ForegroundColor Green
 
 if ($Pack) {
-    $packScript = Join-Path (Split-Path $PSScriptRoot -Parent) "pack-plugin.ps1"
+    # v7.4（安全审计 S1）：SDK 压缩包里 pack-plugin.ps1 与 build.ps1 同级，仓库里在 tools\ 下
+    $packScript = Join-Path $PSScriptRoot "pack-plugin.ps1"
+    if (-not (Test-Path $packScript)) { $packScript = Join-Path (Split-Path $PSScriptRoot -Parent) "pack-plugin.ps1" }
     if (-not (Test-Path $packScript)) { throw "找不到 $packScript（-Pack 需要它与 sdk 目录同级）" }
     & $packScript -Project $projectDir
     exit $LASTEXITCODE
