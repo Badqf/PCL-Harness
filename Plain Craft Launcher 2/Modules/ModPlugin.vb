@@ -171,7 +171,13 @@ Public Module ModPlugin
             ' 新格式：{"schema":2,"plugins":{"id":{"permissionsHash":"ui,events"}}}
             Dim PluginsNode = TryCast(Json("plugins"), JObject)
             If PluginsNode IsNot Nothing Then
+                Dim Dropped As Boolean = False
                 For Each P In PluginsNode.Properties()
+                    'v7.5（3.8.2 收尾）：信任键已改为「id|文件夹名」，3.8.1 之前的裸 id 键一律丢弃
+                    If Not P.Name.Contains("|") Then
+                        Dropped = True
+                        Continue For
+                    End If
                     Dim Obj = TryCast(P.Value, JObject)
                     Dim Hash As String = Nothing
                     If Obj IsNot Nothing Then Hash = Obj.Value(Of String)("permissionsHash")
@@ -196,10 +202,12 @@ Public Module ModPlugin
                         End If
                     End If
                 Next
+                If Dropped Then SaveTrustState()
                 Return
             End If
             ' 旧格式：{"id":"ui,events"} 或 {"id":{"signature":"ui,events"}}
             For Each P In Json.Properties()
+                If Not P.Name.Contains("|") Then Continue For
                 Dim Sig = If(P.Value, "").ToString()
                 Dim Obj = TryCast(P.Value, JObject)
                 If Obj IsNot Nothing Then Sig = Obj.Value(Of String)("signature")
@@ -1126,14 +1134,31 @@ Public Module ModPlugin
         Return Removed
     End Function
 
+    ''' <summary>
+    ''' 回滚点是否属于这个插件：优先看目录名前缀（v7.6 起统一用插件 id 命名），
+    ''' 旧版本按导入时的目录名命名，所以再退一步读备份里的 plugin.json。
+    ''' </summary>
+    Private Function BackupFolderMatches(Dir As String, Id As String) As Boolean
+        Dim Name = IO.Path.GetFileName(Dir)
+        If Name.StartsWith(Id & "-", StringComparison.OrdinalIgnoreCase) Then Return True
+        Try
+            Dim Manifest = IO.Path.Combine(Dir, "plugin.json")
+            If Not IO.File.Exists(Manifest) Then Return False
+            Dim Json = JObject.Parse(IO.File.ReadAllText(Manifest, Encoding.UTF8))
+            Dim IdValue = If(Json("id"), "").ToString()
+            Return String.Equals(IdValue, Id, StringComparison.OrdinalIgnoreCase)
+        Catch
+            Return False
+        End Try
+    End Function
+
     ''' <summary>某个插件的回滚点（.backup 下的目录，按时间从新到旧）。</summary>
     Private Function BackupFoldersFor(Id As String) As List(Of String)
         Dim Result As New List(Of String)
         If String.IsNullOrWhiteSpace(Id) OrElse Not IO.Directory.Exists(PathBackupRoot) Then Return Result
         Try
             For Each PendingDir In IO.Directory.GetDirectories(PathBackupRoot)
-                Dim Name = IO.Path.GetFileName(PendingDir)
-                If Name.StartsWith(Id & "-", StringComparison.OrdinalIgnoreCase) Then Result.Add(PendingDir)
+                If BackupFolderMatches(PendingDir, Id) Then Result.Add(PendingDir)
             Next
             Result.Sort(Function(A, B) String.CompareOrdinal(B, A))
         Catch
@@ -3098,7 +3123,8 @@ Public Module ModPlugin
         If IO.Directory.Exists(TargetFolder) Then
             If Existing IsNot Nothing AndAlso Existing.Enabled Then SetEnabled(Existing, False)
             Try
-                Backup = IO.Path.Combine(PathPluginRoot, ".backup", IO.Path.GetFileName(TargetFolder) & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
+                'v7.6：回滚点统一按插件 id 命名（旧版按目录名命名，BackupFoldersFor 会回退读 plugin.json）
+                Backup = IO.Path.Combine(PathPluginRoot, ".backup", If(Existing IsNot Nothing, Existing.Id, Info.Id) & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
                 IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Backup))
                 IO.Directory.Move(TargetFolder, Backup)
             Catch ex As Exception

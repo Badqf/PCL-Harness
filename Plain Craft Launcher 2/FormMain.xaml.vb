@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 462 Then 'PCL Harness 3.8.3
+                FeatureCount += 2
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 启用/停用插件、回滚、重新加载后页面不再跳回顶部，停在原来的位置。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 点「重新扫描」后插件列表会像切换页面那样逐项淡入，不再整块闪一下。"))
+                BugCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 回滚点统一按插件 id 命名；旧版按目录名命名的备份也能被找回（目录名和 id 不一样时之前找不到）。"))
+            End If
             If LastVersion < 461 Then 'PCL Harness 3.8.2
                 FeatureCount += 4
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 两个插件用同一个同名 DLL 时不再共享同一份程序集，各自独立加载，互不干扰（安全审计 R10）。"))

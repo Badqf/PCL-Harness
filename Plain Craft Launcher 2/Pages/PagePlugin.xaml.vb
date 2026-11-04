@@ -61,7 +61,8 @@ Public Class PagePlugin
         End Try
     End Sub
 
-    Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True)
+    Public Sub SwitchSection(Index As Integer, Optional Animate As Boolean = True, Optional PreserveScroll As Boolean = False)
+        Dim KeepOffset As Double = If(PanBack Is Nothing, 0.0, PanBack.VerticalOffset)
         SectionIndex = Index
         If PanContent Is Nothing Then Return
         If DevTimer IsNot Nothing Then DevTimer.Stop()
@@ -77,7 +78,18 @@ Public Class PagePlugin
             Case Else
                 BuildManage()
         End Select
-        If PanBack IsNot Nothing Then PanBack.ScrollToVerticalOffset(0)
+        '启用/禁用、回滚这类操作只重建当前分区，不能把人手里的滚动位置也重置掉
+        If PanBack IsNot Nothing Then
+            If PreserveScroll Then
+                PanBack.ScrollToVerticalOffset(KeepOffset)
+                '重建后布局还没算完，等 Loaded 优先级再校正一次（内容变短时会被自动夹住）
+                Dispatcher.BeginInvoke(New Action(Sub()
+                                                      If PanBack IsNot Nothing Then PanBack.ScrollToVerticalOffset(KeepOffset)
+                                                  End Sub), System.Windows.Threading.DispatcherPriority.Loaded)
+            Else
+                PanBack.ScrollToVerticalOffset(0)
+            End If
+        End If
         '和 PCL 原生页面切换一致：卡片依次淡入 + 上浮（不套 MyPageRight 的状态机，避免 PageOnEnterAnimationFinished 冲突）
         If Animate AndAlso IsLoaded Then AnimateContent()
 
@@ -108,11 +120,13 @@ Public Class PagePlugin
     End Sub
 
     ''' <summary>重建当前分区（带重入锁，供启用/禁用、重新扫描后调用）。</summary>
-    Private Sub RefreshCurrentSection()
+    ''' <param name="Animate">是否补播一次入场动画（重新扫描后使用）。</param>
+    ''' <param name="PreserveScroll">是否保持当前滚动位置（勾选启用/禁用等操作使用）。</param>
+    Private Sub RefreshCurrentSection(Optional Animate As Boolean = False, Optional PreserveScroll As Boolean = False)
         If IsRebuilding Then Return
         IsRebuilding = True
         Try
-            SwitchSection(SectionIndex, Animate:=False)
+            SwitchSection(SectionIndex, Animate, PreserveScroll)
         Finally
             IsRebuilding = False
         End Try
@@ -160,7 +174,7 @@ Public Class PagePlugin
                                                     End Try
                                                     RefreshNav()
                                                     ModPlugin.WarnFailed()
-                                                    RefreshCurrentSection()
+                                                    RefreshCurrentSection(Animate:=True, PreserveScroll:=True)
                                                 End Sub))
         Body.Children.Add(PanBtn)
         Body.Margin = New Thickness(25, 40, 25, 20)
@@ -491,7 +505,7 @@ Public Class PagePlugin
                                        Logger.Error(ex, "切换插件状态失败", LogBehavior.Toast)
                                    End Try
                                    RefreshNav()
-                                   RefreshCurrentSection()
+                                   RefreshCurrentSection(PreserveScroll:=True)
                                End Sub
         Right.Children.Add(Chk)
 
@@ -517,13 +531,13 @@ Public Class PagePlugin
 
         If ModPlugin.HasBackup(Info.Id) Then
             PanBtn.Children.Add(MkButtonSmall("回滚到上一版", Sub()
-                                                            Dim Choice = MyMsgBox($"回滚 {Info.DisplayName} 到上一版？" & vbCrLf & vbCrLf & "回滚会排队到下次启动，重启启动器后生效。", "回滚插件", "回滚", "取消")
+                                                            Dim Choice = MyMsgBox($"回滚 {Info.DisplayName} 到上一版？" & vbCrLf & vbCrLf & If(Info.Loaded, "插件正在运行，回滚会排队到下次启动，重启启动器后生效。", "会立即把当前版本移入回收目录并换回备份，重启启动器后生效。"), "回滚插件", "回滚", "取消")
                                                             If Choice <> 1 Then Return
                                                             Try
                                                                 If ModPlugin.RollbackPlugin(Info.Id) Then
-                                                                    Hint(Info.DisplayName & " 已安排回滚，重启启动器后生效", HintType.Green)
+                                                                    Hint(Info.DisplayName & If(Info.Loaded, " 已安排回滚，重启启动器后生效", " 已回滚，重启启动器后生效"), HintType.Green)
                                                                     RefreshNav()
-                                                                    RefreshCurrentSection()
+                                                                    RefreshCurrentSection(PreserveScroll:=True)
                                                                 Else
                                                                     Hint("没有可用的备份，回滚失败", HintType.Red)
                                                                 End If
@@ -537,7 +551,7 @@ Public Class PagePlugin
                                                               Hint("已重新读取插件清单；改了代码请重启启动器才能生效", HintType.Blue)
                                                               ModPlugin.Refresh(True)
                                                               RefreshNav()
-                                                              RefreshCurrentSection()
+                                                              RefreshCurrentSection(PreserveScroll:=True)
                                                           End Sub))
         End If
         'v7.5（安全审计 3.8 R5）：记住是可撤销的——清掉确认记录，下次启用重新询问
@@ -546,7 +560,7 @@ Public Class PagePlugin
                                                                ModPlugin.RevokeTrust(Info)
                                                                Hint($"已清除「{Info.DisplayName}」的权限确认记录，下次启用会重新询问", HintType.Blue)
                                                                RefreshNav()
-                                                               RefreshCurrentSection()
+                                                               RefreshCurrentSection(PreserveScroll:=True)
                                                                End Sub))
         End If
         If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
@@ -627,7 +641,7 @@ Public Class PagePlugin
                                                                Try
                                                                    ModPlugin.RevokeHosts(PluginId)
                                                                    Hint("已撤销该插件的全部动态主机授权", HintType.Green)
-                                                                   RefreshCurrentSection()
+                                                                   RefreshCurrentSection(PreserveScroll:=True)
                                                                Catch ex As Exception
                                                                    Logger.Error(ex, "撤销授权失败", LogBehavior.Toast)
                                                                End Try
