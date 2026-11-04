@@ -61,9 +61,10 @@ Public Module ModPlugin
         Dim Detail = Info.Detail
         If Detail IsNot Nothing Then
             If Detail.NetAny Then Builder.Append(";net=*")
-            If Detail.Hosts.Count > 0 Then Builder.Append(";hosts=" & String.Join(",", Detail.Hosts.Select(Function(X) X.ToLowerInvariant()).OrderBy(Function(X) X)))
-            If Detail.ReadPaths.Count > 0 Then Builder.Append(";read=" & String.Join(",", Detail.ReadPaths.OrderBy(Function(X) X)))
-            If Detail.WritePaths.Count > 0 Then Builder.Append(";write=" & String.Join(",", Detail.WritePaths.OrderBy(Function(X) X)))
+            'v7.5（安全审计 3.8 R8）：统一小写 + Ordinal 排序，避免不同区域设置算出不同指纹
+            If Detail.Hosts.Count > 0 Then Builder.Append(";hosts=" & String.Join(",", Detail.Hosts.Select(Function(X) X.ToLowerInvariant()).OrderBy(Function(X) X, StringComparer.Ordinal)))
+            If Detail.ReadPaths.Count > 0 Then Builder.Append(";read=" & String.Join(",", Detail.ReadPaths.Select(Function(X) X.ToLowerInvariant()).OrderBy(Function(X) X, StringComparer.Ordinal)))
+            If Detail.WritePaths.Count > 0 Then Builder.Append(";write=" & String.Join(",", Detail.WritePaths.Select(Function(X) X.ToLowerInvariant()).OrderBy(Function(X) X, StringComparer.Ordinal)))
         End If
         Return Builder.ToString()
     End Function
@@ -310,8 +311,10 @@ Public Module ModPlugin
     ''' <summary>用户是否对该插件勾选过「不再提醒」（权限有变化时视为没有再勾）。</summary>
     Public Function IsPromptSkipped(Info As PluginInfo) As Boolean
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return False
+        'v7.5（安全审计 3.8 R4）：skipPrompt 的键必须和 trust.json 一致（id|文件夹名），否则重启后就丢失
+        Dim Key = TrustKey(Info)
         SyncLock SkipPromptIds
-            If Not SkipPromptIds.Contains(Info.Id) Then Return False
+            If Not SkipPromptIds.Contains(Key) Then Return False
         End SyncLock
         Return IsTrusted(Info)
     End Function
@@ -319,11 +322,12 @@ Public Module ModPlugin
     ''' <summary>记录或取消「不再提醒」（只有能通过权限确认时才有意义）。</summary>
     Public Sub SetPromptSkipped(Info As PluginInfo, Value As Boolean)
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
+        Dim Key = TrustKey(Info)
         SyncLock SkipPromptIds
             If Value Then
-                SkipPromptIds.Add(Info.Id)
+                SkipPromptIds.Add(Key)
             Else
-                SkipPromptIds.Remove(Info.Id)
+                SkipPromptIds.Remove(Key)
             End If
         End SyncLock
         SaveTrustState()
@@ -997,6 +1001,16 @@ Public Module ModPlugin
             End If
             Dim Target = IO.Path.Combine(PathPluginRoot, Info.Id)
             Dim Existing = IO.Directory.Exists(Target)
+            Dim OldFingerprint As String = ""
+            If Existing Then
+                'v7.5（安全审计 3.8 R3）：先记住旧清单的权限指纹，替换后比对
+                Try
+                    Dim OldInfo = ReadManifest(Target)
+                    If OldInfo IsNot Nothing Then OldFingerprint = PermissionFingerprint(OldInfo)
+                Catch ex As Exception
+                    Logger.Warn($"待生效插件 {Info.Id} 无法读取旧清单指纹：{ex.GetBaseException().Message}")
+                End Try
+            End If
             If Existing Then
                 Dim Backup = IO.Path.Combine(PathBackupRoot, Info.Id & "-" & Date.Now.ToString("yyyyMMdd-HHmmss"))
                 IO.Directory.CreateDirectory(PathBackupRoot)
@@ -1010,6 +1024,14 @@ Public Module ModPlugin
             Try
                 IO.Directory.Move(PendingDir, Target)
                 Logger.Info($"待生效插件已替换：{Info.DisplayName}（{Info.Id}）v{Info.Version}")
+                'v7.5（安全审计 3.8 R3）：权限清单变了就不能沿用旧的启用状态，否则扩权会在重启后静默生效
+                Dim NewFingerprint = PermissionFingerprint(Info)
+                If OldFingerprint <> "" AndAlso Not String.Equals(OldFingerprint, NewFingerprint, StringComparison.Ordinal) Then
+                    EnabledState.Remove(Info.Id)
+                    WriteEnabled()
+                    Logger.Warn($"待生效插件 {Info.DisplayName}（{Info.Id}）的权限清单有变化，已自动停用，需用户重新确认")
+                    ModMain.Hint($"{Info.DisplayName} 更新后权限有变化，已自动停用，请在插件页重新确认", HintType.Blue)
+                End If
             Catch ex As Exception
                 Logger.Warn($"待生效插件 {Info.Id} 写入失败：{ex.GetBaseException().Message}")
             End Try
@@ -1354,7 +1376,9 @@ Public Module ModPlugin
                                 Case "net"
                                     'v7.4（安全审计 V7）：net 写成 true / 字符串时表示允许任意主机；
                                     '写成对象时只认 hosts 里的条目，写错键名会得到空列表 → EnsureHostAllowed 直接拒绝
-                                    If TryCast(Prop.Value, JObject) Is Nothing Then Info.Detail.NetAny = True
+                                    'v7.5（安全审计 3.8 N1）：只有布尔 true 表示「任意主机」；字符串/数组按主机列表处理
+                                    Dim NetScalar = TryCast(Prop.Value, Newtonsoft.Json.Linq.JValue)
+                                    If NetScalar IsNot Nothing AndAlso NetScalar.Type = Newtonsoft.Json.Linq.JTokenType.Boolean AndAlso CBool(NetScalar.Value) Then Info.Detail.NetAny = True
                                     For Each H In ReadStringList(Prop.Value)
                                         Info.Detail.Hosts.Add(H)
                                     Next
@@ -2109,6 +2133,8 @@ Public Module ModPlugin
         Catch
         End Try
         If Host = "" Then Throw New ArgumentException("无效的网址：" & Url)
+        'v7.5（安全审计 3.8 N1）：net 写成 true = 允许任意主机（此前 NetAny 只用于跳过空列表报错，导致 true 全拒）
+        If Info.Detail.NetAny Then Return
         If Info.Detail.Hosts.Any(Function(P) MatchHostPattern(Host, P)) Then Return
         ' net.dynamic：清单里没列出的主机，可以在运行时逐个向用户申请
         If Info.HasPermission("net.dynamic") Then
@@ -3152,11 +3178,8 @@ Public Module ModPlugin
 
         Private Sub EnsureAllowed()
             If Owner Is Nothing Then Return
-            If Owner.Permissions.Count = 0 Then Return '没声明权限的老插件按无限制处理，和 HasPermission 保持一致
-            If Not Owner.HasPermission("plugins") Then
-                Owner.AddEvent("调用了未授权的插件管理接口")
-                Throw New UnauthorizedAccessException($"插件 {Owner.DisplayName} 没有声明 plugins 权限，不能管理其他插件")
-            End If
+            'v7.5（安全审计 3.8 R1）：不再对「空权限」放行——没声明 plugins 的插件一律不能管理其他插件
+            Owner.EnsurePermission("plugins")
         End Sub
 
         Private Function ToSummary(Info As PluginInfo) As PluginSummary
@@ -3210,6 +3233,11 @@ Public Module ModPlugin
             EnsureAllowed()
             Dim Info = FindPluginById(Id)
             If Info Is Nothing Then Return False
+            If Value AndAlso HighestPermissionRisk(Info) >= 1 AndAlso Not IsTrusted(Info) Then
+                'v7.5（安全审计 3.8 R2）：插件不能替用户静默启用「声明了中/高风险权限」的插件，必须由用户在插件页确认
+                Owner.AddEvent("拒绝启用 " & Info.Id & "：目标插件声明了中/高风险权限，需要用户在插件页亲自确认")
+                Return False
+            End If
             ModPlugin.SetEnabled(Info, Value)
             Return True
         End Function
@@ -4310,6 +4338,12 @@ Public Class PluginHost
             Return True
         Catch ex As Exception
             Info.AddEvent("HttpDownload 失败：" & ex.GetBaseException().Message)
+            'v7.5（安全审计 3.8 R9）：失败时清掉半截文件，避免留下一个看起来「下载完成」的残缺文件
+            Try
+                If IO.File.Exists(LocalPath) Then IO.File.Delete(LocalPath)
+            Catch DeleteEx As Exception
+                Info.AddEvent("清理未完成的下载失败：" & DeleteEx.GetBaseException().Message)
+            End Try
             Return False
         End Try
     End Function

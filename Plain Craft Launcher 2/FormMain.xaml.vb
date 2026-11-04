@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 460 Then 'PCL Harness 3.8.1
+                FeatureCount += 4
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有声明 plugins 权限的插件不能再导入/启用其他插件（安全审计 R1）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: net 写成 true 时按「任意主机」放行，字符串/数组按主机列表处理（N1）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 待生效更新若权限清单有变化，会自动停用并提示重新确认（R3）。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 签名状态按真实校验结果展示；插件 API 不能替用户启用中高风险插件（R2/R6）。"))
+            End If
             If LastVersion < 459 Then 'PCL Harness 3.8.0
                 FeatureCount += 5
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 没写 permissions 的插件不再拥有全部权限，改为「没有任何权限」（安全审计 V1）。"))

@@ -460,12 +460,18 @@ Public Class PagePlugin
                                        End If
                                        Lines.Add("")
                                        Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
-                                       If String.IsNullOrWhiteSpace(Info.Signature) Then
-                                           Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
-                                       Else
-                                                Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
-                                                Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
-                                       End If
+                                                                              'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
+                                       Select Case Info.SignatureStatus
+                                           Case ModPlugin.PluginSignatureStatus.Signed
+                                               Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
+                                               Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
+                                           Case ModPlugin.PluginSignatureStatus.UnknownPublisher
+                                               Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
+                                           Case ModPlugin.PluginSignatureStatus.Invalid
+                                               Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
+                                           Case Else
+                                               Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
+                                       End Select
                                        Lines.Add("")
                                        Lines.Add("确认后才会加载；以后权限有变化会再次询问。")
                                        Lines.Add(If(Info.Permissions.Count = 0, "未声明权限的插件不能用「不再提醒」：每次启用都会再问一次。", "选「不再提醒并启用」后，以后启用它时不再弹这个窗口（权限有变化会重新询问）。"))

@@ -51,14 +51,20 @@ function Find-Vbc {
     # 连 $"..." 这样的插值字符串都会报 BC30037，普通插件根本编不过。
     $userVbc = Join-Path $env:USERPROFILE "roslyn\tasks\vbc.exe"
     if (Test-Path $userVbc) {
-        $info = (Get-Item $userVbc).VersionInfo
-        if ($info.CompanyName -like "*Microsoft*") {
+        # v7.5（安全审计 3.8 S1'）：CompanyName 只是文件里的一段字符串，伪造很容易；改用 Authenticode 签名确认
+        $sig = $null
+        try { $sig = Get-AuthenticodeSignature -FilePath $userVbc -ErrorAction Stop } catch { $sig = $null }
+        $trusted = $false
+        if ($null -ne $sig -and $sig.Status -eq 'Valid' -and $null -ne $sig.SignerCertificate) {
+            $trusted = $sig.SignerCertificate.Subject -like '*Microsoft*'
+        }
+        if ($trusted) {
             $candidates += $userVbc
         } else {
-            Write-Warning "忽略 $userVbc：它不是微软签发的编译器。"
+            Write-Warning "忽略 $userVbc：它没有有效的微软 Authenticode 签名，可能是被替换过的编译器。"
         }
     }
-    $candidates += @(
+$candidates += @(
         "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\vbc.exe",
         "$env:WINDIR\Microsoft.NET\Framework\v4.0.30319\vbc.exe"
     )
