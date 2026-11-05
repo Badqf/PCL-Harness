@@ -125,6 +125,85 @@ Public Module ModPlugin
         End SyncLock
         SaveTrustState()
     End Sub
+    ''' <summary>
+    ''' 彻底忘掉某个插件的权限记录（v7.6.3）：卸载后重新装回来会被当成全新插件，重新弹确认框。
+    ''' 同时清掉按 id 前缀匹配的旧键（目录名可能变过）与该插件批准过的主机。
+    ''' </summary>
+    Public Sub ForgetTrust(Info As PluginInfo)
+        If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) Then Return
+        ForgetTrustById(Info.Id)
+    End Sub
+
+    ''' <summary>按插件 id 忘掉权限记录（卸载/删除目录时用）。</summary>
+    Public Sub ForgetTrustById(Id As String)
+        If String.IsNullOrEmpty(Id) Then Return
+        Dim Prefix As String = Id & "|"
+        Dim Removed As Boolean = False
+        SyncLock TrustedIds
+            For Each Name In TrustedIds.Keys.ToList()
+                If String.Equals(Name, Id, StringComparison.OrdinalIgnoreCase) OrElse
+                   Name.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) Then
+                    TrustedIds.Remove(Name)
+                    Removed = True
+                End If
+            Next
+        End SyncLock
+        SyncLock SkipPromptIds
+            For Each Name In SkipPromptIds.ToList()
+                If String.Equals(Name, Id, StringComparison.OrdinalIgnoreCase) OrElse
+                   Name.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) Then
+                    SkipPromptIds.Remove(Name)
+                    Removed = True
+                End If
+            Next
+        End SyncLock
+        SyncLock TrustedHosts
+            If TrustedHosts.Remove(Id) Then Removed = True
+        End SyncLock
+        If Removed Then
+            SaveTrustState()
+            Logger.Info($"已清除插件 {Id} 的权限记录：重新安装后需要重新确认权限。")
+        End If
+    End Sub
+    ''' <summary>清扫权限记录：只保留当前确实存在的插件目录（v7.6.3）。</summary>
+    Private Sub PruneTrustState()
+        Dim Alive As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        SyncLock Plugins
+            For Each Item In Plugins
+                If Item IsNot Nothing AndAlso Not String.IsNullOrEmpty(Item.Id) Then Alive.Add(Item.Id)
+            Next
+        End SyncLock
+        Dim Removed As Boolean = False
+        SyncLock TrustedIds
+            For Each Name In TrustedIds.Keys.ToList()
+                Dim Sep As Integer = Name.IndexOf("|"c)
+                Dim Owner As String = If(Sep > 0, Name.Substring(0, Sep), Name)
+                If Not Alive.Contains(Owner) Then
+                    TrustedIds.Remove(Name)
+                    Removed = True
+                End If
+            Next
+        End SyncLock
+        SyncLock SkipPromptIds
+            For Each Name In SkipPromptIds.ToList()
+                Dim Sep As Integer = Name.IndexOf("|"c)
+                Dim Owner As String = If(Sep > 0, Name.Substring(0, Sep), Name)
+                If Not Alive.Contains(Owner) Then
+                    SkipPromptIds.Remove(Name)
+                    Removed = True
+                End If
+            Next
+        End SyncLock
+        SyncLock TrustedHosts
+            For Each Name In TrustedHosts.Keys.ToList()
+                If Not Alive.Contains(Name) Then
+                    TrustedHosts.Remove(Name)
+                    Removed = True
+                End If
+            Next
+        End SyncLock
+        If Removed Then SaveTrustState()
+    End Sub
     ''' <summary>某个主机是否已被用户单独批准给这个插件（net.dynamic）。</summary>
     Public Function IsHostApproved(Info As PluginInfo, Host As String) As Boolean
         If Info Is Nothing OrElse String.IsNullOrEmpty(Info.Id) OrElse String.IsNullOrEmpty(Host) Then Return False
@@ -642,6 +721,8 @@ Public Module ModPlugin
                 End If
                 Plugins.Add(Info)
             Next
+            'v7.6.3：目录已经不在了的插件，权限记录一并作废（手工删目录 / 卸载后重装都按新插件算）
+            PruneTrustState()
             Dim DiscoveredCount As Integer = Plugins.Count
             Dim EnabledCount As Integer = Plugins.Where(Function(P) P.Enabled).Count
             Logger.Info($"扫描完成：共 {DiscoveredCount} 个插件，已启用 {EnabledCount} 个。")
@@ -1408,7 +1489,7 @@ Public Module ModPlugin
             Dim Target As String = Path.Combine(TrashRoot, $"{Info.Id}-{Date.Now:yyyyMMddHHmmss}")
             If Directory.Exists(Info.Folder) Then Directory.Move(Info.Folder, Target)
             EnabledState.Remove(Info.Id)
-            TrustedHosts.Remove(Info.Id)
+            ForgetTrust(Info)
             WriteEnabled()
             SaveTrustState()
             Refresh(True)

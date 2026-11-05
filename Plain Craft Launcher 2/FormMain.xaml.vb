@@ -23,6 +23,13 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 463 Then 'PCL Harness 3.8.4
+                FeatureCount += 2
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 卸载插件会一并清掉它的权限记录，重新装回来按新插件处理，会重新弹权限确认框（手工删掉插件目录也一样）。"))
+                BugCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 插件目录已不存在时，残留的权限记录会在重新扫描时自动清理，不会再出现「装回来的插件默认已受信任」。"))
+            End If
+
             If LastVersion < 462 Then 'PCL Harness 3.8.3
                 FeatureCount += 2
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 启用/停用插件、回滚、重新加载后页面不再跳回顶部，停在原来的位置。"))
