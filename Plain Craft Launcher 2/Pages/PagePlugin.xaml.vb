@@ -520,7 +520,7 @@ Public Class PagePlugin
                                        Logger.Error(ex, "切换插件状态失败", LogBehavior.Toast)
                                    End Try
                                    RefreshNav()
-                                   RefreshCurrentSection(PreserveScroll:=True)
+                                   ReplacePluginCard(Info.Id)
                                End Sub
         Right.Children.Add(Chk)
 
@@ -552,7 +552,7 @@ Public Class PagePlugin
                                                                 If ModPlugin.RollbackPlugin(Info.Id) Then
                                                                     Hint(Info.DisplayName & If(Info.Loaded, " 已安排回滚，重启启动器后生效", " 已回滚，重启启动器后生效"), HintType.Green)
                                                                     RefreshNav()
-                                                                    RefreshCurrentSection(PreserveScroll:=True)
+                                                                    ReplacePluginCard(Info.Id)
                                                                 Else
                                                                     Hint("没有可用的备份，回滚失败", HintType.Red)
                                                                 End If
@@ -566,7 +566,7 @@ Public Class PagePlugin
                                                               Hint("已重新读取插件清单；改了代码请重启启动器才能生效", HintType.Blue)
                                                               ModPlugin.Refresh(True)
                                                               RefreshNav()
-                                                              RefreshCurrentSection(PreserveScroll:=True)
+                                                              ReplacePluginCard(Info.Id)
                                                           End Sub))
         End If
         'v7.5（安全审计 3.8 R5）：记住是可撤销的——清掉确认记录，下次启用重新询问
@@ -575,7 +575,7 @@ Public Class PagePlugin
                                                                ModPlugin.RevokeTrust(Info)
                                                                Hint($"已清除「{Info.DisplayName}」的权限确认记录，下次启用会重新询问", HintType.Blue)
                                                                RefreshNav()
-                                                               RefreshCurrentSection(PreserveScroll:=True)
+                                                               ReplacePluginCard(Info.Id)
                                                                End Sub))
         End If
         If PanBtn.Children.Count > 0 Then Right.Children.Add(PanBtn)
@@ -584,9 +584,31 @@ Public Class PagePlugin
         GridMain.Children.Add(Right)
 
         Card.Children.Add(GridMain)
+        'v7.6.2：记下归属，供原位替换卡片用（避免整页重建造成滚动跳动）
+        Card.Tag = Info.Id
         Return Card
     End Function
 
+    ''' <summary>只重建某个插件的卡片并原位换掉，不触碰列表其它项（v7.6.2：勾选启用/停用时不再整页重建）。</summary>
+    Private Sub ReplacePluginCard(PluginId As String)
+        If ManageListBody Is Nothing OrElse String.IsNullOrEmpty(PluginId) Then Return
+        Dim Info = ModPlugin.Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, PluginId, StringComparison.OrdinalIgnoreCase))
+        If Info Is Nothing Then
+            RefreshCurrentSection(PreserveScroll:=True)
+            Return
+        End If
+        Dim NewCard As MyCard = BuildPluginCard(Info)
+        For i = 0 To ManageListBody.Children.Count - 1
+            Dim Child = TryCast(ManageListBody.Children(i), FrameworkElement)
+            If Child IsNot Nothing AndAlso String.Equals(TryCast(Child.Tag, String), PluginId, StringComparison.OrdinalIgnoreCase) Then
+                ManageListBody.Children.RemoveAt(i)
+                ManageListBody.Children.Insert(i, NewCard)
+                Return
+            End If
+        Next
+        '卡片不在当前列表里（例如被搜索过滤掉），退回整段重建，但仍保持滚动位置
+        RefreshCurrentSection(PreserveScroll:=True)
+    End Sub
     ' ================= 分区二：插件设置（每个插件一张可展开卡片） =================
 
     Private ExtendSearch As String = ""
