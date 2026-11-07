@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 465 Then 'PCL Harness 3.9.1
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 从插件市场卸载插件时会把插件目录移入 Windows 回收站，可从回收站还原。"))
+            End If
+
             If LastVersion < 464 Then 'PCL Harness 3.9.0
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "移除: 下载与联机功能，启动器只保留启动、设置、更多与插件相关页面。"))

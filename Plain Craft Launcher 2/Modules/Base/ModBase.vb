@@ -1,4 +1,4 @@
-﻿Imports System.Runtime.CompilerServices
+Imports System.Runtime.CompilerServices
 Imports System.Xaml
 
 Public Module ModBase
@@ -6,12 +6,12 @@ Public Module ModBase
 #Region "声明"
 
     '下列版本信息由更新器自动修改
-    Public Const VersionBaseName As String = "3.9.0" '显示用版本名'
+    Public Const VersionBaseName As String = "3.9.1" '显示用版本名'
     Public Const CommitHash As String = "" 'Commit Hash，由 GitHub Workflow 自动替换
 #If RELEASE Then
-    Public Const VersionCode As Integer = 464 '正式版
+    Public Const VersionCode As Integer = 465 '正式版
 #Else
-    Public Const VersionCode As Integer = 464 '快照版
+    Public Const VersionCode As Integer = 465 '快照版
 #End If
 
     '版本信息

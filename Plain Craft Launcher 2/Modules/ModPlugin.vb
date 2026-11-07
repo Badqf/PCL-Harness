@@ -1546,7 +1546,7 @@ Public Module ModPlugin
     End Function
 
     ''' <summary>
-    ''' 卸载插件：先停用并卸载，再把整个目录移入 Plugins\.trash 下（数据目录跟着走，需要时可手工恢复）。
+    ''' 卸载插件：先停用并卸载，再把整个目录移入 Windows 回收站（数据目录跟着走，可从回收站还原）。
     ''' </summary>
     Public Function UninstallPlugin(Id As String) As Boolean
         Dim Info = FindPluginById(Id)
@@ -1561,16 +1561,14 @@ Public Module ModPlugin
         Try
             PluginServices.UnregisterByOwner(Info.Id)
             RemoveUi(Info)
-            Dim TrashRoot As String = Path.Combine(PathPluginRoot, ".trash")
-            Directory.CreateDirectory(TrashRoot)
-            Dim Target As String = Path.Combine(TrashRoot, $"{Info.Id}-{Date.Now:yyyyMMddHHmmss}")
-            If Directory.Exists(Info.Folder) Then Directory.Move(Info.Folder, Target)
+            ' 卸载目录直接进 Windows 回收站，不再堆在 Plugins\.trash；回收站不可用时由 DirectoryUtils 回退删除。
+            If Directory.Exists(Info.Folder) Then MeloongCore.DirectoryUtils.Delete(Info.Folder, True)
             EnabledState.Remove(Info.Id)
             ForgetTrust(Info)
             WriteEnabled()
             SaveTrustState()
             Refresh(True)
-            Logger.Info($"插件已卸载：{DisplayName}（{Id}）→ {Target}")
+            Logger.Info($"插件已卸载：{DisplayName}（{Id}）→ 系统回收站")
             RaisePluginUninstalled(Id, Version)
             Return True
         Catch ex As Exception
@@ -3481,7 +3479,7 @@ Public Module ModPlugin
             Return True
         End Function
 
-        ''' <summary>卸载插件（移入 Plugins\.trash），成功返回 True。</summary>
+        ''' <summary>卸载插件（移入系统回收站），成功返回 True。</summary>
         ''' <summary>插件声明的更新地址（清单 update 字段），没声明返回空字符串。</summary>
         Public Function UpdateUrl(Id As String) As String
             EnsureAllowed()
