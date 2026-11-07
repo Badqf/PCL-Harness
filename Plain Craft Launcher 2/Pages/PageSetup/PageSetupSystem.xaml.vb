@@ -13,6 +13,9 @@ Public Class PageSetupSystem
             ItemSystemUpdateDownload.Content = "在有新版本时自动下载（更新快照版前需要先输入土豆码）"
         End If
 
+        'v8：下载功能由插件提供时，隐藏与下载相关的设置卡片
+        RefreshPluginFeature()
+
         '非重复加载部分
         Static IsLoaded As Boolean = False
         If IsLoaded Then Return
@@ -125,6 +128,24 @@ Public Class PageSetupSystem
     End Sub
     Private Sub BtnSystemSettingImp_Click(sender As Object, e As MouseButtonEventArgs) Handles BtnSystemSettingImp.Click
         Hint("该功能尚在开发中！")
+    End Sub
+
+#End Region
+
+#Region "插件功能开关"
+
+    ''' <summary>
+    ''' 按内置「下载」功能是否由插件启用，显示或隐藏下载相关设置卡片（v8）。
+    ''' </summary>
+    Public Sub RefreshPluginFeature()
+        Try
+            Dim Show As Boolean = ModPlugin.IsBuiltInPageEnabled(1)
+            Dim Vis As Visibility = If(Show, Visibility.Visible, Visibility.Collapsed)
+            CardDownload.Visibility = Vis
+            CardCommunity.Visibility = Vis
+        Catch ex As Exception
+            Logger.Error(ex, "刷新下载设置卡片失败")
+        End Try
     End Sub
 
 #End Region

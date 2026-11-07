@@ -7,7 +7,7 @@
     PanScroll="PanBack">
     <local:MyScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" x:Name="PanBack">
         <StackPanel x:Name="PanMain" Margin="25,10">
-            <local:MyCard Margin="0,15" Title="下载">
+            <local:MyCard x:Name="CardDownload" Margin="0,15" Title="下载">
                 <StackPanel Margin="25,37,25,15">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -46,7 +46,7 @@
                     </Grid>
                 </StackPanel>
             </local:MyCard>
-            <local:MyCard Margin="0,0,0,15" Title="社区资源">
+            <local:MyCard x:Name="CardCommunity" Margin="0,0,0,15" Title="社区资源">
                 <StackPanel Margin="25,37,25,12">
                     <Grid>
                         <Grid.ColumnDefinitions>

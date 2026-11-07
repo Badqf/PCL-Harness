@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -23,6 +23,11 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 464 Then 'PCL Harness 3.9.0
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "移除: 下载与联机功能，启动器只保留启动、设置、更多与插件相关页面。"))
+            End If
+
             If LastVersion < 463 Then 'PCL Harness 3.8.4
                 FeatureCount += 2
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 卸载插件会一并清掉它的权限记录，重新装回来按新插件处理，会重新弹权限确认框（手工删掉插件目录也一样）。"))
@@ -1814,6 +1819,8 @@ Public Class FormMain
 
     '引发实际页面切换的入口
     Private IsChangingPage As Boolean = False
+    'v8：插件内部调用 Host.Navigate 时置 True，避免又被槽位重定向挡回去
+    Public SkipSlotRedirect As Boolean = False
     ''' <summary>
     ''' 切换页面，并引起对应选择 UI 的改变。
     ''' </summary>
@@ -1898,11 +1905,8 @@ Public Class FormMain
                     Catch
                         BtnTag = 0
                     End Try
-                    If BtnTag < 100 Then
-                        Btn.SetChecked(BtnTag = CInt(PageCurrent.Page), True, False)
-                    Else
-                        Btn.SetChecked(False, True, False)
-                    End If
+                    'v8：内置按钮与插件按钮都按「页码 == Tag」判断勾选
+                    Btn.SetChecked(BtnTag = CInt(PageCurrent.Page), True, False)
                 End If
             Next
         Finally
@@ -1945,6 +1949,16 @@ Public Class FormMain
             PanTitleSelect.Children.Add(Btn)
             Index += 1
         Next
+        'v8：内置「下载」「联机」入口默认隐藏（对应页面由插件提供）
+        For Each Child As Object In PanTitleSelect.Children.Cast(Of UIElement)().ToList()
+            Dim BuiltInBtn As MyRadioButton = TryCast(Child, MyRadioButton)
+            If BuiltInBtn Is Nothing Then Continue For
+            Dim TagValue As Integer = 0
+            If Not Integer.TryParse(If(BuiltInBtn.Tag, "").ToString(), TagValue) Then Continue For
+            If TagValue >= 100 Then Continue For
+            'v8：下载 / 联机两个功能页默认不随启动器提供，内置入口始终隐藏
+                BuiltInBtn.Visibility = If(TagValue = 1 OrElse TagValue = 2, If(ModPlugin.IsBuiltInPageEnabled(TagValue), Visibility.Visible, Visibility.Collapsed), Visibility.Visible)
+        Next
         Logger.Info($"插件入口已刷新，共 {Index} 个")
         RefreshPluginNavCheck()
     End Sub
@@ -1965,6 +1979,11 @@ Public Class FormMain
     ''' </summary>
     Private Sub PageChangeActual(Stack As PageStackData, Optional SubType As PageSubType = -1)
         If PageCurrent = Stack AndAlso (PageCurrentSub = SubType OrElse SubType = -1) Then Return
+        'v8：下载 / 联机两个功能页默认不再随启动器提供，由插件页面替代；内置页一律不可达（Host.Navigate 经 SkipSlotRedirect 放行）
+        If Not SkipSlotRedirect AndAlso (Stack.Page = PageType.Download OrElse Stack.Page = PageType.Link) AndAlso Not ModPlugin.IsBuiltInPageEnabled(CInt(Stack.Page)) Then
+            ModMain.Hint("该功能由插件提供，请到「插件」页启用对应插件", HintType.Blue, True)
+            Stack = New PageStackData With {.Page = PageType.Launch}
+        End If
         If Stack.Page = PageType.InstanceSetup AndAlso PageInstanceLeft.Instance IsNot Nothing AndAlso McInstanceLock.IsLocked(PageInstanceLeft.Instance) Then
             Hint("该版本正在被修改，暂时无法进入版本设置！", HintType.Red)
             Return

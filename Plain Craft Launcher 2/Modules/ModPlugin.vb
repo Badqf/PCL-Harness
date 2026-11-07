@@ -467,7 +467,7 @@ Public Module ModPlugin
     ''' v7 ui / events 权限真正生效、权限必须显式声明（新插件不再默认全开）、实例信息与日志读取、换肤、
     '''    内容安装、启动游戏、账号信息、全局设置只读，以及中高风险权限的风险确认。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 7
+    Public Const ApiVersionUi As Integer = 8
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -597,6 +597,75 @@ Public Module ModPlugin
     ''' <summary>
     ''' 插件注册的一个标题栏入口（可打开页面，或只执行一段代码）。
     ''' </summary>
+    'v8：内置功能页（1=下载、2=联机）默认不随启动器提供，由插件调用 SetBuiltInPageEnabled 重新启用
+    Private ReadOnly BuiltInPageEnabledIds As New HashSet(Of Integer)
+
+    'v8：记录每个内置功能页是被哪个插件启用的；插件被禁用/卸载时按归属回收，避免标签残留
+    Private ReadOnly BuiltInPageOwners As New Dictionary(Of Integer, String)
+
+    ''' <summary>v8：某个内置功能页（1=下载、2=联机）当前是否已被插件启用；未启用时标签隐藏、页面不可达。</summary>
+    Public Function IsBuiltInPageEnabled(Page As Integer) As Boolean
+        If Page <> 1 AndAlso Page <> 2 Then Return True
+        SyncLock BuiltInPageEnabledIds
+            Return BuiltInPageEnabledIds.Contains(Page)
+        End SyncLock
+    End Function
+
+    ''' <summary>v8：由插件启用/停用内置功能页（1=下载、2=联机）；停用后入口隐藏并回到启动页。</summary>
+    Public Sub SetBuiltInPageEnabled(Page As Integer, Enabled As Boolean, Optional OwnerId As String = "")
+        If Page <> 1 AndAlso Page <> 2 Then Return
+        Dim Changed As Boolean
+        SyncLock BuiltInPageEnabledIds
+            If Enabled Then
+                Changed = BuiltInPageEnabledIds.Add(Page)
+                If Not String.IsNullOrWhiteSpace(OwnerId) Then BuiltInPageOwners(Page) = OwnerId
+            Else
+                Changed = BuiltInPageEnabledIds.Remove(Page)
+                BuiltInPageOwners.Remove(Page)
+            End If
+        End SyncLock
+        If Not Changed Then Return
+        Logger.Info("plugins：内置功能页 " & Page & If(Enabled, " 已启用", " 已停用"))
+        ModBase.RunInUi(Sub()
+            If ModMain.FrmMain Is Nothing Then Return
+            ModMain.FrmMain.RefreshPluginNav()
+            PageSetupUI.PluginFeatureRefresh()
+            If Not Enabled AndAlso CInt(ModMain.FrmMain.PageCurrent.Page) = Page Then
+                ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = FormMain.PageType.Launch})
+            End If
+        End Sub)
+    End Sub
+
+    ''' <summary>v8：回收某个插件启用的全部内置功能页（插件被禁用、卸载或加载失败时调用）。</summary>
+    Public Sub ReleaseBuiltInPages(OwnerId As String)
+        If String.IsNullOrWhiteSpace(OwnerId) Then Return
+        Dim Pages As New List(Of Integer)
+        SyncLock BuiltInPageEnabledIds
+            For Each Pair In BuiltInPageOwners
+                If String.Equals(Pair.Value, OwnerId, StringComparison.OrdinalIgnoreCase) Then Pages.Add(Pair.Key)
+            Next
+        End SyncLock
+        For Each Page In Pages
+            Logger.Info("plugins：回收插件 " & OwnerId & " 启用的内置功能页 " & Page)
+            SetBuiltInPageEnabled(Page, False)
+        Next
+    End Sub
+
+    ''' <summary>v8：返回接管某个内置页面的插件入口下标（Slot：1=下载，2=联机），没有则 -1。</summary>
+''' <summary>v8：某个槽位是否已被已加载的插件接管（接管后内置入口隐藏、内置页面改为插件页）。</summary>
+    Public Function SlotClaimed(Slot As Integer) As Boolean
+        Return SlotNavIndex(Slot) >= 0
+    End Function
+
+    Public Function SlotNavIndex(Slot As Integer) As Integer
+        If Slot <= 0 Then Return -1
+        For I As Integer = 0 To PluginNavItems.Count - 1
+            Dim Item As PluginNavItem = PluginNavItems(I)
+            If Item IsNot Nothing AndAlso Item.Slot = Slot AndAlso Item.Page IsNot Nothing Then Return I
+        Next
+        Return -1
+    End Function
+
     Public Class PluginNavItem
         Public Text As String = ""
         Public Icon As String = ""
@@ -605,6 +674,12 @@ Public Module ModPlugin
         ''' <summary>无页面时的点击动作。</summary>
         Public Action As Action
         Public Owner As PluginInfo
+        ''' <summary>v8：槽位接管。0 = 普通入口；1 = 接管「下载」（隐藏内置入口）；2 = 接管「联机」（隐藏内置入口）。</summary>
+        Public Slot As Integer = 0
+        ''' <summary>v8：同槽位内的排序（数字小的靠前，预留）。</summary>
+        Public Order As Integer = 0
+        ''' <summary>v8：是否由内置插件注册（同一槽位内置优先，预留）。</summary>
+        Public BuiltIn As Boolean = False
     End Class
 
     ''' <summary>插件设置项类型。</summary>
@@ -1447,6 +1522,8 @@ Public Module ModPlugin
             Info.Loaded = False
             Info.Instance = Nothing
             RemoveUi(Info)
+            'v8：插件停用后立刻收回它启用的内置功能页，避免「下载」「联机」标签残留
+            ReleaseBuiltInPages(Info.Id)
         End If
         WriteEnabled()
     End Sub
@@ -3825,11 +3902,33 @@ Public Class PluginHost
 
     ''' <summary>跳到启动器的主页面。Page 对应 FormMain.PageType 的数值，例如 1 = PageType.Launch。</summary>
     Public Sub Navigate(Page As Integer)
+        'v8：插件内部跳转要绕过「槽位接管」重定向，否则会被弹回插件页
         ModBase.RunInUi(Sub()
                             If ModMain.FrmMain Is Nothing Then Return
-                            ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = CType(Page, FormMain.PageType)})
+                            ModMain.FrmMain.SkipSlotRedirect = True
+                            Try
+                                ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = CType(Page, FormMain.PageType)})
+                            Finally
+                                ModMain.FrmMain.SkipSlotRedirect = False
+                            End Try
                         End Sub)
     End Sub
+
+    ''' <summary>v8：启用某个内置功能页（1=下载、2=联机）。页面内容仍是启动器原版实现，只是默认不提供、由插件启用。</summary>
+    Public Sub EnableBuiltInPage(Page As Integer)
+        Dim OwnerId As String = If(Info Is Nothing, "", Info.Id)
+        ModPlugin.SetBuiltInPageEnabled(Page, True, OwnerId)
+    End Sub
+
+    ''' <summary>v8：停用某个内置功能页（1=下载、2=联机），入口隐藏并回到启动页。</summary>
+    Public Sub DisableBuiltInPage(Page As Integer)
+        ModPlugin.SetBuiltInPageEnabled(Page, False)
+    End Sub
+
+    ''' <summary>v8：查询某个内置功能页当前是否可用。</summary>
+    Public Function IsBuiltInPageEnabled(Page As Integer) As Boolean
+        Return ModPlugin.IsBuiltInPageEnabled(Page)
+    End Function
 
     ' ================= v7 新增能力（都需要在清单里显式声明对应权限） =================
 

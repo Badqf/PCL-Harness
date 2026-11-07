@@ -392,6 +392,28 @@ Refresh:
     End Property
 
     ''' <summary>
+    ''' 按插件对内置「下载」「联机」功能的启用状态，刷新所有相关入口（v8）。
+    ''' </summary>
+    Public Shared Sub PluginFeatureRefresh()
+        Try
+            HiddenRefresh()
+        Catch ex As Exception
+            Logger.Error(ex, "刷新功能隐藏状态失败")
+        End Try
+        Try
+            If FrmSetupSystem IsNot Nothing Then FrmSetupSystem.RefreshPluginFeature()
+        Catch ex As Exception
+            Logger.Error(ex, "刷新下载设置卡片失败")
+        End Try
+        Try
+            If FrmSetupLeft IsNot Nothing AndAlso Not ModPlugin.IsBuiltInPageEnabled(2) AndAlso FrmSetupLeft.PageID = FormMain.PageSubType.SetupLink Then
+                FrmSetupLeft.PageChange(FormMain.PageSubType.SetupLaunch)
+            End If
+        Catch ex As Exception
+            Logger.Error(ex, "切回启动设置页失败")
+        End Try
+    End Sub
+    ''' <summary>
     ''' 更新功能隐藏带来的显示变化。
     ''' </summary>
     Public Shared Sub HiddenRefresh() Handles Me.Loaded
@@ -404,8 +426,8 @@ Refresh:
             Else
                 '顶部栏未被全部隐藏
                 FrmMain.PanTitleSelect.Visibility = Visibility.Visible
-                FrmMain.BtnTitleSelect1.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageDownload"), Visibility.Collapsed, Visibility.Visible)
-                FrmMain.BtnTitleSelect2.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageLink"), Visibility.Collapsed, Visibility.Visible)
+                FrmMain.BtnTitleSelect1.Visibility = If((Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageDownload")) OrElse Not ModPlugin.IsBuiltInPageEnabled(1), Visibility.Collapsed, Visibility.Visible)
+                FrmMain.BtnTitleSelect2.Visibility = If((Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageLink")) OrElse Not ModPlugin.IsBuiltInPageEnabled(2), Visibility.Collapsed, Visibility.Visible)
                 FrmMain.BtnTitleSelect3.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageSetup"), Visibility.Collapsed, Visibility.Visible)
                 FrmMain.BtnTitleSelect4.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenPageOther"), Visibility.Collapsed, Visibility.Visible)
             End If
@@ -422,13 +444,13 @@ Refresh:
             If FrmSetupLeft IsNot Nothing Then
                 FrmSetupLeft.ItemLaunch.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLaunch"), Visibility.Collapsed, Visibility.Visible)
                 FrmSetupLeft.ItemUI.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenSetupUi"), Visibility.Collapsed, Visibility.Visible)
-                FrmSetupLeft.ItemLink.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLink"), Visibility.Collapsed, Visibility.Visible)
+                FrmSetupLeft.ItemLink.Visibility = If((Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLink")) OrElse Not ModPlugin.IsBuiltInPageEnabled(2), Visibility.Collapsed, Visibility.Visible)
                 FrmSetupLeft.ItemSystem.Visibility = If(Not HiddenForceShow AndAlso Settings.Get(Of Boolean)("UiHiddenSetupSystem"), Visibility.Collapsed, Visibility.Visible)
                 '隐藏左边选择卡
                 Dim AvaliableCount As Integer = 0
                 If Not Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then AvaliableCount += 1
                 If Not Settings.Get(Of Boolean)("UiHiddenSetupUi") Then AvaliableCount += 1
-                If Not Settings.Get(Of Boolean)("UiHiddenSetupLink") Then AvaliableCount += 1
+                If Not Settings.Get(Of Boolean)("UiHiddenSetupLink") AndAlso ModPlugin.IsBuiltInPageEnabled(2) Then AvaliableCount += 1
                 If Not Settings.Get(Of Boolean)("UiHiddenSetupSystem") Then AvaliableCount += 1
                 FrmSetupLeft.PanItem.Visibility = If(AvaliableCount < 2 AndAlso Not HiddenForceShow, Visibility.Collapsed, Visibility.Visible)
             End If

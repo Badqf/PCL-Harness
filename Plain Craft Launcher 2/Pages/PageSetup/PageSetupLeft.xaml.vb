@@ -8,7 +8,7 @@ Public Class PageSetupLeft
         If ItemLaunch.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLaunch") Then IsHiddenPage = True
         If ItemUI.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupUi") Then IsHiddenPage = True
         If ItemSystem.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupSystem") Then IsHiddenPage = True
-        If ItemLink.Checked AndAlso Settings.Get(Of Boolean)("UiHiddenSetupLink") Then IsHiddenPage = True
+        If ItemLink.Checked AndAlso (Settings.Get(Of Boolean)("UiHiddenSetupLink") OrElse Not ModPlugin.IsBuiltInPageEnabled(2)) Then IsHiddenPage = True
         If PageSetupUI.HiddenForceShow Then IsHiddenPage = False
         '若页面错误，或尚未加载，则继续
         If IsLoad AndAlso Not IsHiddenPage Then Return
@@ -23,7 +23,7 @@ Public Class PageSetupLeft
             ItemUI.SetChecked(True, False, False)
         ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupSystem") Then
             ItemSystem.SetChecked(True, False, False)
-        ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupLink") Then
+        ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupLink") AndAlso ModPlugin.IsBuiltInPageEnabled(2) Then
             ItemLink.SetChecked(True, False, False)
         Else
             ItemLaunch.SetChecked(True, False, False)
@@ -48,7 +48,7 @@ Public Class PageSetupLeft
             PageID = FormMain.PageSubType.SetupUI
         ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupSystem") Then
             PageID = FormMain.PageSubType.SetupSystem
-        ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupLink") Then
+        ElseIf Not Settings.Get(Of Boolean)("UiHiddenSetupLink") AndAlso ModPlugin.IsBuiltInPageEnabled(2) Then
             PageID = FormMain.PageSubType.SetupLink
         Else
             PageID = FormMain.PageSubType.SetupLaunch
