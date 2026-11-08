@@ -1,4 +1,4 @@
-﻿Imports System.Linq
+Imports System.Linq
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Input
@@ -13,6 +13,9 @@ Public Class PagePlugin
 
     ''' <summary>当前分区：0 插件管理 / 1 插件设置 / 2 开发说明 / 3 控制台。</summary>
     Public SectionIndex As Integer = 0
+
+    ''' <summary>插件市场仓库的 Release 页：给还没装市场插件的用户一个获取入口（3.9.2）。</summary>
+    Private Const MarketReleasesUrl As String = "https://github.com/Badqf/PCL-Harness-Market/releases"
 
     Private IsRebuilding As Boolean
     Private HasInitialized As Boolean
@@ -191,6 +194,13 @@ Public Class PagePlugin
                                                     ModPlugin.WarnFailed()
                                                     RefreshCurrentSection(Animate:=True, PreserveScroll:=True)
                                                 End Sub))
+        PanBtn.Children.Add(MkButton("下载插件市场", Sub()
+                                                          Try
+                                                              ModBase.OpenWebsite(MarketReleasesUrl)
+                                                          Catch ex As Exception
+                                                              Logger.Error(ex, "打开插件市场发布页失败", LogBehavior.Toast)
+                                                          End Try
+                                                      End Sub))
         Body.Children.Add(PanBtn)
         Body.Margin = New Thickness(25, 40, 25, 20)
         CardPath.Children.Add(Body)
@@ -362,7 +372,7 @@ Public Class PagePlugin
                                                    Return (p.DisplayName & " " & If(p.Author, "") & " " & If(p.Description, "") & " " & p.StatusText).ToLowerInvariant().Contains(Key)
                                                End Function).ToList())
         If ModPlugin.Plugins.Count = 0 Then
-            ManageListBody.Children.Add(MkHint(If(String.IsNullOrEmpty(ModPlugin.ScanError), "还没有发现任何插件。把插件文件夹放进上面的目录后点「重新扫描」。", "扫描失败：" & ModPlugin.ScanError)))
+            ManageListBody.Children.Add(MkHint(If(String.IsNullOrEmpty(ModPlugin.ScanError), "还没有发现任何插件。把插件文件夹放进上面的目录后点「重新扫描」，或点「下载插件市场」获取常用插件。", "扫描失败：" & ModPlugin.ScanError)))
             Return
         End If
         If Shown.Count = 0 Then
