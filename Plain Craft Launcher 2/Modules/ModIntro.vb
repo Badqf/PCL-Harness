@@ -73,20 +73,20 @@ Public Module ModIntro
             Root.Child = Layout
 
             AddTitle(Main, "欢迎使用 PCL Harness")
-            AddPara(Main, "基于 Plain Craft Launcher 2 源码二次开发的自用启动器。保留原版全部功能，同时做了面向本地的改造，并把界面与行为开放给插件。", 12, 18, New Thickness(1, 8, 1, 6))
+            AddPara(Main, "基于 Plain Craft Launcher 2 源码二次开发的自用启动器。保留原版全部功能，并把界面与行为开放给插件；从 3.9.0 起，下载与联机改为由插件提供。", 12, 18, New Thickness(1, 8, 1, 6))
 
             AddHead(Main, "和原版 PCL2 的区别")
             AddItem(Main, "独立配置目录", "数据统一放在 PCLHarness 文件夹，与原版 PCL 互不覆盖；首次启动可一键迁移旧设置与插件。")
             AddItem(Main, "外观可切换", "深色 / 浅色外观；主色调限定在蓝色系（合规要求），另有 4 个预设一键切换。")
-            AddItem(Main, "插件框架（API v6）", "事件总线、服务注册、后台任务、崩溃熔断；可添加页面、顶栏入口与设置项。")
-            AddItem(Main, "联机可完全直连", "P2P 直连：房主把「地址|邀请码」发给朋友即可，公网可用 UPnP 自动映射。")
+            AddItem(Main, "插件框架（API v8）", "事件总线、服务注册、后台任务、崩溃熔断；可添加页面、顶栏入口、设置项与实例右键菜单，也能读写实例内容。插件需声明权限并逐项确认，卸载即清除授权、目录进回收站。")
+            AddItem(Main, "下载与联机由插件提供", "本体不再内置这两个页面，装上插件市场的「下载页面」「联机页面」即可恢复；插件页可直接打开插件市场。")
 
             AddHead(Main, "能做什么")
-            AddItem(Main, "下载与整理游戏", "游戏版本、Mod、整合包、资源包、光影，支持镜像优先与自动安装。")
-            AddItem(Main, "联机开房", "建房并复制邀请，或输入邀请码加入；局域网可直接连。")
-            AddItem(Main, "用插件扩展", "插件放进 PCLHarness\Plugins 即可加载；开发文档与示例见 Release 附件的开发版 SDK。")
-            AddItem(Main, "原版能力照旧", "版本隔离、内存分配、Java 管理、自定义主页等全部保留。")
-
+            AddItem(Main, "启动与管理游戏", "版本隔离、内存分配、Java 管理、自定义主页等原版能力全部保留。")
+            AddItem(Main, "用插件扩展", "在插件页打开插件市场一键安装，或把插件文件夹放进 PCLHarness\Plugins；开发文档与示例见 Release 附件的开发版 SDK。")
+            AddItem(Main, "联机开房", "装「联机页面」插件后：P2P 直连，房主把「地址|邀请码」发给朋友即可；TUN 模式可当虚拟局域网用。")
+            AddItem(Main, "下载安装", "装「下载页面」插件后：游戏版本、Mod、整合包、资源包、光影与数据包，支持镜像优先与自动安装。")
+            AddPara(Main, "本页可在「设置 → 启动」里关闭或重新打开。", 11.5, 17, New Thickness(1, 14, 1, 4), 0.6)
 
             '按钮
             Dim Bars As New StackPanel With {
