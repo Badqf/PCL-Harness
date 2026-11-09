@@ -33,6 +33,8 @@ Public Class PagePlugin
         RefreshNav()
         ModPlugin.WarnFailed()
         SwitchSection(SectionIndex, Animate:=False)
+        '插件列表在别处发生变化（例如从插件页按钮装了插件市场）时，跟着刷新计数与卡片
+        AddHandler ModPlugin.PluginsChanged, Sub() RefreshAfterImport()
     End Sub
 
     ''' <summary>
@@ -196,9 +198,9 @@ Public Class PagePlugin
                                                 End Sub))
         PanBtn.Children.Add(MkButton("下载插件市场", Sub()
                                                           Try
-                                                              ModBase.OpenWebsite(MarketReleasesUrl)
+                                                              ModPlugin.InstallMarketPlugin()
                                                           Catch ex As Exception
-                                                              Logger.Error(ex, "打开插件市场发布页失败", LogBehavior.Toast)
+                                                              Logger.Error(ex, "安装插件市场失败", LogBehavior.Toast)
                                                           End Try
                                                       End Sub))
         Body.Children.Add(PanBtn)

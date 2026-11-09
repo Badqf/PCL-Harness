@@ -735,6 +735,9 @@ Public Module ModPlugin
     ''' </summary>
     Public ReadOnly Plugins As New List(Of PluginInfo)
 
+    ''' <summary>插件列表发生变化（安装、卸载、启用状态切换）后触发，供界面刷新计数与卡片。</summary>
+    Public Event PluginsChanged()
+
     ''' <summary>
     ''' 最近一次扫描的错误（例如目录无法访问）。
     ''' </summary>
@@ -3172,6 +3175,144 @@ Public Module ModPlugin
             End If
         End Try
     End Function
+
+    ''' <summary>插件市场仓库：发行版附件里放着市场插件本体的 .pclplugin。</summary>
+    Public Const MarketRepo As String = "Badqf/PCL-Harness-Market"
+    ''' <summary>插件市场插件的固定 Id。</summary>
+    Public Const MarketPluginId As String = "pcl-harness-market"
+
+    ''' <summary>市场插件是否已经装过（按 Id 或文件夹名判断）。</summary>
+    Public Function IsMarketPluginInstalled() As Boolean
+        For Each Info In Plugins
+            If String.Equals(Info.Id, MarketPluginId, StringComparison.OrdinalIgnoreCase) Then Return True
+            Try
+                If String.Equals(IO.Path.GetFileName(Info.Folder.TrimEnd("\"c)), MarketPluginId, StringComparison.OrdinalIgnoreCase) Then Return True
+            Catch
+                '忽略
+            End Try
+        Next
+        Return False
+    End Function
+
+    ''' <summary>取插件市场最新安装包的下载地址（ghfast 加速优先，官方原址兜底）；取不到返回空列表。</summary>
+    Public Function GetMarketPluginUrls() As List(Of String)
+        Dim Result As New List(Of String)
+        Dim ApiUrls As String() = {
+            "https://gh-proxy.com/https://api.github.com/repos/" & MarketRepo & "/releases/latest",
+            "https://api.github.com/repos/" & MarketRepo & "/releases/latest"
+        }
+        For Each Url In ApiUrls
+            Try
+                Dim Raw As String = NetRequestByLoader(Url, 12000, True)
+                If String.IsNullOrWhiteSpace(Raw) Then Continue For
+                Dim Json As JObject = JObject.Parse(Raw)
+                Dim Assets As JToken = Json("assets")
+                If Assets Is Nothing Then Continue For
+                For Each Asset As JToken In Assets
+                    Dim Name As String = If(Asset("name")?.ToString(), "")
+                    If Not Name.EndsWith(".pclplugin", StringComparison.OrdinalIgnoreCase) Then Continue For
+                    Dim Download As String = If(Asset("browser_download_url")?.ToString(), "")
+                    If String.IsNullOrWhiteSpace(Download) Then Continue For
+                    Result.Add("https://ghfast.top/" & Download)
+                    Result.Add(Download)
+                    Result.Add("https://gh-proxy.com/" & Download)
+                    Logger.Info($"[Plugin] 插件市场最新安装包：{Name}")
+                    Return Result
+                Next
+            Catch ex As Exception
+                Logger.Warn(ex, $"[Plugin] 读取插件市场 Release 失败：{Url}")
+            End Try
+        Next
+        Return Result
+    End Function
+
+    ''' <summary>
+    ''' 内置下载并安装插件市场：任务管理器显示进度、可取消；装完提示重启启动器生效。
+    ''' </summary>
+    Public Sub InstallMarketPlugin()
+        If IsMarketPluginInstalled() Then
+            Hint("插件市场已经装好了，在插件列表里勾选「已启用」即可使用")
+            Return
+        End If
+        RunInNewThread(
+            Sub()
+                Try
+                    Dim Urls As List(Of String) = GetMarketPluginUrls()
+                    If Urls.Count = 0 Then
+                        Logger.Warn("[Plugin] 没取到插件市场的下载地址")
+                        Hint("没取到插件市场的下载地址，请检查网络后重试", HintType.Red)
+                        Return
+                    End If
+                    Dim Dir As String = IO.Path.Combine(PathTemp, "Market")
+                    IO.Directory.CreateDirectory(Dir)
+                    Dim Target As String = IO.Path.Combine(Dir, MarketPluginId & ".pclplugin")
+                    Try
+                        IO.File.Delete(Target)
+                    Catch
+                        '忽略
+                    End Try
+                    Dim Downloader As New LoaderDownload("下载插件市场", New List(Of NetFile) From {New NetFile(Urls, Target)})
+                    Downloader.Show = True
+                    AddHandler Downloader.OnStateChangedUi,
+                        Sub(L As LoaderBase, NewState As LoadState, OldState As LoadState)
+                            Try
+                                Select Case NewState
+                                    Case LoadState.Finished
+                                        If Not IO.File.Exists(Target) Then
+                                            Logger.Warn("[Plugin] 插件市场下载结束但没有找到安装包")
+                                            Hint("下载插件市场失败，请稍后重试", HintType.Red)
+                                            Return
+                                        End If
+                                        Dim Result As PluginImportResult = ImportPluginFile(Target, False)
+                                        Logger.Info("[Plugin] 安装插件市场：" & Result.Display)
+                                        Try
+                                            IO.File.Delete(Target)
+                                        Catch
+                                            '忽略
+                                        End Try
+                                        If Not Result.Success Then
+                                            Hint("插件市场安装失败：" & Result.Message, HintType.Red)
+                                            Return
+                                        End If
+                                        Refresh(True)
+                                        RaiseEvent PluginsChanged()
+                                        Dim Ver As String = If(String.IsNullOrWhiteSpace(Result.Version), "", " " & Result.Version)
+                                        Hint($"插件市场{Ver} 已安装并加载", HintType.Green)
+                                        If MyMsgBox($"插件市场{Ver} 已下载并安装完成，这次运行里就能用。" & vbCrLf & vbCrLf &
+                                                    "顶栏已经出现「插件市场」，点开确认一次权限即可；如果没看到，重启启动器后会生效。",
+                                                    "插件市场已就绪", "立即重启", "稍后") = 1 Then
+                                            ModBase.RestartLauncher()
+                                        End If
+                                    Case LoadState.Canceled
+                                        Try
+                                            IO.File.Delete(Target)
+                                        Catch
+                                            '忽略
+                                        End Try
+                                        Logger.Info("[Plugin] 已取消下载插件市场")
+                                        Hint("已取消下载插件市场")
+                                    Case LoadState.Failed
+                                        Try
+                                            IO.File.Delete(Target)
+                                        Catch
+                                            '忽略
+                                        End Try
+                                        Logger.Warn("[Plugin] 下载插件市场失败")
+                                        Hint("下载插件市场失败，可稍后重试", HintType.Red)
+                                End Select
+                            Catch ex As Exception
+                                Logger.Error(ex, "[Plugin] 处理插件市场安装失败")
+                            End Try
+                        End Sub
+                    Downloader.Start()
+                    LoaderTaskbar.Add(Downloader)
+                    Hint("正在下载插件市场…… 可在右下角「任务管理」查看进度或取消")
+                Catch ex As Exception
+                    Logger.Error(ex, "[Plugin] 启动插件市场下载失败")
+                    Hint("启动插件市场下载失败，请查看日志", HintType.Red)
+                End Try
+            End Sub, "下载插件市场")
+    End Sub
 
     ''' <summary>导入一个单 DLL（清单由 AssemblyMetadata 生成）。</summary>
     Public Function ImportPluginDll(DllPath As String, Optional Overwrite As Boolean = False) As PluginImportResult
