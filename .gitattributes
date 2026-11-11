@@ -4,6 +4,17 @@
 * text=auto
 
 ###############################################################################
+# PCL Harness line endings
+#
+# This machine only has Windows PowerShell 5.1 (no pwsh 7). Scripts under tools/
+# rely on a UTF-8 BOM to be parsed correctly, and must be checked out as CRLF so
+# an editor or a different core.autocrlf cannot silently rewrite them.
+# Markdown is kept LF so diffs and GitHub rendering stay stable.
+###############################################################################
+*.md         text eol=lf
+tools/*.ps1  text eol=crlf
+
+###############################################################################
 # Set default behavior for command prompt diff.
 #
 # This is need for earlier builds of msysgit that does not have it on by
