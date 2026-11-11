@@ -1,6 +1,6 @@
-# PCL Harness 插件开发指南（API v6）
+# PCL Harness 插件开发指南（API v8）
 
-> 适用版本：PCL Harness 3.2.x（插件 API v5，上游 2.14.0.0 合并后）
+> 适用版本：PCL Harness 3.9.4（插件 API v8，上游 2.14.0.0 合并后的自编版）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
@@ -425,7 +425,7 @@ Dim Answer = Host.Ask("要现在打开吗？", "插件提示", "打开", "取消
 - 只写了 v4 字符串数组权限的插件：仍按整类权限放行，不启用白名单。
 - API 版本：`ApiVersionUi = 5`，User-Agent 为 `PCLHarness-Plugin/5`。
 
-## API v6（当前版本）
+## API v6（历史版本）
 
 v6 在 v5 之上补齐「事件总线、服务注册、后台任务、开发者模式」，**v5 插件不改一行代码就能继续用**（`ApiVersionUi = 6`）。
 
@@ -948,3 +948,40 @@ v7.5 起确认框只有「仍然启用」/「取消」两个按钮，**点一次
 - `tools\pack-plugin-sdk.ps1` / `tools\pack-plugin.ps1`：版本号与 `id` 先按正则校验再拼路径（`id` 只允许小写字母数字与 `. _ -`，最长 64）。
 
 **对已有插件的影响**：如果旧插件依赖「不写权限就全能」，升级到 v7.4 后需要补写 `permissions`；只写了 `files` / `net` 而用了对象写法的，空列表的语义从「不限制」变成「禁止」，请显式写上允许的路径与主机。
+
+## API v7（历史版本）
+
+v7 的能力没有单独成章，散在 v6 的后续小节里：
+
+- 6.12 权限 v7：显式声明、风险分级、实例与日志接口；
+- 6.13 实例与内容管理（v7.3）；
+- 6.14 安全加固（v7.4，含「不声明 = 零权限」与签名覆盖权限清单）。
+
+v8 继续兼容这些接口，v7 及更早的插件无需改代码即可加载。
+
+## API v8（当前版本）
+
+v8 只改一件事：**内置功能页默认不再随启动器提供**。`1 = 下载`、`2 = 联机` 两页的正文仍是启动器原版实现，只是默认隐藏、页面不可达；由插件显式启用后，标题栏入口才会出现。
+
+### Host 成员（`PluginHost`，v8 新增）
+
+| 成员 | 签名 | 作用 |
+| --- | --- | --- |
+| `EnableBuiltInPage` | `Sub EnableBuiltInPage(Page As Integer)` | 启用内置页，归属记为当前插件；插件被禁用 / 卸载时按归属回收 |
+| `DisableBuiltInPage` | `Sub DisableBuiltInPage(Page As Integer)` | 停用内置页，入口隐藏并回到启动页 |
+| `IsBuiltInPageEnabled` | `Function IsBuiltInPageEnabled(Page As Integer) As Boolean` | 查询该页当前是否可用 |
+
+`Page` 只认 1（下载）和 2（联机）；其它值直接忽略，`IsBuiltInPageEnabled` 对其它值返回 `True`。
+
+### 底层接口（`ModPlugin`）
+
+- `SetBuiltInPageEnabled(Page As Integer, Enabled As Boolean, Optional OwnerId As String = "")`
+- `IsBuiltInPageEnabled(Page As Integer) As Boolean`
+
+`OwnerId` 记录「这页是谁开的」：插件被禁用或卸载时，宿主只回收它自己开的那一页，不会把别的插件开的入口一起关掉。用 `PluginHost` 的封装即可，不需要自己传 `OwnerId`。
+
+### 兼容性
+
+- 用到这些接口的插件，`minApiVersion` 建议声明为 8：声明 7 的插件在老启动器上也能装，但那时宿主没有这些成员，运行到会 `MissingMethodException`；声明 8 则老启动器会直接拒绝加载并提示 API 版本过低。
+- 内置页开关与「下载页面」「联机页面」这类插件页是两回事：后者是插件自己的页面，不受该开关影响。
+- 已有 v7 插件照常加载；如果它依赖「下载 / 联机」页存在，需要显式启用（或在说明里提示用户安装对应的插件页）。

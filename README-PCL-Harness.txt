@@ -1,4 +1,4 @@
-﻿PCL Harness（自编版）3.9.2
+﻿PCL Harness（自编版）3.9.4
 ====================
 
 这是基于 PCL2 v2.14.0.0 官方开源代码自行编译、修改的版本，非官方发布。
@@ -7,7 +7,7 @@
 一、这个版本改了什么
 --------------------
 1) 改名：窗口标题 PCL Harness　自编版；程序集标题/产品名 PCL Harness；
-   可执行文件为 PCL Harness.exe；左上角 logo 后带「Harness」后缀；版本号 3.9.2。
+   可执行文件为 PCL Harness.exe；左上角 logo 后带「Harness」后缀；版本号 3.9.4。
 2) 独立配置目录：数据统一放在本目录的 PCLHarness\ 下，与原版 PCL 互不覆盖；
    用户数据在 %AppData%\Roaming\PCLHarness\；首次启动可一键迁移旧设置与插件。
 3) 插件框架（当前 API v8，本版核心）：
@@ -43,5 +43,5 @@
 
 四、校验
 --------
-exe：PCL Harness.exe（约 6.1 MB，FileVersion 3.9.2.0）
+exe：PCL Harness.exe（约 6.1 MB，FileVersion 3.9.4.0）
 更新记录：docs\更新记录.md

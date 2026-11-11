@@ -92,7 +92,7 @@ powershell -File build.ps1 -Sign
 .\tools\sdk\build.ps1 -Project <插件目录> -Launcher '路径\PCL Harness.exe' -Pack
 
 # 打一个完整的 SDK 分发包
-.\tools\pack-plugin-sdk.ps1 -Version 3.9.1
+.\tools\pack-plugin-sdk.ps1 -Version <版本>
 ```
 
 > 本仓库不含 `bin/`、`obj/`、上游发布补丁包 `patches/` 与密钥文件；插件密钥放在 `PCLHarness\Secrets.json` 或环境变量里，不入库。
