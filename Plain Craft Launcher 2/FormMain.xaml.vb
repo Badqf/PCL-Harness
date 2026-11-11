@@ -846,8 +846,6 @@ Public Class FormMain
             Catch ex As Exception
                 Logger.Warn(ex, "清理自动更新文件失败")
             End Try
-            '上报
-            Telemetry("启动")
             '加载已启用的插件（PCL Harness 插件框架）
             RunInNewThread(
                 Sub()

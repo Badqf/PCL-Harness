@@ -56,7 +56,6 @@ Public Class PageLinkMain
                 Case LoadState.Finished
                     ChangeState(LinkStates.Finished)
                 Case LoadState.Failed
-                    Telemetry("联机失败", "Exception", FilterUserName(Loader.Error.GetDisplay(True), "*"))
                     ChangeState(LinkStates.Failed)
             End Select
         End Sub
@@ -665,7 +664,6 @@ Public Class PageLinkMain
                 Architecture = "arm64"
         End Select
         Logger.Info($"CPU 架构：{Architecture}")
-        Telemetry("联机开始")
         '检查 EasyTier 版本
         UpdateLoadingPage("正在检查联机模块版本……", "检查联机模块版本")
         If Not (FileUtils.Exists(PathEasyTier & "联机模块 CLI.exe") AndAlso FileUtils.Exists(PathEasyTier & "联机模块.exe") AndAlso
@@ -851,7 +849,6 @@ Public Class PageLinkMain
             Dim Ping = GetPeerPing()
             If Ping > 0 Then
                 Logger.Info($"已与目标建立连接，当前 Ping 为 {Ping:0.0}ms")
-                Telemetry("联机成功", "Server", IsServerSide, "NAT", NATType)
                 Exit Do '退出循环
             End If
             '更新进度
@@ -1060,7 +1057,6 @@ ForcedPass:
         Else
             MyMsgBox(Detail, "联机出错：" & Brief, IsWarn:=True)
             ChangeState(LinkStates.Waiting)
-            Telemetry("联机失败", "Exception", FilterUserName(Brief & "：" & Detail, "*"))
         End If
     End Sub
 

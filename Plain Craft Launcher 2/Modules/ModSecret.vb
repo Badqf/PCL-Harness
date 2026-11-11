@@ -21,8 +21,6 @@ Friend Module ModSecret
             Return SecretValue("CurseForgeApiKey", "PCL_CURSEFORGE_API_KEY")
         End Get
     End Property
-    '用于匿名数据收集的腾讯云日志服务上报 URL，形如 https://{region}.cls.tencentcs.com/track?topic_id={topic_id}
-    Public Const ClsBaseUrl As String = ""
 
     ''' <summary>
     ''' 读取可选凭据：优先环境变量，其次 exe 同级 PCL\Secrets.json。

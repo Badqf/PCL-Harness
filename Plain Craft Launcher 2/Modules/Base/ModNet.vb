@@ -1605,10 +1605,6 @@ FinishExCatch:
                     Dim Detail As String = File.Sources.Select(Function(s) $"{If(s.Ex Is Nothing, "无错误信息。", s.Ex.GetDisplay(False))}（{s.Url}）").Join(vbCrLf)
                     [Error] = New Exception("文件下载失败：" & File.LocalPath & vbCrLf &
                                             "各下载源的错误如下：" & vbCrLf & Detail, [Error])
-                    '上报
-                    Telemetry("文件下载失败",
-                              "FileName", File.LocalName,
-                              "Exception", Detail)
                     Exit For
                 Next
                 '在设置 Error 对象后再更改为失败，避免 WaitForExit 无法捕获错误
