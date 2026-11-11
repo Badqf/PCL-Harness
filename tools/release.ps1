@@ -355,6 +355,8 @@ function Invoke-GitHubApi {
         [string]$ContentType = 'application/json; charset=utf-8',
         [int]$TimeoutSec = 120
     )
+    # curl 的 -X 按字面发送方法名："Post" 会被 GitHub 当未知方法直接 403（HTML Forbidden）
+    $Method = ([string]$Method).ToUpperInvariant()
     $uri = "https://api.github.com$Path"
     if ($script:NetChannel -eq 'resolve') {
         return Invoke-CurlJson -Method $Method -Uri $uri -Body $Body -ContentType $ContentType -TimeoutSec $TimeoutSec
