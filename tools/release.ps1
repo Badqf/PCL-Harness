@@ -237,30 +237,13 @@ function Invoke-ResolveChannel([scriptblock]$Body) {
     这是本机最稳的 git push 通道：绕过 #S302 屏蔽 + 避免 IPv6 回退超时。
     hosts 不可写（非管理员）时自动降级到 resolve 通道，不再直接抛错。
 #>
-function Invoke-WithGitHubPin([scriptblock]$Body) {
-    $null = Get-NetIps
-
-    $useHosts = -not $ForceResolve
+function Invoke-HostsPinnedChannel {
+    param([scriptblock]$Body)
+    # 返回 $true：hosts 已钉上并且 body 已执行；返回 $false：hosts 写不进去、body 未执行，调用方应降级。
     $backup = Join-Path $env:TEMP ("hosts.release-" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
-    if ($useHosts) {
-        try {
-            Copy-Item $HostsPath $backup -Force -ErrorAction Stop
-        } catch {
-            Remove-Item $backup -Force -ErrorAction SilentlyContinue
-            $useHosts = $false
-            $why = ($_.Exception.Message -split "`r?`n")[0]
-            Warn "hosts 不可写（$why）"
-        }
-    }
-
-    if (-not $useHosts) {
-        Warn '降级为 resolve 通道（不碰 hosts）'
-        Invoke-ResolveChannel -Body $Body
-        return
-    }
-
     $original = [IO.File]::ReadAllText($HostsPath)
     try {
+        Copy-Item $HostsPath $backup -Force -ErrorAction Stop
         $lines = New-Object System.Collections.Generic.List[string]
         $lines.Add('# PCL Harness release pin (temporary, auto-removed)')
         foreach ($h in $PinHosts) {
@@ -271,18 +254,40 @@ function Invoke-WithGitHubPin([scriptblock]$Body) {
             Ok "$h -> $ip"
         }
         if ($lines.Count -le 1) { throw 'DoH 一个域名都没解析出来，网络不可用' }
+        # 非管理员会话在这里抛 UnauthorizedAccessException：读 hosts 没问题，写不行
         [IO.File]::WriteAllText($HostsPath, (($lines -join "`r`n") + "`r`n" + $original),
             (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Remove-Item $backup -Force -ErrorAction SilentlyContinue
+        $script:HostsPinFailure = ($_.Exception.Message -split "`r?`n")[0]
+        return $false
+    }
+    try {
         & ipconfig /flushdns | Out-Null
         & $Body
     } finally {
-        Copy-Item $backup $HostsPath -Force
-        & ipconfig /flushdns | Out-Null
+        try {
+            Copy-Item $backup $HostsPath -Force -ErrorAction Stop
+            & ipconfig /flushdns | Out-Null
+            Ok 'hosts 已还原'
+        } catch {
+            Warn "hosts 还原失败（$($_.Exception.Message)），原文件备份在 $backup"
+        }
         Remove-Item $backup -Force -ErrorAction SilentlyContinue
-        Ok 'hosts 已还原'
     }
+    return $true
 }
 
+function Invoke-WithGitHubPin([scriptblock]$Body) {
+    $null = Get-NetIps
+
+    if (-not $ForceResolve) {
+        if (Invoke-HostsPinnedChannel -Body $Body) { return }
+        Warn "hosts 不可写（$script:HostsPinFailure）"
+    }
+    Warn '降级为 resolve 通道（不碰 hosts）'
+    Invoke-ResolveChannel -Body $Body
+}
 <#
     resolve 通道下的 REST/上传：curl.exe + --resolve，等价于 Invoke-RestMethod 的返回对象。
 #>
@@ -474,23 +479,29 @@ if ($DryRun) {
 } else {
     Push-Location $RepoRoot
     try {
-        $dirty = @(& git status --porcelain)
+        $st = Invoke-Native 'git' @('status', '--porcelain')
+        if ($st.ExitCode -ne 0) { throw "git status 失败（exit=$($st.ExitCode)）" }
+        $dirty = @($st.Output | Where-Object { $_ -and $_.Trim() })
         if ($dirty.Count -gt 0) {
-            & git add -A
+            $r = Invoke-Native 'git' @('add', '-A')
+            if ($r.ExitCode -ne 0) { throw "git add 失败（exit=$($r.ExitCode)）：$((@($r.Output) | Select-Object -Last 2) -join ' ')" }
             $msgFile = Join-Path $env:TEMP "release-msg-$Version.txt"
             # 消息里可能有引号，必须走文件，否则 git 会把空格后的词当 pathspec
             [IO.File]::WriteAllText($msgFile, "feat: release PCL Harness $Version", (New-Object System.Text.UTF8Encoding($false)))
-            & git commit -F $msgFile | Out-Null
+            $r = Invoke-Native 'git' @('commit', '-F', $msgFile)
             Remove-Item $msgFile -Force -ErrorAction SilentlyContinue
-            Ok "commit $(& git rev-parse --short HEAD)"
+            if ($r.ExitCode -ne 0) { throw "git commit 失败（exit=$($r.ExitCode)）：$((@($r.Output) | Select-Object -Last 3) -join ' | ')" }
+            $h = Invoke-Native 'git' @('rev-parse', '--short', 'HEAD')
+            Ok "commit $((@($h.Output) | Select-Object -First 1))"
         } else {
             Warn '工作区干净，无新提交'
         }
-        if (-not (& git tag -l $Tag)) {
-            & git tag -a $Tag -m "PCL Harness $Version"
+        $tagList = @(Invoke-Native 'git' @('tag', '-l', $Tag) | ForEach-Object { @($_.Output) } | Where-Object { $_ -and $_.Trim() })
+        if ($tagList.Count -eq 0) {
+            $r = Invoke-Native 'git' @('tag', '-a', $Tag, '-m', "PCL Harness $Version")
+            if ($r.ExitCode -ne 0) { throw "git tag 失败（exit=$($r.ExitCode)）" }
             Ok "tag $Tag"
-        }
-    } finally { Pop-Location }
+        }    } finally { Pop-Location }
 }
 
 # ---------------------------------------------------------------- 6. push
