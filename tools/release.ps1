@@ -58,7 +58,7 @@ $Tag = "v$Version"
 $ExeName = 'PCL Harness.exe'
 $SdkName = "PCL-Harness-Plugin-SDK-$Version.zip"
 $HostsPath = 'C:\Windows\System32\drivers\etc\hosts'
-$PinHosts = @('github.com', 'www.github.com', 'api.github.com', 'codeload.github.com')
+$PinHosts = @('github.com', 'www.github.com', 'api.github.com', 'codeload.github.com', 'uploads.github.com')
 # DoH 通常只回一个区域地址；这几个 GitHub 官方网段地址实测在本机也能连，作为探测失败后的兜底
 $FallbackIps = @{
     'github.com'     = @('140.82.114.3', '140.82.116.3')
@@ -371,7 +371,8 @@ function Invoke-CurlJson {
     $Method = ([string]$Method).ToUpperInvariant()
     $isGet = ($Method -eq 'GET')
     $hostName = ([Uri]$Uri).Host
-    $ips = @($script:NetIps[$hostName])
+    # @($null) 的 Count 是 1，必须先滤掉空值，否则未缓存的域名会在走 DoH 兜底之前就拿到空 IP
+    $ips = @(@($script:NetIps[$hostName]) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($ips.Count -eq 0) { $ips = @(Resolve-ViaDoH $hostName) }
     if ($ips.Count -eq 0) { throw "DoH 解析不出 $hostName，resolve 通道无法发请求" }
 
@@ -390,7 +391,7 @@ function Invoke-CurlJson {
         $lastCode = ''
         for ($attempt = 1; $attempt -le $attempts; $attempt++) {
             foreach ($ip in $ips) {
-                $cliArgs = @('-sS', '--http1.1', '--resolve', "${hostName}:443:$ip", '--max-time', "$TimeoutSec",
+                $cliArgs = @('-sS', '-L', '--http1.1', '--resolve', "${hostName}:443:$ip", '--max-time', "$TimeoutSec",
                     '-X', $Method, '-o', $outFile, '-w', '%{http_code}',
                     '-H', "Authorization: token $token",
                     '-H', 'User-Agent: pcl-harness-release',
