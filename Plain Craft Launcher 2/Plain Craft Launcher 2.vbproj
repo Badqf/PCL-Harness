@@ -732,6 +732,7 @@
     <Compile Include="Modules\Base\MyBitmap.vb" />
     <Compile Include="Modules\ModMain.vb" />
     <Compile Include="Modules\Base\ModBase.vb" />
+    <Compile Include="Modules\Base\ModMemoryOptimize.vb" />
     <Compile Include="My Project\AssemblyInfo.vb">
       <SubType>Code</SubType>
     </Compile>

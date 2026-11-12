@@ -267,7 +267,7 @@ Public Class PageOtherTest
     End Sub
 
     Private Sub BtnMemory_Click(sender As Object, e As MouseButtonEventArgs)
-        RunInThread(Sub() MemoryOptimize(True))
+        RunInThread(Sub() ModMemoryOptimize.Optimize(True))
     End Sub
 
     Private Sub BtnCleanGame_Click(sender As Object, e As MouseButtonEventArgs)

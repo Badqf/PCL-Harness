@@ -57,7 +57,9 @@ Public Class Application
                         Environment.Exit(ProcessReturnValues.Fail)
                     End Try
                 ElseIf e.Args(0) = "--memory" Then
-                    '内存优化
+                    '内存优化：带结果路径时作为一次性的系统级优化子进程运行
+                    If e.Args.Length >= 2 Then Environment.Exit(ModMemoryOptimize.RunChild(e.Args))
+                    '内存优化（旧行为：只清理启动器自身）
                     Dim Ram = My.Computer.Info.AvailablePhysicalMemory
                     Try
                         PageOtherTest.MemoryOptimizeInternal(False)
