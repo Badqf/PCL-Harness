@@ -23,6 +23,10 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 469 Then 'PCL Harness 3.9.5
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 内存优化改为系统级——点击后先提示再申请一次管理员权限，把不需要的系统进程工作集交还系统；取消授权或失败时自动降级为只清理启动器自身。"))
+            End If
             If LastVersion < 468 Then 'PCL Harness 3.9.4
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "移除: 设置页的「匿名数据收集」开关与关于页的相关说明。这个开关其实从未真正上报过任何数据，留着只会让人误以为数据被收集。"))
