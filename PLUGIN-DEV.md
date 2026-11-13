@@ -1,6 +1,6 @@
 # PCL Harness 插件开发指南（API v8）
 
-> 适用版本：PCL Harness 3.9.4（插件 API v8，上游 2.14.0.0 合并后的自编版）
+> 适用版本：PCL Harness 3.9.4 及以上（插件 API v8，上游 2.14.0.0 合并后的自编版）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
