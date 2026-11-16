@@ -1,0 +1,56 @@
+/* ============================================================================
+ * pcl.css —— 页面级覆盖（模板 style.css 一行没改）
+ * 只做三件事：hero 换实机截图、演示面板换成截图、市场卡片去掉评价专属装饰。
+ * ==========================================================================*/
+
+/* 1. Hero：真实启动器截图，替掉纯 CSS 的假窗口 */
+.hero-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+/* 2. 演示区：每个 .mock-panel 里放一张 1300×765 的实机截图 */
+/* 截图自带标题栏，模板的假标题栏和辉光都不要了 */
+.mock-bar, .mock-glow { display: none; }
+.mock-window { transform: none; }
+.mock-panel { grid-template-columns: 1fr; min-height: 0; }
+.mock-panel img { display: block; width: 100%; height: auto; }
+
+/* 3. 市场卡片复用评价卡版式：星级与引号是评价专属，去掉 */
+.review-stars,
+.review-quote { display: none; }
+.review-card blockquote { margin-top: 2px; }
+.review-user { margin-top: auto; }
+.review-card .avatar { font-size: .82rem; font-weight: 700; }
+
+/* 4. 手机端：hero 截图别顶到边 */
+@media (max-width: 620px) {
+  .hero-shot { border-radius: 12px; }
+  .showcase-body { padding: 28px 20px 30px; }
+}
+
+/* 5. 浅色主题下品牌渐变太淡，压深一档（模板 style.css 未覆盖 --grad） */
+html[data-theme="light"] .gradient-text {
+  background-image: linear-gradient(100deg, #2b4fd8 0%, #1f74c9 100%);
+}
+
+/* ---------- 6. 收窄色域：只留蓝一档到蓝二档，去掉紫与青绿 ---------- */
+:root {
+  --brand: #5c86ff;
+  --brand-2: #74b6f5;
+  --accent: #45b6e0;
+  --grad: linear-gradient(115deg, #4c74f0 0%, #5c86ff 55%, #74b6f5 100%);
+  --glow-1: rgba(76, 116, 240, .26);
+  --glow-2: rgba(116, 182, 245, .16);
+}
+html[data-theme="light"] {
+  --glow-1: rgba(76, 116, 240, .16);
+  --glow-2: rgba(116, 182, 245, .12);
+}
+/* 模板里写死的青绿底，跟着新的 accent 走 */
+.check-list li::before { background: rgba(69, 182, 224, .14); }
+.pill-dot { box-shadow: 0 0 0 4px rgba(69, 182, 224, .16); }

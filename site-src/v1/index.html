@@ -1,0 +1,391 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCL Harness：能装插件的 Minecraft 启动器</title>
+<meta name="description" content="基于 PCL2 开源版的 Minecraft 启动器。下载、联机、主题都做成了插件，18 项权限分级，独立配置目录。Windows 10 / 11。">
+<meta name="theme-color" content="#0A0E17">
+<meta property="og:title" content="PCL Harness：能装插件的 Minecraft 启动器">
+<meta property="og:description" content="下载、联机、主题都是插件。18 项权限分级。3.9.5，Windows 10 / 11。">
+<meta property="og:type" content="website">
+<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="head">
+  <div class="wrap head__in">
+    <a class="brand" href="#top" aria-label="PCL Harness 首页">
+      <span class="brand__pcl">PCL</span><span class="brand__badge">Harness</span>
+    </a>
+    <nav class="nav" aria-label="站内导航">
+      <a href="#market">插件市场</a>
+      <a href="#dev">插件开发</a>
+      <a href="https://github.com/Badqf/PCL-Harness">GitHub</a>
+    </nav>
+    <a class="btn btn--sm" href="#download">下载</a>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- 开屏 -->
+  <section class="hero">
+    <div class="wrap hero__text">
+      <h1 class="hero__title">能装插件的<br>启动器</h1>
+      <p class="hero__lede">基于 PCL2 开源版的 Minecraft 启动器。市场里的插件装上去就多一块界面；API v8 和 SDK 摆在那儿，你自己也能写一个。PCL2 原有的版本、下载、Mod、账号，一个不少。</p>
+      <div class="hero__cta">
+        <a class="btn" href="#download">下载 3.9.5</a>
+        <a class="btn btn--ghost" href="#assemble">看它怎么装</a>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="stack" aria-label="启动器顶栏的四个页签，插件页在最前">
+
+        <a class="slab" href="#faq" style="--i:0">
+          <span class="slab__tab">更多</span>
+          <span class="slab__row"><span class="slab__line">帮助、更新、关于，还有联机诊断的导出。</span><span class="slab__hint">点开看</span></span>
+        </a>
+
+        <a class="slab" href="#theme" style="--i:1">
+          <span class="slab__tab">设置</span>
+          <span class="slab__row"><span class="slab__line">主题、内存、启动参数，都在这里。</span><span class="slab__hint">点开看</span></span>
+        </a>
+
+        <a class="slab" href="#market" style="--i:3">
+          <span class="slab__tab">下载</span>
+          <span class="slab__row"><span class="slab__line">版本、整合包、资源包、光影。</span><span class="slab__hint">点开看</span></span>
+        </a>
+
+        <section class="slab slab--open" aria-label="插件页的实拍">
+          <span class="slab__tab slab__tab--open">插件</span>
+          <div class="slab__open">
+            <div class="slab__meta">
+              <p class="ver"><span>3.9.5</span><em>VersionCode 469</em></p>
+              <p class="sig"><span class="sig__ver">3.9.5 · </span>2026-11-12 发布 · Windows 10 / 11 · 5.9 MB</p>
+              <p class="desc">插件页列出已装的插件，逐个显示版本、作者、状态和它要的权限。禁用、卸载、打开目录，都在这一行里。</p>
+              <a class="btn" href="#download">下载 3.9.5</a>
+            </div>
+            <figure class="slab__shot">
+              <img src="img/shot-plugins.png" width="1300" height="765" alt="插件管理页：插件目录、权限、最低 API 与签名来源">
+            </figure>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 装插件 -->
+  <section class="sec sec--accent" id="assemble">
+    <div class="wrap">
+      <div class="split split--head">
+        <h2 class="h2">插件装上去，<br>启动器就多一块。</h2>
+        <p class="lede">放进 <code>Plugins</code> 目录，或者在市场里点一下安装。插件能加一个页面、一张卡片、一个设置项、一条右键菜单——想加什么，权限里都写着。</p>
+      </div>
+
+      <figure class="figure">
+        <img src="img/shot-plugins.png" width="1300" height="765" alt="插件管理页：插件目录、每个插件的权限、最低 API 与签名来源">
+        <figcaption>插件管理页 · 版本、作者、权限、最低 API、签名来源，都写在插件这一行里</figcaption>
+      </figure>
+
+      <dl class="facts">
+        <div><dt>装法</dt><dd>拖进 Plugins 目录，或市场点安装</dd></div>
+        <div><dt>权限</dt><dd>18 项，按低 / 中 / 高分级</dd></div>
+        <div><dt>停用</dt><dd>随时禁用；卸载进回收站</dd></div>
+        <div><dt>安装包</dt><dd>官方页面插件 3.8 KB</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- 市场 -->
+  <section class="sec" id="market">
+    <div class="wrap">
+      <div class="split split--head">
+        <h2 class="h2">市场里现在有三个插件。</h2>
+        <p class="lede">两个官方页面，一个第三方 AI 助手。版本、权限、体积都写在条目上，不用点进去猜。市场就在启动器里，索引在 GitHub 上，离线时读本地缓存。</p>
+      </div>
+
+      <div class="market">
+        <div class="market__list" role="tablist" aria-label="市场条目">
+          <button class="mrow is-on" type="button" role="tab" aria-selected="true" data-prev="dl" data-cap="下载页 · 安装游戏、加载器、整合包与资源包">
+            <span class="mrow__top"><span class="mrow__name">下载页面</span><span class="mrow__ver">1.0.1</span></span>
+            <span class="mrow__meta">官方 · 仅 ui 权限 · 3.8 KB · 2026-11-08</span>
+          </button>
+          <button class="mrow" type="button" role="tab" aria-selected="false" data-prev="link" data-cap="联机页 · 房间码直连，支持 TUN 虚拟局域网">
+            <span class="mrow__top"><span class="mrow__name">联机页面</span><span class="mrow__ver">1.0.1</span></span>
+            <span class="mrow__meta">官方 · 仅 ui 权限 · 3.8 KB · 2026-11-08</span>
+          </button>
+          <button class="mrow" type="button" role="tab" aria-selected="false" data-prev="ai" data-cap="AI 助手 · 条目信息来自市场 index.json">
+            <span class="mrow__top"><span class="mrow__name">AI 助手</span><span class="mrow__ver">0.1.0</span></span>
+            <span class="mrow__meta">第三方 · API v7 · 34 KB · 2026-11-05</span>
+          </button>
+          <p class="market__foot">插件市场索引：<a href="https://github.com/Badqf/PCL-Harness-Market">Badqf/PCL-Harness-Market</a></p>
+        </div>
+
+        <div class="market__right">
+          <div class="market__stage">
+            <figure class="shot is-on" data-shot="dl">
+              <img src="img/shot-download.png" width="1300" height="765" alt="下载页：版本列表、安装按钮与下载源设置" loading="lazy">
+            </figure>
+            <figure class="shot" data-shot="link">
+              <img src="img/shot-link.png" width="1300" height="765" alt="联机页：创建房间、加入房间与虚拟局域网开关" loading="lazy">
+            </figure>
+            <div class="shot shot--card" data-shot="ai">
+              <h3 class="card__name">AI 助手</h3>
+              <p class="card__meta">0.1.0 · Badqf · MIT · API v7（需 3.8.3+）</p>
+              <p class="card__text">在「启动」页右侧的卡片里直接对话：流式输出、代码块、用量显示，历史存在本地。能调用 15 个工具切实例、启动游戏、管理插件与模组、读日志。</p>
+              <p class="card__fine">支持 DeepSeek、OpenAI 兼容服务与本地 Ollama。API Key 以明文存在启动器的插件设置里。</p>
+              <a class="card__link" href="https://github.com/Badqf/PCLH-Ai-chat-Plugin">github.com/Badqf/PCLH-Ai-chat-Plugin</a>
+            </div>
+          </div>
+          <p class="market__cap" data-cap>下载页 · 安装游戏、加载器、整合包与资源包</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 权限 -->
+  <section class="sec" id="permissions">
+    <div class="wrap">
+      <div class="split split--head">
+        <h2 class="h2">装之前，<br>先把 18 项权限签了。</h2>
+        <p class="lede">每个插件在 <code>plugin.json</code> 里写清楚自己要什么。每项都有中文说明和风险等级：中高风险在启用时弹一次；权限改过，即使同名同版本，也要重新确认。</p>
+      </div>
+
+      <div class="perms">
+        <div class="perms__tabs" role="tablist" aria-label="按风险筛选权限">
+          <button class="ptab is-on" type="button" role="tab" aria-selected="true" data-risk="all">全部 <b>18</b></button>
+          <button class="ptab" type="button" role="tab" aria-selected="false" data-risk="0">低 <b>8</b></button>
+          <button class="ptab" type="button" role="tab" aria-selected="false" data-risk="1">中 <b>9</b></button>
+          <button class="ptab" type="button" role="tab" aria-selected="false" data-risk="2">高 <b>1</b></button>
+        </div>
+
+        <ul class="perms__list" data-perms>
+          <li class="perm" data-risk="0"><code>ui</code><span class="perm__text">添加自定义页面、标题栏入口、设置项与卡片（会改动界面）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>events</code><span class="perm__text">订阅启动器事件（页面切换、游戏启动与退出、下载开始与结束）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>files</code><span class="perm__text">在授权的目录里读写文件（插件自己的数据目录始终可用）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>net</code><span class="perm__text">访问清单里授权的主机（发网络请求）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>net.dynamic</code><span class="perm__text">在运行时申请访问新的主机（每次弹窗询问，可随时撤销）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>instance.read</code><span class="perm__text">读取当前实例的信息：名称、加载器、版本号、模组数量（只读）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>logs.read</code><span class="perm__text">读取游戏日志与崩溃报告（只读）</span><b class="risk risk--0">低</b></li>
+          <li class="perm" data-risk="0"><code>mods.read</code><span class="perm__text">查看当前实例的模组、资源包与光影列表（只读）</span><b class="risk risk--0">低</b></li>
+
+          <li class="perm" data-risk="1"><code>skin</code><span class="perm__text">修改离线皮肤（会改变你在游戏里看到的外观）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>instance.install</code><span class="perm__text">往当前实例安装内容：mods、资源包、光影、数据包（会改动游戏文件）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>launch</code><span class="perm__text">主动启动游戏（你没点「启动游戏」时也会把游戏跑起来）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>account</code><span class="perm__text">读取当前账号信息：用户名、UUID、登录方式（只读，拿不到令牌）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>settings.global</code><span class="perm__text">读取启动器全局设置：路径、语言等偏好（只读）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>instance.select</code><span class="perm__text">切换当前选中的实例（会改变之后「启动游戏」用的版本）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>mods.write</code><span class="perm__text">启用或禁用实例里的模组、资源包与光影（会改动游戏文件）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>args</code><span class="perm__text">修改游戏启动参数（JVM 参数与游戏参数，能注入 -javaagent）</span><b class="risk risk--1">中</b></li>
+          <li class="perm" data-risk="1"><code>plugins</code><span class="perm__text">查看、安装、启用、禁用或卸载其他插件（市场类插件需要）</span><b class="risk risk--1">中</b></li>
+
+          <li class="perm" data-risk="2"><code>process</code><span class="perm__text">启动外部进程（等同于在你的电脑上执行代码）</span><b class="risk risk--2">高</b></li>
+        </ul>
+      </div>
+
+      <p class="caveat caveat--wide">风险分级是提示，不是沙箱。真要装了带 <code>process</code> 权限的 DLL，它就能在你的电脑上跑任何东西。别装来路不明的插件。</p>
+    </div>
+  </section>
+
+  <!-- 仍然 PCL -->
+  <section class="sec sec--light" id="theme">
+    <div class="wrap">
+      <div class="split split--head">
+        <h2 class="h2">PCL2 原有的功能，<br>一个不少。</h2>
+        <p class="lede">版本管理、下载、Mod、整合包、正版登录，还是 PCL 那一套布局和操作。配置搬进了自己的目录，主题能自己调，还能和原版并排开着。</p>
+      </div>
+
+      <div class="theme">
+        <figure class="theme__shot">
+          <img src="img/shot-light.png" width="1300" height="765" alt="PCL Harness 浅色主题启动页：顶栏是蓝色，左侧账号区，右侧是版本更新说明" loading="lazy">
+          <figcaption>浅色主题 · 同一套布局，换一身颜色</figcaption>
+        </figure>
+
+        <div class="theme__panel">
+          <div class="block">
+            <h3>主题</h3>
+            <p>深色、浅色两套。色相在 200–230° 之间调，四档预设直接给。换主题会自动重启启动器，免得半新半旧。</p>
+            <ul class="presets">
+              <li><i style="--c:hsl(220 85% 58%)"></i><span>标准蓝</span></li>
+              <li><i style="--c:hsl(204 70% 58%)"></i><span>冰蓝</span></li>
+              <li><i style="--c:hsl(214 92% 58%)"></i><span>海蓝</span></li>
+              <li><i style="--c:hsl(228 78% 58%)"></i><span>靛青</span></li>
+            </ul>
+          </div>
+          <div class="block">
+            <h3>独立目录</h3>
+            <p>配置在 <code>PCLHarness\</code>，数据在 <code>%AppData%\Roaming\PCLHarness\</code>。原版 PCL 的文件一个都不动，两个可以同时开。</p>
+          </div>
+          <div class="block">
+            <h3>首启迁移</h3>
+            <p>第一次启动会问你要不要搬：设置、插件、启动器数据。复制过去，跳过的项也记下来；搬完旧文件还在。</p>
+          </div>
+          <p class="caveat caveat--on-light">色相只开放 200–230°。不是偷懒，是上游授权划的线。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 插件 -->
+  <section class="sec" id="dev">
+    <div class="wrap">
+      <div class="split split--head">
+        <h2 class="h2">三样东西，<br>就能写一个插件。</h2>
+        <p class="lede">不用改启动器源码，不用等合并。一个清单、一个 DLL、一个目录，VB 和 C# 都能写。联机页、下载页、AI 助手的卡片，都是这套接口写出来的。</p>
+      </div>
+
+      <div class="dev">
+        <ol class="steps">
+          <li class="step">
+            <span class="step__n">1</span>
+            <div><h3>一份 plugin.json</h3><p>id、名称、版本、作者、入口类、DLL、要的权限。写清楚，启动器才认。</p></div>
+          </li>
+          <li class="step">
+            <span class="step__n">2</span>
+            <div><h3>一个 DLL</h3><p>实现 <code>IPclPlugin</code>，两个方法：<code>OnLoad</code> 和 <code>OnUnload</code>。想画界面再加 <code>IPclPluginUi</code>。</p></div>
+          </li>
+          <li class="step">
+            <span class="step__n">3</span>
+            <div><h3>放进插件目录</h3><p><code>PCLHarness\Plugins\&lt;id&gt;\</code>。回到插件页点「重新扫描」，它就出现在列表里了。</p></div>
+          </li>
+        </ol>
+
+        <div class="code">
+          <p class="code__name">plugin.json</p>
+          <pre><code>{
+  "id": "hello",
+  "name": "你好插件",
+  "version": "1.0.0",
+  "author": "你",
+  "entry": "HelloPlugin",
+  "dll": "Hello.Plugin.dll",
+  "permissions": [ "ui" ]
+}</code></pre>
+          <p class="code__name">HelloPlugin.vb</p>
+          <pre><code>Public Class HelloPlugin
+    Implements PCL.IPclPlugin
+
+    Public Sub OnLoad(Host As PCL.PluginHost) _
+            Implements PCL.IPclPlugin.OnLoad
+        Host.Log("你好，插件跑起来了")
+    End Sub
+
+    Public Sub OnUnload() Implements PCL.IPclPlugin.OnUnload
+    End Sub
+End Class</code></pre>
+        </div>
+      </div>
+
+      <dl class="api">
+        <div><dt>API</dt><dd>v8</dd></div>
+        <div><dt>权限</dt><dd>18 项，三级</dd></div>
+        <div><dt>示例</dt><dd>samples\DemoPlugin</dd></div>
+        <div><dt>文档</dt><dd><a href="https://github.com/Badqf/PCL-Harness/blob/main/PLUGIN-DEV.md">PLUGIN-DEV.md</a></dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- 常见问题 -->
+  <section class="sec" id="faq">
+    <div class="wrap wrap--narrow">
+      <h2 class="h2">先说难听的</h2>
+
+      <div class="qa-grid">
+<details class="qa" name="faq">
+        <summary>这是官方 PCL 吗？</summary>
+        <div class="qa__body">不是。PCL Harness 是基于龙腾猫跃的 PCL2 开源版做的独立二次开发，不隶属 PCL 官方，也不代表官方立场。关于页第一位写的是原作者。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>会被 SmartScreen 拦吗？</summary>
+        <div class="qa__body">会。没有代码签名，第一次运行会提示「Windows 已保护你的电脑」。点「更多信息」，再点「仍要运行」；或者先跑一次 <code>Unblock-File</code>。介意的话，源码是公开的。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>我的游戏和存档会被动吗？</summary>
+        <div class="qa__body">不会。迁移只复制 PCL 的设置、插件和启动器数据，游戏目录不碰；原版 PCL 的文件也不动。两个启动器可以同时开着。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>插件会不会乱来？</summary>
+        <div class="qa__body">权限是闸门，不是沙箱。18 项按低、中、高分级，高风险在启用时拦你一次，权限改了再拦一次。但真装了带 <code>process</code> 权限的 DLL，它就能在你的电脑上执行代码。别装来路不明的插件。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>联机为什么连不上？</summary>
+        <div class="qa__body">多半是对称 NAT 或 CGNAT，TUN 不改变打洞能力。联机还需要管理员权限和 wintun。连不上时，可以把诊断导出来看是哪一步断的。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>卸载会删什么？</summary>
+        <div class="qa__body">插件卸载会进 Windows 回收站，能捞回来。启动器的配置在 <code>PCLHarness\</code> 里，自己删。游戏和存档不碰。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>支持哪些系统？</summary>
+        <div class="qa__body">Windows 10 / 11 x64，需要 .NET Framework 4.8（Win10 1903 起自带）。</div>
+      </details>
+
+      <details class="qa" name="faq">
+        <summary>正版登录为什么提示没配置？</summary>
+        <div class="qa__body">开源版不带微软登录的 ClientID，要自己申请一个填进去。离线登录不受影响。</div>
+      </details>
+</div>
+    </div>
+  </section>
+
+  <!-- 下载 -->
+  <section class="sec sec--accent sec--end" id="download">
+    <div class="wrap">
+      <p class="end__line">装上去。</p>
+      <p class="end__sub">然后把插件也装上去。</p>
+
+      <div class="rel">
+        <div class="rel__head">
+          <span class="rel__name">PCL Harness</span>
+          <span class="rel__ver">3.9.5</span>
+        </div>
+        <dl class="rel__meta">
+          <div><dt>发布</dt><dd>2026-11-12</dd></div>
+          <div><dt>系统</dt><dd>Windows 10 / 11 x64</dd></div>
+          <div><dt>体积</dt><dd>5.9 MB<span>6,156,288 字节</span></dd></div>
+          <div><dt>依赖</dt><dd>.NET Framework 4.8</dd></div>
+        </dl>
+        <div class="rel__cta">
+          <a class="btn btn--dark" href="https://github.com/Badqf/PCL-Harness/releases/latest">下载 PCL Harness.exe</a>
+          <a class="btn btn--line" href="https://github.com/Badqf/PCL-Harness/releases">Release 与更新说明</a>
+        </div>
+        <p class="rel__note">从 GitHub Releases 下载。国内打不开就挂加速，或者先看插件市场的镜像说明。</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot__in">
+    <div class="foot__brand">
+      <span class="brand__pcl">PCL</span><span class="brand__badge">Harness</span>
+      <p class="foot__ver">3.9.5 · VersionCode 469</p>
+    </div>
+    <nav class="foot__nav" aria-label="页脚链接">
+      <a href="https://github.com/Badqf/PCL-Harness">源码</a>
+      <a href="https://github.com/Badqf/PCL-Harness/releases">Releases</a>
+      <a href="https://github.com/Badqf/PCL-Harness-Market">插件市场</a>
+      <a href="https://github.com/Badqf/PCL-Harness/blob/main/PLUGIN-DEV.md">插件开发</a>
+      <a href="https://github.com/Badqf/PCL-Harness/issues">反馈</a>
+    </nav>
+  </div>
+  <div class="wrap foot__fine">
+    <p>基于龙腾猫跃的 <a href="https://github.com/Meloong-Git/PCL">Plain Craft Launcher 2</a> 开源版二次开发，按 PCL 分发许可使用：保留署名、公开源码、保留正版劝导。本项目不隶属 PCL 官方。</p>
+    <p>© 2026 Badqf。截图来自 3.9.5 实测，房间码已脱敏。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

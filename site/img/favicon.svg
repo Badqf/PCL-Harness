@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PCL Harness">
+  <rect width="64" height="64" rx="13" fill="#0A0E17"/>
+  <rect x="9.5" y="15.5" width="45" height="33" rx="9.5" fill="none" stroke="#3976EF" stroke-width="3"/>
+  <path d="M23 24v16M41 24v16M23 32h18" stroke="#E7EEFD" stroke-width="4.5" stroke-linecap="round"/>
+</svg>

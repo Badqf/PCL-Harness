@@ -17,6 +17,18 @@
 # ModPlugin.vb is authored as UTF-8 without BOM and must stay LF in the worktree.
 "Plain Craft Launcher 2/Modules/ModPlugin.vb" text eol=lf
 
+# The product site and its authoring sources are authored as LF.
+# Only text kinds are listed: a blanket "site/**" would mark PNGs as text and
+# let git rewrite their bytes on checkout.
+site/*.html          text eol=lf
+site/**/*.html       text eol=lf
+site/**/*.css        text eol=lf
+site/**/*.js         text eol=lf
+site/**/*.svg        text eol=lf
+site-src/**/*.html   text eol=lf
+site-src/**/*.css    text eol=lf
+site-src/**/*.js     text eol=lf
+
 ###############################################################################
 # Set default behavior for command prompt diff.
 #
