@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 470 Then 'PCL Harness 3.9.6
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 标题栏插件入口放不下时自动折叠进「更多」菜单，不再压住最小化 / 关闭按钮，也不再被窗口边缘裁掉。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 「更多」是圆形按钮，点开是带图标的下拉菜单，当前页的入口被折叠时按钮会点亮。"))
+            End If
             If LastVersion < 469 Then 'PCL Harness 3.9.5
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 内存优化改为系统级——点击后先提示再申请一次管理员权限，把不需要的系统进程工作集交还系统；取消授权或失败时自动降级为只清理启动器自身。"))
