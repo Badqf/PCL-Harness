@@ -1898,6 +1898,8 @@ Public Class FormMain
             Dim Item = ModPlugin.PluginNavItems(Index)
             If Item.Page IsNot Nothing Then
                 PageChangeActual(TagValue)
+                '从「更多」菜单进来时没有原生点击的勾选动画，这里补同步
+                RefreshPluginNavCheck()
             Else
                 Try
                     Item.Action.Invoke()
@@ -1918,19 +1920,23 @@ Public Class FormMain
     Public Sub RefreshPluginNavCheck()
         IsChangingPage = True
         Try
+            Dim ActiveHidden As Boolean = False
             For Each Child As Object In PanTitleSelect.Children
-                If TypeOf Child Is MyRadioButton Then
-                    Dim Btn = CType(Child, MyRadioButton)
-                    Dim BtnTag As Integer = 0
-                    Try
-                        BtnTag = CInt(Val(If(Btn.Tag, 0)))
-                    Catch
-                        BtnTag = 0
-                    End Try
-                    'v8：内置按钮与插件按钮都按「页码 == Tag」判断勾选
-                    Btn.SetChecked(BtnTag = CInt(PageCurrent.Page), True, False)
-                End If
+                Dim Btn = TryCast(Child, MyRadioButton)
+                If Btn Is Nothing OrElse Btn Is BtnTitleOverflow Then Continue For
+                Dim BtnTag As Integer = 0
+                Try
+                    BtnTag = CInt(Val(If(Btn.Tag, 0)))
+                Catch
+                    BtnTag = 0
+                End Try
+                'v8：内置按钮与插件按钮都按「页码 == Tag」判断勾选
+                Dim IsActive As Boolean = (BtnTag = CInt(PageCurrent.Page))
+                Btn.SetChecked(IsActive, True, False)
+                '当前页的入口被折叠了：勾选状态对用户是不可见的，只能靠「更多」体现
+                If IsActive AndAlso Btn.Visibility <> Visibility.Visible Then ActiveHidden = True
             Next
+            If BtnTitleOverflow IsNot Nothing Then BtnTitleOverflow.SetChecked(ActiveHidden, True, False)
         Finally
             IsChangingPage = False
         End Try
@@ -1961,12 +1967,27 @@ Public Class FormMain
         BtnTitleOverflow.Logo = "M 2,5 L 8,11 L 14,5 L 16,7 L 8,15 L 0,7 Z"
         BtnTitleOverflow.Visibility = Visibility.Collapsed
         AddHandler BtnTitleOverflow.PreviewClick, AddressOf BtnTitleOverflow_PreviewClick
+        AddHandler BtnTitleOverflow.MouseLeftButtonUp, AddressOf BtnTitleOverflow_MouseUp
         PanTitleSelect.Children.Add(BtnTitleOverflow)
     End Sub
 
     Private Sub BtnTitleOverflow_PreviewClick(sender As Object, e As RouteEventArgs)
         '吃掉这次点击，避免它被当成一次单选
         e.Handled = True
+        OpenOverflowMenu()
+    End Sub
+
+    ''' <summary>
+    ''' 「更多」处于勾选状态时（当前页正好被折叠在里面），单选逻辑会跳过整个点击处理，
+    ''' 这里兜底，保证菜单照样能打开。
+    ''' </summary>
+    Private Sub BtnTitleOverflow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
+        If BtnTitleOverflow Is Nothing OrElse Not BtnTitleOverflow.Checked Then Return
+        e.Handled = True
+        OpenOverflowMenu()
+    End Sub
+
+    Private Sub OpenOverflowMenu()
         If OverflowMenu.Items.Count = 0 Then Return
         OverflowMenu.PlacementTarget = BtnTitleOverflow
         OverflowMenu.IsOpen = True
@@ -2081,6 +2102,9 @@ Public Class FormMain
             Logger.Error(ex, "计算标题栏入口宽度失败", LogBehavior.None)
         Finally
             IsFittingPluginNav = False
+            '折叠/展开会改变「当前页入口」是否可见，勾选状态要跟着重算。
+            '放在 Finally 里，宽度足够、提前 Return 的那条路径也能同步到。
+            RefreshPluginNavCheck()
         End Try
     End Sub
     ''' <summary>
