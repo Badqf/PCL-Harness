@@ -1923,7 +1923,7 @@ Public Class FormMain
             Dim ActiveHidden As Boolean = False
             For Each Child As Object In PanTitleSelect.Children
                 Dim Btn = TryCast(Child, MyRadioButton)
-                If Btn Is Nothing OrElse Btn Is BtnTitleOverflow Then Continue For
+                If Btn Is Nothing Then Continue For
                 Dim BtnTag As Integer = 0
                 Try
                     BtnTag = CInt(Val(If(Btn.Tag, 0)))
@@ -1936,7 +1936,7 @@ Public Class FormMain
                 '当前页的入口被折叠了：勾选状态对用户是不可见的，只能靠「更多」体现
                 If IsActive AndAlso Btn.Visibility <> Visibility.Visible Then ActiveHidden = True
             Next
-            If BtnTitleOverflow IsNot Nothing Then BtnTitleOverflow.SetChecked(ActiveHidden, True, False)
+            SetOverflowActive(ActiveHidden)
         Finally
             IsChangingPage = False
         End Try
@@ -1948,59 +1948,221 @@ Public Class FormMain
     ' 最后被窗口边缘裁掉——末尾几个入口既看不见也点不到。这里改成先量宽度再决定显示。
 
     Private ReadOnly PluginNavButtons As New List(Of MyRadioButton)
-    Private BtnTitleOverflow As MyRadioButton
-    Private ReadOnly OverflowMenu As New ContextMenu
+    Private BtnTitleOverflow As Border
+    Private BtnTitleOverflowArrow As System.Windows.Shapes.Path
+    Private IsOverflowActive As Boolean = False
+    Private ReadOnly OverflowPopup As New System.Windows.Controls.Primitives.Popup
+    Private ReadOnly OverflowPanel As New Border
+    Private ReadOnly OverflowList As New StackPanel
     Private IsFittingPluginNav As Boolean = False
 
     ''' <summary>
-    ''' 创建（或复用）标题栏右侧的「更多」入口按钮。它不参与单选，点击只弹菜单。
+    ''' 创建（或复用）标题栏最右侧的圆形「更多」按钮，以及从它向下展开的菜单。
+    ''' 它不参与单选：图标是纯几何折线，状态只有「当前页被折叠在这里」时点亮。
     ''' </summary>
     Private Sub EnsureTitleOverflowButton()
         If BtnTitleOverflow IsNot Nothing Then Return
-        BtnTitleOverflow = New MyRadioButton With {
-            .Text = "",
-            .Tag = "900",
-            .Margin = New Thickness(5, 0, 5, 0),
-            .LogoScale = 0.82,
-            .ToolTip = "更多入口"
+        BtnTitleOverflowArrow = New System.Windows.Shapes.Path With {
+            .Data = Geometry.Parse("M 2.5,4.5 L 8,10 L 13.5,4.5"),
+            .Stroke = New SolidColorBrush(Color.FromRgb(255, 255, 255)),
+            .StrokeThickness = 1.7,
+            .StrokeStartLineCap = PenLineCap.Round,
+            .StrokeEndLineCap = PenLineCap.Round,
+            .StrokeLineJoin = PenLineJoin.Round,
+            .HorizontalAlignment = HorizontalAlignment.Center,
+            .VerticalAlignment = VerticalAlignment.Center,
+            .IsHitTestVisible = False
         }
-        BtnTitleOverflow.Logo = "M 2,5 L 8,11 L 14,5 L 16,7 L 8,15 L 0,7 Z"
-        BtnTitleOverflow.Visibility = Visibility.Collapsed
-        AddHandler BtnTitleOverflow.PreviewClick, AddressOf BtnTitleOverflow_PreviewClick
+        BtnTitleOverflow = New Border With {
+            .Width = 27,
+            .Height = 27,
+            .CornerRadius = New CornerRadius(13.5),
+            .Background = New SolidColorBrush(ColorSemiTransparent),
+            .Margin = New Thickness(5, 0, 5, 0),
+            .Cursor = Cursors.Hand,
+            .ToolTip = "更多入口",
+            .Child = BtnTitleOverflowArrow,
+            .Visibility = Visibility.Collapsed
+        }
         AddHandler BtnTitleOverflow.MouseLeftButtonUp, AddressOf BtnTitleOverflow_MouseUp
+        AddHandler BtnTitleOverflow.MouseEnter, AddressOf BtnTitleOverflow_MouseEnter
+        AddHandler BtnTitleOverflow.MouseLeave, AddressOf BtnTitleOverflow_MouseLeave
         PanTitleSelect.Children.Add(BtnTitleOverflow)
-    End Sub
-
-    Private Sub BtnTitleOverflow_PreviewClick(sender As Object, e As RouteEventArgs)
-        '吃掉这次点击，避免它被当成一次单选
-        e.Handled = True
-        OpenOverflowMenu()
+        BuildOverflowPopup()
     End Sub
 
     ''' <summary>
-    ''' 「更多」处于勾选状态时（当前页正好被折叠在里面），单选逻辑会跳过整个点击处理，
-    ''' 这里兜底，保证菜单照样能打开。
+    ''' 菜单本体：圆角面板 + 逐条入口，从按钮正下方展开，带淡入与下滑。
     ''' </summary>
-    Private Sub BtnTitleOverflow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
-        If BtnTitleOverflow Is Nothing OrElse Not BtnTitleOverflow.Checked Then Return
-        e.Handled = True
-        OpenOverflowMenu()
+    Private Sub BuildOverflowPopup()
+        If OverflowPopup.Child IsNot Nothing Then Return
+        OverflowList.Orientation = Orientation.Vertical
+        OverflowPanel.Background = New SolidColorBrush(ColorBg1)
+        OverflowPanel.CornerRadius = New CornerRadius(10)
+        OverflowPanel.Padding = New Thickness(6)
+        OverflowPanel.MinWidth = 156
+        OverflowPanel.RenderTransform = New TranslateTransform
+        OverflowPanel.Effect = New System.Windows.Media.Effects.DropShadowEffect With {
+            .BlurRadius = 22,
+            .ShadowDepth = 4,
+            .Direction = 270,
+            .Opacity = 0.22,
+            .Color = Colors.Black
+        }
+        OverflowPanel.Child = OverflowList
+        OverflowPopup.Child = OverflowPanel
+        OverflowPopup.AllowsTransparency = True
+        OverflowPopup.StaysOpen = False
+        OverflowPopup.Placement = System.Windows.Controls.Primitives.PlacementMode.Relative
+        OverflowPopup.PlacementTarget = BtnTitleOverflow
+        OverflowPopup.VerticalOffset = BtnTitleOverflow.ActualHeight + 8
+        OverflowPopup.PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.None
+        AddHandler OverflowPopup.Opened, AddressOf OverflowPopup_Opened
     End Sub
 
     Private Sub OpenOverflowMenu()
-        If OverflowMenu.Items.Count = 0 Then Return
-        OverflowMenu.PlacementTarget = BtnTitleOverflow
-        OverflowMenu.IsOpen = True
+        If BtnTitleOverflow Is Nothing OrElse OverflowPopup.IsOpen Then Return
+        If OverflowList.Children.Count = 0 Then Return
+        '右边缘对齐按钮，避免贴着窗口右边被裁掉
+        PlaceOverflowPopup(False)
+        OverflowPopup.IsOpen = True
     End Sub
 
-    Private Sub PluginOverflowItem_Click(sender As Object, e As RoutedEventArgs)
-        Dim MenuItem = TryCast(sender, MyMenuItem)
-        If MenuItem Is Nothing Then Return
-        Dim Btn = TryCast(MenuItem.Tag, MyRadioButton)
+    ''' <summary>
+    ''' 菜单右边缘对齐按钮。首次打开用测量值，Opened 后拿实测宽度再纠一次。
+    ''' </summary>
+    Private Sub PlaceOverflowPopup(Final As Boolean)
+        Dim PanelWidth As Double = If(Final, OverflowPanel.ActualWidth, 0)
+        If PanelWidth <= 0 Then
+            OverflowPanel.Measure(New Size(Double.PositiveInfinity, Double.PositiveInfinity))
+            PanelWidth = OverflowPanel.DesiredSize.Width
+        End If
+        OverflowPopup.HorizontalOffset = Math.Min(0, BtnTitleOverflow.ActualWidth - PanelWidth)
+        
+        OverflowPopup.VerticalOffset = BtnTitleOverflow.ActualHeight + 8
+    End Sub
+
+    Private Sub OverflowPopup_Opened(sender As Object, e As EventArgs)
+        PlaceOverflowPopup(True)
+        CType(OverflowPanel.RenderTransform, TranslateTransform).Y = -8
+        OverflowPanel.Opacity = 0
+        AniStart({
+            AaOpacity(OverflowPanel, 1, 130),
+            AaTranslateY(OverflowPanel, 0, 170, 0, New AniEaseOutFluent())
+        }, "TitleOverflow Menu Open")
+    End Sub
+
+    Private Sub BtnTitleOverflow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
+        e.Handled = True
+        If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False Else OpenOverflowMenu()
+    End Sub
+
+    Private Sub BtnTitleOverflow_MouseEnter(sender As Object, e As MouseEventArgs)
+        If IsOverflowActive Then Return
+        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, New MyColor(56, 255, 255, 255), 90), "TitleOverflow Hover")
+    End Sub
+
+    Private Sub BtnTitleOverflow_MouseLeave(sender As Object, e As MouseEventArgs)
+        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, OverflowBaseColor(), 150), "TitleOverflow Hover")
+    End Sub
+
+    Private Function OverflowBaseColor() As MyColor
+        Return If(IsOverflowActive, New MyColor(255, 255, 255), ColorSemiTransparent)
+    End Function
+
+    ''' <summary>
+    ''' 当前页的入口被折叠时点亮按钮，告诉用户"当前页在这个菜单里"。
+    ''' </summary>
+    Private Sub SetOverflowActive(Active As Boolean)
+        If BtnTitleOverflow Is Nothing Then Return
+        If IsOverflowActive = Active Then Return
+        IsOverflowActive = Active
+        If Active Then
+            AniStart({
+                AaColor(BtnTitleOverflow, BackgroundProperty, New MyColor(255, 255, 255), 120),
+                AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, "ColorBrush3", 120)
+            }, "TitleOverflow Active")
+        Else
+            AniStart({
+                AaColor(BtnTitleOverflow, BackgroundProperty, ColorSemiTransparent, 120),
+                AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, New MyColor(255, 255, 255), 120)
+            }, "TitleOverflow Active")
+        End If
+    End Sub
+
+    Private Sub OverflowRow_MouseEnter(sender As Object, e As MouseEventArgs)
+        Dim Row = TryCast(sender, Border)
+        If Row Is Nothing Then Return
+        AniStart(AaColor(Row, BackgroundProperty, New MyColor(30, 255, 255, 255), 90), "TitleOverflow Row " & Row.GetHashCode())
+    End Sub
+
+    Private Sub OverflowRow_MouseLeave(sender As Object, e As MouseEventArgs)
+        Dim Row = TryCast(sender, Border)
+        If Row Is Nothing Then Return
+        AniStart(AaColor(Row, BackgroundProperty, New MyColor(0, 255, 255, 255), 150), "TitleOverflow Row " & Row.GetHashCode())
+    End Sub
+
+    Private Sub OverflowRow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
+        Dim Row = TryCast(sender, Border)
+        If Row Is Nothing Then Return
+        e.Handled = True
+        OverflowPopup.IsOpen = False
+        Dim Btn = TryCast(Row.Tag, MyRadioButton)
         If Btn Is Nothing Then Return
         '复用正常的入口点击逻辑，页面跳转与勾选同步都不用重写
         BtnTitleSelect_Click(Btn, True)
     End Sub
+
+    ''' <summary>
+    ''' 为折叠进来的入口生成一行（图标 + 文字），图标解析失败就只留文字。
+    ''' </summary>
+    Private Function CreateOverflowRow(NavItem As ModPlugin.PluginNavItem, Btn As MyRadioButton) As Border
+        Dim Row As New Border With {
+            .CornerRadius = New CornerRadius(7),
+            .Padding = New Thickness(10, 7, 16, 7),
+            .MinHeight = 32,
+            .Background = New SolidColorBrush(New MyColor(0, 255, 255, 255)),
+            .Cursor = Cursors.Hand,
+            .Tag = Btn
+        }
+        Dim Line As New StackPanel With {.Orientation = Orientation.Horizontal}
+        Dim ForegroundBrush = TryCast(TryFindResource("ColorBrushGray1"), Brush)
+        If ForegroundBrush Is Nothing Then ForegroundBrush = New SolidColorBrush(Colors.White)
+        Dim Glyph As System.Windows.Shapes.Path = Nothing
+        If Not String.IsNullOrWhiteSpace(NavItem.Icon) Then
+            Try
+                Dim Conv = System.ComponentModel.TypeDescriptor.GetConverter(GetType(Geometry))
+                Dim Geo = TryCast(Conv.ConvertFromString(NavItem.Icon), Geometry)
+                If Geo IsNot Nothing Then
+                    Glyph = New System.Windows.Shapes.Path With {
+                        .Data = Geo,
+                        .Fill = ForegroundBrush,
+                        .Stretch = Stretch.Uniform,
+                        .MaxWidth = 16,
+                        .MaxHeight = 16,
+                        .Width = 16,
+                        .HorizontalAlignment = HorizontalAlignment.Center,
+                        .VerticalAlignment = VerticalAlignment.Center
+                    }
+                End If
+            Catch ex As Exception
+                Logger.Error(ex, "插件入口图标解析失败：" & NavItem.Text, LogBehavior.None)
+            End Try
+        End If
+        If Glyph IsNot Nothing Then Line.Children.Add(Glyph)
+        Line.Children.Add(New TextBlock With {
+            .Text = NavItem.Text,
+            .FontSize = 13.5,
+            .Foreground = ForegroundBrush,
+            .VerticalAlignment = VerticalAlignment.Center,
+            .Margin = New Thickness(If(Glyph Is Nothing, 0, 8), 0, 0, 0)
+        })
+        Row.Child = Line
+        AddHandler Row.MouseEnter, AddressOf OverflowRow_MouseEnter
+        AddHandler Row.MouseLeave, AddressOf OverflowRow_MouseLeave
+        AddHandler Row.MouseLeftButtonUp, AddressOf OverflowRow_MouseUp
+        Return Row
+    End Function
 
     ''' <summary>
     ''' 按当前窗口宽度决定显示几个插件入口，其余折叠进「更多」。
@@ -2019,7 +2181,8 @@ Public Class FormMain
                 Btn.Visibility = Visibility.Visible
             Next
             BtnTitleOverflow.Visibility = Visibility.Collapsed
-            OverflowMenu.Items.Clear()
+            If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False
+            OverflowList.Children.Clear()
 
             '左侧品牌区实际占到多宽（logo 与 Harness 徽标都在第 0 列）
             Dim LeftBlock As Double = 60
@@ -2046,7 +2209,7 @@ Public Class FormMain
             Dim Used As Double = 0
             For Each Child As Object In PanTitleSelect.Children
                 Dim Btn = TryCast(Child, MyRadioButton)
-                If Btn Is Nothing OrElse Btn Is BtnTitleOverflow Then Continue For
+                If Btn Is Nothing Then Continue For
                 If Btn.Visibility <> Visibility.Visible Then Continue For
                 If Val(Btn.Tag) >= 100 Then Continue For
                 Btn.Measure(New Size(Double.PositiveInfinity, 27))
@@ -2083,21 +2246,9 @@ Public Class FormMain
 
             For I As Integer = FirstHidden To PluginNavButtons.Count - 1
                 If I >= ModPlugin.PluginNavItems.Count Then Exit For
-                Dim NavItem = ModPlugin.PluginNavItems(I)
-                Dim MenuItem As New MyMenuItem With {
-                    .Header = NavItem.Text,
-                    .Tag = PluginNavButtons(I)
-                }
-                If Not String.IsNullOrWhiteSpace(NavItem.Icon) Then
-                    Try
-                        MenuItem.Icon = "F1 " & NavItem.Icon
-                    Catch
-                    End Try
-                End If
-                AddHandler MenuItem.Click, AddressOf PluginOverflowItem_Click
-                OverflowMenu.Items.Add(MenuItem)
+                OverflowList.Children.Add(CreateOverflowRow(ModPlugin.PluginNavItems(I), PluginNavButtons(I)))
             Next
-            Logger.Info($"插件入口溢出：折叠 {OverflowMenu.Items.Count} 个到「更多」（可用 {Available:0}，需要 {Total:0}）")
+            Logger.Info($"插件入口溢出：折叠 {OverflowList.Children.Count} 个到「更多」（可用 {Available:0}，需要 {Total:0}）")
         Catch ex As Exception
             Logger.Error(ex, "计算标题栏入口宽度失败", LogBehavior.None)
         Finally
@@ -2122,7 +2273,6 @@ Public Class FormMain
                 Catch
                     BtnTag = 0
                 End Try
-                If Btn Is BtnTitleOverflow Then Continue For
                 If BtnTag >= 100 Then Old.Add(Btn)
             End If
         Next
