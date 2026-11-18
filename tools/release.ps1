@@ -44,7 +44,8 @@ param(
     [switch]$NoPush,
     [switch]$NoRelease,
     [switch]$DryRun,
-    [switch]$ForceResolve      # 调试用：跳过写 hosts，强制走 resolve 通道
+    [switch]$ForceResolve,     # 调试用：跳过写 hosts，强制走 resolve 通道
+    [switch]$SkipPreflight     # 调试用：跳过 tools\preflight.ps1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -484,6 +485,18 @@ function Upload-Asset {
             -ContentType $ContentType -TimeoutSec 900
     }
     Ok "上传 $($r.name) $($r.size) B state=$($r.state)"
+}
+
+# ---------------------------------------------------------------- 0. 本地预检
+# 编码、版本号、gitattributes、密钥这些错了，后面每一步都是白跑，所以放在一切网络动作之前。
+# 允许脏工作区（版本号本来还没提交），跳过产物对比（Step 2 编译、Step 4 部署会重做）。
+if (-not $SkipPreflight) {
+    $preflightPath = Join-Path $PSScriptRoot 'preflight.ps1'
+    if (-not (Test-Path $preflightPath)) { throw "找不到 $preflightPath；确认 tools 目录完整，或用 -SkipPreflight 跳过" }
+    Write-Host '[0/8] 本地预检（编码 / 版本 / 属性 / 密钥）' -ForegroundColor Cyan
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $preflightPath -AllowDirty -SkipArtifacts -ExpectVersion $Version
+    if ($LASTEXITCODE -ne 0) { throw 'preflight 未通过：先修掉上面列出的问题再发版（-SkipPreflight 可绕过，但要写清理由）' }
+    Ok '本地预检通过'
 }
 
 # ---------------------------------------------------------------- 0. Release 幂等预检
