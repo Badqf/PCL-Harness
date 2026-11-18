@@ -1110,6 +1110,7 @@ Public Class FormMain
     ''' </summary>
     Private Sub PanTitle_SizeChanged(sender As Object, e As SizeChangedEventArgs)
         RefreshTitleSuffixFit()
+        FitPluginNav()
     End Sub
 
     Public Sub RefreshTitleSuffixFit()
@@ -1935,6 +1936,153 @@ Public Class FormMain
         End Try
     End Sub
 
+    ' ================= 标题栏入口溢出（v8.1） =================
+    ' 空间不足时，把尾部的插件入口收进「更多」菜单：
+    ' 原来的做法是让 StackPanel 一直往右画，越过标题栏后压住最小化 / 关闭按钮，
+    ' 最后被窗口边缘裁掉——末尾几个入口既看不见也点不到。这里改成先量宽度再决定显示。
+
+    Private ReadOnly PluginNavButtons As New List(Of MyRadioButton)
+    Private BtnTitleOverflow As MyRadioButton
+    Private ReadOnly OverflowMenu As New ContextMenu
+    Private IsFittingPluginNav As Boolean = False
+
+    ''' <summary>
+    ''' 创建（或复用）标题栏右侧的「更多」入口按钮。它不参与单选，点击只弹菜单。
+    ''' </summary>
+    Private Sub EnsureTitleOverflowButton()
+        If BtnTitleOverflow IsNot Nothing Then Return
+        BtnTitleOverflow = New MyRadioButton With {
+            .Text = "",
+            .Tag = "900",
+            .Margin = New Thickness(5, 0, 5, 0),
+            .LogoScale = 0.82,
+            .ToolTip = "更多入口"
+        }
+        BtnTitleOverflow.Logo = "M 2,5 L 8,11 L 14,5 L 16,7 L 8,15 L 0,7 Z"
+        BtnTitleOverflow.Visibility = Visibility.Collapsed
+        AddHandler BtnTitleOverflow.PreviewClick, AddressOf BtnTitleOverflow_PreviewClick
+        PanTitleSelect.Children.Add(BtnTitleOverflow)
+    End Sub
+
+    Private Sub BtnTitleOverflow_PreviewClick(sender As Object, e As RouteEventArgs)
+        '吃掉这次点击，避免它被当成一次单选
+        e.Handled = True
+        If OverflowMenu.Items.Count = 0 Then Return
+        OverflowMenu.PlacementTarget = BtnTitleOverflow
+        OverflowMenu.IsOpen = True
+    End Sub
+
+    Private Sub PluginOverflowItem_Click(sender As Object, e As RoutedEventArgs)
+        Dim MenuItem = TryCast(sender, MyMenuItem)
+        If MenuItem Is Nothing Then Return
+        Dim Btn = TryCast(MenuItem.Tag, MyRadioButton)
+        If Btn Is Nothing Then Return
+        '复用正常的入口点击逻辑，页面跳转与勾选同步都不用重写
+        BtnTitleSelect_Click(Btn, True)
+    End Sub
+
+    ''' <summary>
+    ''' 按当前窗口宽度决定显示几个插件入口，其余折叠进「更多」。
+    ''' 标题栏是三列 1* / Auto / 1*，中间列最多只能占「两侧各留一份预留」之后的宽度，
+    ''' 超过就会压到左侧品牌区（Harness 徽标）或右侧窗口按钮上。
+    ''' </summary>
+    Private Sub FitPluginNav()
+        If IsFittingPluginNav Then Return
+        If PanTitleSelect Is Nothing OrElse Not PanTitleSelect.IsLoaded Then Return
+        Dim W As Double = PanTitle.ActualWidth
+        If W < 240 Then Return
+        IsFittingPluginNav = True
+        Try
+            EnsureTitleOverflowButton()
+            For Each Btn In PluginNavButtons
+                Btn.Visibility = Visibility.Visible
+            Next
+            BtnTitleOverflow.Visibility = Visibility.Collapsed
+            OverflowMenu.Items.Clear()
+
+            '左侧品牌区实际占到多宽（logo 与 Harness 徽标都在第 0 列）
+            Dim LeftBlock As Double = 60
+            For Each Child As Object In PanTitleMain.Children
+                Dim Fe = TryCast(Child, FrameworkElement)
+                If Fe Is Nothing OrElse Fe.Visibility <> Visibility.Visible Then Continue For
+                If Grid.GetColumn(Fe) <> 0 Then Continue For
+                Try
+                    LeftBlock = Math.Max(LeftBlock, Fe.TranslatePoint(New Point(Fe.ActualWidth, 0), PanTitle).X + 6)
+                Catch
+                End Try
+            Next
+            '右侧窗口按钮实际占到多宽
+            Dim RightBlock As Double = 84
+            Try
+                RightBlock = Math.Max(RightBlock, W - BtnTitleMin.TranslatePoint(New Point(0, 0), PanTitle).X + 6)
+            Catch
+            End Try
+
+            Dim Available As Double = W - 2 * Math.Max(LeftBlock, RightBlock) - 26 '两侧各 13 的边距
+            If Available <= 0 Then Return
+
+            '内置入口是固定成本，先扣掉
+            Dim Used As Double = 0
+            For Each Child As Object In PanTitleSelect.Children
+                Dim Btn = TryCast(Child, MyRadioButton)
+                If Btn Is Nothing OrElse Btn Is BtnTitleOverflow Then Continue For
+                If Btn.Visibility <> Visibility.Visible Then Continue For
+                If Val(Btn.Tag) >= 100 Then Continue For
+                Btn.Measure(New Size(Double.PositiveInfinity, 27))
+                Used += Btn.DesiredSize.Width
+            Next
+
+            Dim Widths As New List(Of Double)
+            Dim Total As Double = 0
+            For Each Btn In PluginNavButtons
+                Btn.Measure(New Size(Double.PositiveInfinity, 27))
+                Widths.Add(Btn.DesiredSize.Width)
+                Total += Btn.DesiredSize.Width
+            Next
+            Dim Budget As Double = Available - Used
+            If Total <= Budget Then Return '放得下，全部显示
+
+            '放不下：先给「更多」按钮留出位置，再从尾部往前折叠
+            BtnTitleOverflow.Measure(New Size(Double.PositiveInfinity, 27))
+            Budget -= BtnTitleOverflow.DesiredSize.Width
+            Dim Running As Double = 0
+            Dim FirstHidden As Integer = PluginNavButtons.Count
+            For I As Integer = 0 To Widths.Count - 1
+                Running += Widths(I)
+                If Running > Budget Then
+                    FirstHidden = I
+                    Exit For
+                End If
+            Next
+
+            For I As Integer = FirstHidden To PluginNavButtons.Count - 1
+                PluginNavButtons(I).Visibility = Visibility.Collapsed
+            Next
+            BtnTitleOverflow.Visibility = Visibility.Visible
+
+            For I As Integer = FirstHidden To PluginNavButtons.Count - 1
+                If I >= ModPlugin.PluginNavItems.Count Then Exit For
+                Dim NavItem = ModPlugin.PluginNavItems(I)
+                Dim MenuItem As New MyMenuItem With {
+                    .Header = NavItem.Text,
+                    .Tag = PluginNavButtons(I)
+                }
+                If Not String.IsNullOrWhiteSpace(NavItem.Icon) Then
+                    Try
+                        MenuItem.Icon = "F1 " & NavItem.Icon
+                    Catch
+                    End Try
+                End If
+                AddHandler MenuItem.Click, AddressOf PluginOverflowItem_Click
+                OverflowMenu.Items.Add(MenuItem)
+            Next
+            Logger.Info($"插件入口溢出：折叠 {OverflowMenu.Items.Count} 个到「更多」（可用 {Available:0}，需要 {Total:0}）")
+        Catch ex As Exception
+            Logger.Error(ex, "计算标题栏入口宽度失败", LogBehavior.None)
+        Finally
+            IsFittingPluginNav = False
+        End Try
+    End Sub
     ''' <summary>
     ''' 按插件注册的入口重建标题栏按钮（插件刷新后调用）。
     ''' </summary>
@@ -1950,6 +2098,7 @@ Public Class FormMain
                 Catch
                     BtnTag = 0
                 End Try
+                If Btn Is BtnTitleOverflow Then Continue For
                 If BtnTag >= 100 Then Old.Add(Btn)
             End If
         Next
@@ -1957,6 +2106,7 @@ Public Class FormMain
             PanTitleSelect.Children.Remove(Btn)
         Next
         '加入新插件按钮
+        PluginNavButtons.Clear()
         Dim Index As Integer = 0
         For Each Item As ModPlugin.PluginNavItem In ModPlugin.PluginNavItems
             Dim Btn As New MyRadioButton With {
@@ -1965,9 +2115,18 @@ Public Class FormMain
                 .Margin = New Thickness(5, 0, 5, 0),
                 .LogoScale = 0.9
             }
-            If Not String.IsNullOrWhiteSpace(Item.Icon) Then Btn.Logo = Item.Icon
+            If Not String.IsNullOrWhiteSpace(Item.Icon) Then
+                Try
+                    Btn.Logo = Item.Icon
+                Catch ex As Exception
+                    '图标是几何路径字符串，写错会直接抛异常；不能让一个坏图标中断整轮刷新
+                    If Item.Owner IsNot Nothing Then Item.Owner.AddEvent("图标格式不合法，已改用纯文字入口")
+                    Logger.Error(ex, "插件入口图标解析失败：" & Item.Text, LogBehavior.None)
+                End Try
+            End If
             AddHandler Btn.Check, AddressOf BtnTitleSelect_Click
             PanTitleSelect.Children.Add(Btn)
+            PluginNavButtons.Add(Btn)
             Index += 1
         Next
         'v8：内置「下载」「联机」入口默认隐藏（对应页面由插件提供）
@@ -1980,8 +2139,13 @@ Public Class FormMain
             'v8：下载 / 联机两个功能页默认不随启动器提供，内置入口始终隐藏
                 BuiltInBtn.Visibility = If(TagValue = 1 OrElse TagValue = 2, If(ModPlugin.IsBuiltInPageEnabled(TagValue), Visibility.Visible, Visibility.Collapsed), Visibility.Visible)
         Next
+        '「更多」入口始终排在最后，然后按当前宽度决定折叠几个
+        EnsureTitleOverflowButton()
+        PanTitleSelect.Children.Remove(BtnTitleOverflow)
+        PanTitleSelect.Children.Add(BtnTitleOverflow)
         Logger.Info($"插件入口已刷新，共 {Index} 个")
         RefreshPluginNavCheck()
+        FitPluginNav()
     End Sub
     ''' <summary>
     ''' 通过点击返回按钮或手动触发返回来改变页面。
