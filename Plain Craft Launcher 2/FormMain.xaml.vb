@@ -1870,6 +1870,9 @@ Public Class FormMain
                     CType(FrmOtherLeft.PanItem.Children(SubType), MyListItem).SetChecked(True, True, Stack = PageCurrent)
             End Select
             PageChangeActual(Stack, SubType)
+            '内置页切换不会走插件入口那条路，这里补一次同步：
+            '否则从「更多」里的页面切到内置页，「更多」会一直保持点亮
+            RefreshPluginNavCheck()
         Else
             '切换到次页面
             Select Case Stack.Page
@@ -1912,12 +1915,15 @@ Public Class FormMain
             Return
         End If
         PageChangeActual(Val(sender.Tag))
+        '内置页跳转后也要同步「更多」的点亮状态
+        RefreshPluginNavCheck()
     End Sub
 
     ''' <summary>
     ''' 把标题栏的勾选状态同步回当前页面（插件入口只执行动作、不切页时用）。
     ''' </summary>
     Public Sub RefreshPluginNavCheck()
+        Dim WasChanging As Boolean = IsChangingPage '可能被上层包着调用，退出时要还原
         IsChangingPage = True
         Try
             Dim ActiveHidden As Boolean = False
@@ -1938,7 +1944,7 @@ Public Class FormMain
             Next
             SetOverflowActive(ActiveHidden)
         Finally
-            IsChangingPage = False
+            IsChangingPage = WasChanging
         End Try
     End Sub
 
@@ -2015,13 +2021,16 @@ Public Class FormMain
         OverflowPanel.Child = OverflowList
         OverflowPopup.Child = OverflowPanel
         OverflowPopup.AllowsTransparency = True
-        OverflowPopup.StaysOpen = False
+        OverflowPopup.StaysOpen = True '关闭时机自己管，才能先做收起动画
         OverflowPopup.Placement = System.Windows.Controls.Primitives.PlacementMode.Relative
         OverflowPopup.PlacementTarget = BtnTitleOverflow
         OverflowPopup.VerticalOffset = BtnTitleOverflow.ActualHeight + 8
         OverflowPopup.PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.None
         AddHandler OverflowPopup.Opened, AddressOf OverflowPopup_Opened
         AddHandler OverflowPopup.Closed, AddressOf OverflowPopup_Closed
+        'StaysOpen=True 之后，点击别处与窗口失焦都要自己收起来
+        AddHandler PreviewMouseDown, AddressOf FormMain_OverflowOutsideDown
+        AddHandler Deactivated, AddressOf FormMain_OverflowDeactivated
     End Sub
 
     Private Sub OpenOverflowMenu()
@@ -2094,42 +2103,80 @@ Public Class FormMain
         CType(OverflowPanel.RenderTransform, TranslateTransform).Y = 0
     End Sub
 
+    ''' <summary>
+    ''' 点在菜单和按钮之外：当作"点到别处"，走收起动画。
+    ''' </summary>
+    Private Sub FormMain_OverflowOutsideDown(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
+        If OverflowPopup Is Nothing OrElse Not OverflowPopup.IsOpen OrElse IsClosingOverflow Then Return
+        Dim Src = TryCast(e.OriginalSource, DependencyObject)
+        '按钮上的点击交给 BtnTitleOverflow_MouseUp 处理，避免一次点击既收起又展开
+        If Src IsNot Nothing AndAlso BtnTitleOverflow IsNot Nothing AndAlso BtnTitleOverflow.IsAncestorOf(Src) Then Return
+        CloseOverflowMenu()
+    End Sub
+
+    Private Sub FormMain_OverflowDeactivated(sender As Object, e As EventArgs)
+        If OverflowPopup IsNot Nothing AndAlso OverflowPopup.IsOpen Then CloseOverflowMenu()
+    End Sub
+
     Private Sub BtnTitleOverflow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
         e.Handled = True
+        '收起动画还没跑完就再点，一律忽略：宁可少响应一次，也不要状态错乱
+        If IsClosingOverflow Then Return
         If OverflowPopup.IsOpen Then CloseOverflowMenu() Else OpenOverflowMenu()
     End Sub
 
     Private Sub BtnTitleOverflow_MouseEnter(sender As Object, e As MouseEventArgs)
-        If IsOverflowActive Then Return
-        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, New MyColor(56, 255, 255, 255), 90), "TitleOverflow Hover")
+        SyncOverflowBackground(90)
     End Sub
 
     Private Sub BtnTitleOverflow_MouseLeave(sender As Object, e As MouseEventArgs)
-        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, OverflowBaseColor(), 150), "TitleOverflow Hover")
+        SyncOverflowBackground(150)
     End Sub
 
-    Private Function OverflowBaseColor() As MyColor
-        Return If(IsOverflowActive, New MyColor(255, 255, 255), ColorSemiTransparent)
+    ''' <summary>
+    ''' 指针是否真的停在按钮上。不用 IsMouseOver：弹窗接管鼠标后，
+    ''' 标题栏按钮的 MouseLeave 不一定会派发，IsMouseOver 会一直停在 True。
+    ''' </summary>
+    Private Function IsPointerOnOverflowButton() As Boolean
+        If BtnTitleOverflow Is Nothing OrElse Not BtnTitleOverflow.IsVisible Then Return False
+        Dim Pt = System.Windows.Input.Mouse.GetPosition(BtnTitleOverflow)
+        Return Pt.X >= 0 AndAlso Pt.Y >= 0 AndAlso Pt.X <= BtnTitleOverflow.ActualWidth AndAlso Pt.Y <= BtnTitleOverflow.ActualHeight
     End Function
+
+    ''' <summary>
+    ''' 按「是否当前页入口 / 指针是否停在按钮上」重算底色并过渡。
+    ''' </summary>
+    Private Sub SyncOverflowBackground(Time As Integer)
+        If BtnTitleOverflow Is Nothing Then Return
+        Dim Target As MyColor
+        If IsOverflowActive Then
+            Target = New MyColor(255, 255, 255)
+        ElseIf IsPointerOnOverflowButton() Then
+            Target = New MyColor(56, 255, 255, 255)
+        Else
+            Target = ColorSemiTransparent
+        End If
+        'AaColor 的实色重载是累加语义：传目标色只会一路加上去，白色永远回不到透明
+        Dim Current As New MyColor(BtnTitleOverflow.GetValue(BackgroundProperty))
+        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, Target - Current, Time), "TitleOverflow Background")
+
+    End Sub
 
     ''' <summary>
     ''' 当前页的入口被折叠时点亮按钮，告诉用户"当前页在这个菜单里"。
     ''' </summary>
     Private Sub SetOverflowActive(Active As Boolean)
         If BtnTitleOverflow Is Nothing Then Return
-        If IsOverflowActive = Active Then Return
-        IsOverflowActive = Active
-        If Active Then
-            AniStart({
-                AaColor(BtnTitleOverflow, BackgroundProperty, New MyColor(255, 255, 255), 120),
-                AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, "ColorBrush3", 120)
-            }, "TitleOverflow Active")
-        Else
-            AniStart({
-                AaColor(BtnTitleOverflow, BackgroundProperty, ColorSemiTransparent, 120),
-                AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, New MyColor(255, 255, 255), 120)
-            }, "TitleOverflow Active")
+        If IsOverflowActive <> Active Then
+            IsOverflowActive = Active
+            If Active Then
+                AniStart(AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, "ColorBrush3", 120), "TitleOverflow Arrow")
+            Else
+                AniStart(AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, New MyColor(255, 255, 255), 120), "TitleOverflow Arrow")
+            End If
         End If
+        '底色不能靠状态没变就跳过：悬停底色可能还挂在按钮上
+        SyncOverflowBackground(120)
     End Sub
 
     Private Sub OverflowRow_MouseEnter(sender As Object, e As MouseEventArgs)
