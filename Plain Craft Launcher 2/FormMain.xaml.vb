@@ -2108,11 +2108,35 @@ Public Class FormMain
     ''' </summary>
     Private Sub FormMain_OverflowOutsideDown(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
         If OverflowPopup Is Nothing OrElse Not OverflowPopup.IsOpen OrElse IsClosingOverflow Then Return
-        Dim Src = TryCast(e.OriginalSource, DependencyObject)
         '按钮上的点击交给 BtnTitleOverflow_MouseUp 处理，避免一次点击既收起又展开
-        If Src IsNot Nothing AndAlso BtnTitleOverflow IsNot Nothing AndAlso BtnTitleOverflow.IsAncestorOf(Src) Then Return
+        If IsInsideOverflowUi(TryCast(e.OriginalSource, DependencyObject)) Then Return
         CloseOverflowMenu()
     End Sub
+
+    ''' <summary>
+    ''' 点击源是否落在「更多」按钮或菜单面板里。
+    ''' 不能直接用 IsAncestorOf：点到 TextBlock 里的文字时 OriginalSource 是 Run，
+    ''' 它是 FrameworkContentElement 而不是 Visual，IsAncestorOf 会抛 InvalidOperationException。
+    ''' 这里沿逻辑树向上走，两种元素都能处理。
+    ''' </summary>
+    Private Function IsInsideOverflowUi(Source As DependencyObject) As Boolean
+        Dim Node As DependencyObject = Source
+        Do While Node IsNot Nothing
+            If Node Is BtnTitleOverflow OrElse Node Is OverflowPanel Then Return True
+            Dim Element = TryCast(Node, FrameworkElement)
+            If Element IsNot Nothing Then
+                Node = Element.Parent
+                Continue Do
+            End If
+            Dim Content = TryCast(Node, FrameworkContentElement)
+            If Content IsNot Nothing Then
+                Node = Content.Parent
+                Continue Do
+            End If
+            Return False
+        Loop
+        Return False
+    End Function
 
     Private Sub FormMain_OverflowDeactivated(sender As Object, e As EventArgs)
         If OverflowPopup IsNot Nothing AndAlso OverflowPopup.IsOpen Then CloseOverflowMenu()
