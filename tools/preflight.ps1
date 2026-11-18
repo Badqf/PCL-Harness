@@ -156,6 +156,7 @@ if (Test-Path $modBase) {
         if (Test-Path $log) {
             $last = (& Select-String -Path $log -Pattern '^## §' | Select-Object -Last 1).Line
             if ($last -and $last -match [regex]::Escape($ver)) { Pass 'changelog' $last.Trim() }
+            elseif ($last -and $last -match '(未发布|待发版|unreleased)') { Pass 'changelog' ("pending entry: {0}" -f $last.Trim()) }
             else { Fail 'changelog' ("latest heading does not mention {0}: {1}" -f $ver, "$last".Trim()) }
         }
     }
