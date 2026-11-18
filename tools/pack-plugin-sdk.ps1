@@ -96,6 +96,43 @@ foreach ($sampleName in @("V6Demo", "InstanceMenu")) {
 $zip = Join-Path $OutputDirectory "$name.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path $root -DestinationPath $zip -CompressionLevel Optimal
+
+# 断言（2026-11-17 复盘）：3.9.5 的包里 PLUGIN-DEV.md 还写着 3.9.4，是发完版才发现。
+# 这里在打包当场验两件事：指南声明的适用版本不能比本次打的版本还新；包内文件与仓库逐字节一致。
+$guide = Join-Path $repo "PLUGIN-DEV.md"
+if (-not (Test-Path $guide)) { throw "找不到 $guide" }
+$guideText = [IO.File]::ReadAllText($guide)
+$mGuide = [regex]::Match($guideText, '适用版本：PCL Harness ([0-9]+(?:\.[0-9]+)*)')
+if (-not $mGuide.Success) { Remove-Item $stage -Recurse -Force; throw "PLUGIN-DEV.md 里找不到「适用版本：PCL Harness x.y.z」这一行，打包中止" }
+$guideVer = [version]$mGuide.Groups[1].Value
+$packVer = [version]$Version
+if ($guideVer -gt $packVer) {
+    Remove-Item $stage -Recurse -Force
+    throw "PLUGIN-DEV.md 声明适用 $guideVer，比要打的 $packVer 还新；先改指南版本再打包"
+}
+if ($guideVer.Major -ne $packVer.Major -or $guideVer.Minor -ne $packVer.Minor) {
+    Write-Host "WARN: 指南适用版本 $guideVer 与本次 $packVer 不在同一小版本线（补丁号不同是允许的）" -ForegroundColor Yellow
+}
+
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+try {
+    $entry = $archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -eq "$name/PLUGIN-DEV.md" }
+    if (-not $entry) { throw "zip 里没有 $name/PLUGIN-DEV.md" }
+    $reader = New-Object IO.StreamReader($entry.Open(), [Text.Encoding]::UTF8)
+    try { $zipGuide = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if ($zipGuide -ne $guideText) { throw "zip 内的 PLUGIN-DEV.md 与仓库文件不一致（打包过程动了字节？）" }
+
+    $readmeEntry = $archive.Entries | Where-Object { ($_.FullName -replace '\\', '/') -eq "$name/README.md" }
+    if ($readmeEntry) {
+        $reader2 = New-Object IO.StreamReader($readmeEntry.Open(), [Text.Encoding]::UTF8)
+        try { $zipReadme = $reader2.ReadToEnd() } finally { $reader2.Dispose() }
+        if ($zipReadme -match '\{\{VERSION\}\}') { throw "zip 内 README.md 还留着 {{VERSION}} 占位符" }
+    }
+    Write-Host "OK: 包内 PLUGIN-DEV.md / README.md 校验通过（指南适用 $guideVer，本次 $packVer）" -ForegroundColor DarkGray
+}
+finally { $archive.Dispose() }
+
 Remove-Item $stage -Recurse -Force
 
 Write-Host "OK: $zip ($((Get-Item $zip).Length) bytes)" -ForegroundColor Green
