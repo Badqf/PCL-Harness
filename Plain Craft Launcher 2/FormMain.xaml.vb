@@ -1950,7 +1950,8 @@ Public Class FormMain
     Private ReadOnly PluginNavButtons As New List(Of MyRadioButton)
     Private BtnTitleOverflow As Border
     Private BtnTitleOverflowArrow As System.Windows.Shapes.Path
-    Private IsOverflowActive As Boolean = False
+    Private IsOverflowActive As Boolean
+    Private IsClosingOverflow As Boolean = False
     Private ReadOnly OverflowPopup As New System.Windows.Controls.Primitives.Popup
     Private ReadOnly OverflowPanel As New Border
     Private ReadOnly OverflowList As New StackPanel
@@ -1976,6 +1977,8 @@ Public Class FormMain
         BtnTitleOverflow = New Border With {
             .Width = 27,
             .Height = 27,
+            .HorizontalAlignment = HorizontalAlignment.Center,
+            .VerticalAlignment = VerticalAlignment.Center,
             .CornerRadius = New CornerRadius(13.5),
             .Background = New SolidColorBrush(ColorSemiTransparent),
             .Margin = New Thickness(5, 0, 5, 0),
@@ -2018,6 +2021,7 @@ Public Class FormMain
         OverflowPopup.VerticalOffset = BtnTitleOverflow.ActualHeight + 8
         OverflowPopup.PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.None
         AddHandler OverflowPopup.Opened, AddressOf OverflowPopup_Opened
+        AddHandler OverflowPopup.Closed, AddressOf OverflowPopup_Closed
     End Sub
 
     Private Sub OpenOverflowMenu()
@@ -2025,11 +2029,14 @@ Public Class FormMain
         If OverflowList.Children.Count = 0 Then Return
         '右边缘对齐按钮，避免贴着窗口右边被裁掉
         PlaceOverflowPopup(False)
+        '起始态要在弹窗显示之前摆好，否则会先闪一帧完整菜单再开始动画
+        CType(OverflowPanel.RenderTransform, TranslateTransform).Y = -8
+        OverflowPanel.Opacity = 0
         OverflowPopup.IsOpen = True
     End Sub
 
     ''' <summary>
-    ''' 菜单右边缘对齐按钮。首次打开用测量值，Opened 后拿实测宽度再纠一次。
+    ''' 菜单在按钮下方展开：水平方向以按钮为轴居中，再夹在窗口内，避免贴边被裁。
     ''' </summary>
     Private Sub PlaceOverflowPopup(Final As Boolean)
         Dim PanelWidth As Double = If(Final, OverflowPanel.ActualWidth, 0)
@@ -2037,24 +2044,59 @@ Public Class FormMain
             OverflowPanel.Measure(New Size(Double.PositiveInfinity, Double.PositiveInfinity))
             PanelWidth = OverflowPanel.DesiredSize.Width
         End If
-        OverflowPopup.HorizontalOffset = Math.Min(0, BtnTitleOverflow.ActualWidth - PanelWidth)
-        
+        '按钮在标题栏坐标系里的左边缘
+        Dim BtnLeft As Double = 0
+        Try
+            BtnLeft = BtnTitleOverflow.TranslatePoint(New Point(0, 0), PanTitleMain).X
+        Catch ex As Exception
+            BtnLeft = BtnTitleOverflow.Margin.Left
+        End Try
+        '以按钮中心为轴居中，再夹进窗口（右侧留 12 的余量）
+        Dim Left As Double = BtnLeft + (BtnTitleOverflow.ActualWidth - PanelWidth) / 2
+        Dim MinLeft As Double = 12
+        Dim MaxLeft As Double = ActualWidth - PanelWidth - 12
+        If MaxLeft < MinLeft Then MaxLeft = MinLeft
+        Left = Math.Max(MinLeft, Math.Min(Left, MaxLeft))
+        OverflowPopup.HorizontalOffset = Left - BtnLeft
         OverflowPopup.VerticalOffset = BtnTitleOverflow.ActualHeight + 8
     End Sub
 
     Private Sub OverflowPopup_Opened(sender As Object, e As EventArgs)
         PlaceOverflowPopup(True)
-        CType(OverflowPanel.RenderTransform, TranslateTransform).Y = -8
-        OverflowPanel.Opacity = 0
         AniStart({
-            AaOpacity(OverflowPanel, 1, 130),
-            AaTranslateY(OverflowPanel, 0, 170, 0, New AniEaseOutFluent())
+            AaOpacity(OverflowPanel, 1, 150),
+            AaTranslateY(OverflowPanel, 8, 210, 0, New AniEaseOutFluent())
         }, "TitleOverflow Menu Open")
+    End Sub
+
+    ''' <summary>
+    ''' 收起菜单：先淡出上移，再真正关掉弹窗；外部点击关闭时由 Closed 兜底复位。
+    ''' </summary>
+    Private Sub CloseOverflowMenu()
+        If OverflowPopup Is Nothing OrElse Not OverflowPopup.IsOpen OrElse IsClosingOverflow Then Return
+        IsClosingOverflow = True
+        AniStart({
+            AaOpacity(OverflowPanel, 0, 110),
+            AaTranslateY(OverflowPanel, -6, 110, 0, New AniEaseInoutFluent())
+        }, "TitleOverflow Menu Close")
+        Dim Timer As New System.Windows.Threading.DispatcherTimer With {.Interval = New TimeSpan(0, 0, 0, 0, 120)}
+        AddHandler Timer.Tick,
+            Sub(s, ev)
+                CType(s, System.Windows.Threading.DispatcherTimer).Stop()
+                OverflowPopup.IsOpen = False
+            End Sub
+        Timer.Start()
+    End Sub
+
+    Private Sub OverflowPopup_Closed(sender As Object, e As EventArgs)
+        IsClosingOverflow = False
+        OverflowPanel.Opacity = 1
+        CType(OverflowPanel.RenderTransform, TranslateTransform).Y = 0
     End Sub
 
     Private Sub BtnTitleOverflow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
         e.Handled = True
-        If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False Else OpenOverflowMenu()
+        If OverflowPopup.IsOpen Then CloseOverflowMenu() Else OpenOverflowMenu()
     End Sub
 
     Private Sub BtnTitleOverflow_MouseEnter(sender As Object, e As MouseEventArgs)
@@ -2106,7 +2148,7 @@ Public Class FormMain
         Dim Row = TryCast(sender, Border)
         If Row Is Nothing Then Return
         e.Handled = True
-        OverflowPopup.IsOpen = False
+        CloseOverflowMenu()
         Dim Btn = TryCast(Row.Tag, MyRadioButton)
         If Btn Is Nothing Then Return
         '复用正常的入口点击逻辑，页面跳转与勾选同步都不用重写
