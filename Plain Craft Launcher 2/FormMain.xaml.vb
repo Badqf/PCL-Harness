@@ -1962,6 +1962,7 @@ Public Class FormMain
     Private ReadOnly PluginNavButtons As New List(Of MyRadioButton)
     Private BtnTitleOverflow As Border
     Private BtnTitleOverflowArrow As System.Windows.Shapes.Path
+    Private BtnTitleOverflowTip As ToolTip
     Private IsOverflowActive As Boolean
     Private IsClosingOverflow As Boolean = False
     Private ReadOnly OverflowPopup As New System.Windows.Controls.Primitives.Popup
@@ -1995,10 +1996,12 @@ Public Class FormMain
             .Background = New SolidColorBrush(ColorSemiTransparent),
             .Margin = New Thickness(5, 0, 5, 0),
             .Cursor = Cursors.Hand,
-            .ToolTip = "更多入口",
             .Child = BtnTitleOverflowArrow,
             .Visibility = Visibility.Collapsed
         }
+        '用显式 ToolTip 对象，菜单展开时要能主动关掉它；字符串形式的提示框拿不到 IsOpen
+        BtnTitleOverflowTip = New ToolTip With {.Content = "更多入口"}
+        BtnTitleOverflow.ToolTip = BtnTitleOverflowTip
         AddHandler BtnTitleOverflow.MouseLeftButtonUp, AddressOf BtnTitleOverflow_MouseUp
         AddHandler BtnTitleOverflow.MouseEnter, AddressOf BtnTitleOverflow_MouseEnter
         AddHandler BtnTitleOverflow.MouseLeave, AddressOf BtnTitleOverflow_MouseLeave
@@ -2042,7 +2045,10 @@ Public Class FormMain
     Private Sub OpenOverflowMenu()
         If BtnTitleOverflow Is Nothing OrElse OverflowPopup.IsOpen Then Return
         If OverflowList.Children.Count = 0 Then Return
-        '右边缘对齐按钮，避免贴着窗口右边被裁掉
+        '菜单一开就收起按钮上的提示框：指针进了弹窗，按钮的 MouseLeave 不一定派发，
+        '提示框会一直挂在那儿，还会跟着悬停一起被重画
+        If BtnTitleOverflowTip IsNot Nothing Then BtnTitleOverflowTip.IsOpen = False
+        ToolTipService.SetIsEnabled(BtnTitleOverflow, False)
         PlaceOverflowPopup(False)
         '起始态要在弹窗显示之前摆好，否则会先闪一帧完整菜单再开始动画
         CType(OverflowPanel.RenderTransform, TranslateTransform).Y = -8
@@ -2107,6 +2113,8 @@ Public Class FormMain
         IsClosingOverflow = False
         OverflowPanel.Opacity = 1
         CType(OverflowPanel.RenderTransform, TranslateTransform).Y = 0
+        If BtnTitleOverflow IsNot Nothing Then ToolTipService.SetIsEnabled(BtnTitleOverflow, True)
+        SyncOverflowBackground(150)
     End Sub
 
     ''' <summary>
@@ -2174,6 +2182,16 @@ Public Class FormMain
     End Function
 
     ''' <summary>
+    ''' 把颜色属性动画到"目标色"。AaColor 的实色重载吃的是增量（NewColor = 当前色 + Delta），
+    ''' 直接传目标色会一路累加——悬停几次就越变越白。这里自己算差值。
+    ''' </summary>
+    Private Sub AnimateTo(Element As FrameworkElement, Prop As DependencyProperty, Target As MyColor, Time As Integer, Name As String)
+        If Element Is Nothing Then Return
+        Dim Current As New MyColor(Element.GetValue(Prop))
+        AniStart(AaColor(Element, Prop, Target - Current, Time), Name)
+    End Sub
+
+    ''' <summary>
     ''' 按「是否当前页入口 / 指针是否停在按钮上」重算底色并过渡。
     ''' </summary>
     Private Sub SyncOverflowBackground(Time As Integer)
@@ -2186,10 +2204,7 @@ Public Class FormMain
         Else
             Target = ColorSemiTransparent
         End If
-        'AaColor 的实色重载是累加语义：传目标色只会一路加上去，白色永远回不到透明
-        Dim Current As New MyColor(BtnTitleOverflow.GetValue(BackgroundProperty))
-        AniStart(AaColor(BtnTitleOverflow, BackgroundProperty, Target - Current, Time), "TitleOverflow Background")
-
+        AnimateTo(BtnTitleOverflow, BackgroundProperty, Target, Time, "TitleOverflow Background")
     End Sub
 
     ''' <summary>
@@ -2202,7 +2217,7 @@ Public Class FormMain
             If Active Then
                 AniStart(AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, "ColorBrush3", 120), "TitleOverflow Arrow")
             Else
-                AniStart(AaColor(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, New MyColor(255, 255, 255), 120), "TitleOverflow Arrow")
+                AnimateTo(BtnTitleOverflowArrow, System.Windows.Shapes.Shape.StrokeProperty, New MyColor(255, 255, 255), 120, "TitleOverflow Arrow")
             End If
         End If
         '底色不能靠状态没变就跳过：悬停底色可能还挂在按钮上
@@ -2212,13 +2227,13 @@ Public Class FormMain
     Private Sub OverflowRow_MouseEnter(sender As Object, e As MouseEventArgs)
         Dim Row = TryCast(sender, Border)
         If Row Is Nothing Then Return
-        AniStart(AaColor(Row, BackgroundProperty, New MyColor(30, 255, 255, 255), 90), "TitleOverflow Row " & Row.GetHashCode())
+        AnimateTo(Row, BackgroundProperty, New MyColor(30, 255, 255, 255), 90, "TitleOverflow Row " & Row.GetHashCode())
     End Sub
 
     Private Sub OverflowRow_MouseLeave(sender As Object, e As MouseEventArgs)
         Dim Row = TryCast(sender, Border)
         If Row Is Nothing Then Return
-        AniStart(AaColor(Row, BackgroundProperty, New MyColor(0, 255, 255, 255), 150), "TitleOverflow Row " & Row.GetHashCode())
+        AnimateTo(Row, BackgroundProperty, New MyColor(0, 255, 255, 255), 150, "TitleOverflow Row " & Row.GetHashCode())
     End Sub
 
     Private Sub OverflowRow_MouseUp(sender As Object, e As System.Windows.Input.MouseButtonEventArgs)
