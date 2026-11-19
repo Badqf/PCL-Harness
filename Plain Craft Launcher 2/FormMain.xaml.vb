@@ -23,6 +23,12 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 471 Then 'PCL Harness 3.9.7
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 鼠标反复划过「更多」按钮和菜单条目时，悬停底色会一层层累加、越变越白；提示框也不会再挂在按钮上不走。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 圆按钮的箭头偏右、圆盘比旁边的胶囊矮 1px，看着跟其它入口不齐。"))
+            End If
             If LastVersion < 470 Then 'PCL Harness 3.9.6
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 标题栏插件入口放不下时自动折叠进「更多」菜单，不再压住最小化 / 关闭按钮，也不再被窗口边缘裁掉。"))
@@ -1979,8 +1985,8 @@ Public Class FormMain
         If BtnTitleOverflow IsNot Nothing Then Return
         BtnTitleOverflowArrow = New System.Windows.Shapes.Path With {
             .Data = Geometry.Parse("M 0,4 L 8,12 L 16,4"),
-            .Width = 16,
-            .Height = 16,
+            .Width = 13,
+            .Height = 13,
             .Stretch = Stretch.Uniform,
             .Stroke = New SolidColorBrush(Color.FromRgb(255, 255, 255)),
             .StrokeThickness = 1.7,
