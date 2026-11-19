@@ -77,6 +77,9 @@ if ($NoPush -and -not $NoRelease -and -not $DryRun) {
     throw '-NoPush 会让 Release 与上传的二进制不属于同一提交；请去掉 -NoPush，或同时加 -NoRelease 只做本地提交'
 }
 
+# 发布说明的格式闸门在 tools\lib\NotesFormat.ps1（独立文件，便于单测）.
+. (Join-Path $PSScriptRoot 'lib\NotesFormat.ps1')
+
 function Step([int]$n, [string]$text) { Write-Host ("[{0}/8] {1}" -f $n, $text) -ForegroundColor Cyan }
 function Ok([string]$text) { Write-Host "      OK  $text" -ForegroundColor DarkGray }
 function Warn([string]$text) { Write-Host "      !!  $text" -ForegroundColor Yellow }
@@ -488,6 +491,7 @@ function Upload-Asset {
 }
 
 # ---------------------------------------------------------------- 0. 本地预检
+Assert-NotesFormat $Notes
 # 编码、版本号、gitattributes、密钥这些错了，后面每一步都是白跑，所以放在一切网络动作之前。
 # 允许脏工作区（版本号本来还没提交），跳过产物对比（Step 2 编译、Step 4 部署会重做）。
 if (-not $SkipPreflight) {
@@ -751,7 +755,7 @@ if ($NoRelease) {
 } elseif ($DryRun) {
     Warn 'DryRun：跳过 Release'
 } else {
-    if (-not $Notes -or $Notes.Count -eq 0) { $Notes = @("PCL Harness $Version") }
+    Assert-NotesFormat $Notes
     $body = ($Notes -join "`n") + "`n· 详见 docs\更新记录.md 与完整更新日志"
     # P1-2：显式带上 target_commitish，避免远端没有该 tag 时 GitHub 按默认分支 HEAD 补 tag，
     # 造成 Release 的源码与上传的二进制不是同一份。
