@@ -1964,6 +1964,7 @@ Public Class FormMain
     Private BtnTitleOverflowArrow As System.Windows.Shapes.Path
     Private BtnTitleOverflowTip As ToolTip
     Private IsOverflowActive As Boolean
+    Private OverflowBgState As String = ""
     Private IsClosingOverflow As Boolean = False
     Private ReadOnly OverflowPopup As New System.Windows.Controls.Primitives.Popup
     Private ReadOnly OverflowPanel As New Border
@@ -2039,7 +2040,10 @@ Public Class FormMain
         AddHandler OverflowPopup.Closed, AddressOf OverflowPopup_Closed
         'StaysOpen=True 之后，点击别处与窗口失焦都要自己收起来
         AddHandler PreviewMouseDown, AddressOf FormMain_OverflowOutsideDown
+        AddHandler PreviewMouseMove, AddressOf FormMain_OverflowMouseMove
         AddHandler Deactivated, AddressOf FormMain_OverflowDeactivated
+        '指针从按钮滑进弹窗时，主窗口收不到移动事件，得让面板自己报一声
+        AddHandler OverflowPanel.MouseMove, AddressOf FormMain_OverflowMouseMove
     End Sub
 
     Private Sub OpenOverflowMenu()
@@ -2114,7 +2118,7 @@ Public Class FormMain
         OverflowPanel.Opacity = 1
         CType(OverflowPanel.RenderTransform, TranslateTransform).Y = 0
         If BtnTitleOverflow IsNot Nothing Then ToolTipService.SetIsEnabled(BtnTitleOverflow, True)
-        SyncOverflowBackground(150)
+        SyncOverflowBackground(150, True)
     End Sub
 
     ''' <summary>
@@ -2193,18 +2197,34 @@ Public Class FormMain
 
     ''' <summary>
     ''' 按「是否当前页入口 / 指针是否停在按钮上」重算底色并过渡。
+    ''' 指针状态是现算的，所以同一个状态反复调用不会起新动画。
     ''' </summary>
-    Private Sub SyncOverflowBackground(Time As Integer)
+    Private Sub SyncOverflowBackground(Time As Integer, Optional Force As Boolean = False)
         If BtnTitleOverflow Is Nothing Then Return
+        Dim State As String
         Dim Target As MyColor
         If IsOverflowActive Then
+            State = "active"
             Target = New MyColor(255, 255, 255)
         ElseIf IsPointerOnOverflowButton() Then
+            State = "hover"
             Target = New MyColor(56, 255, 255, 255)
         Else
+            State = "idle"
             Target = ColorSemiTransparent
         End If
+        If Not Force AndAlso State = OverflowBgState Then Return
+        OverflowBgState = State
         AnimateTo(BtnTitleOverflow, BackgroundProperty, Target, Time, "TitleOverflow Background")
+    End Sub
+
+    ''' <summary>
+    ''' 弹窗展开时指针会进到另一个窗口，按钮收不到 MouseLeave，
+    ''' 悬停底色就会一直挂着——所以鼠标一动就现算一次。
+    ''' </summary>
+    Private Sub FormMain_OverflowMouseMove(sender As Object, e As System.Windows.Input.MouseEventArgs)
+        If BtnTitleOverflow Is Nothing OrElse Not BtnTitleOverflow.IsVisible Then Return
+        SyncOverflowBackground(150)
     End Sub
 
     ''' <summary>
