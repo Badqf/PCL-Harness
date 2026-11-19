@@ -1978,7 +1978,10 @@ Public Class FormMain
     Private Sub EnsureTitleOverflowButton()
         If BtnTitleOverflow IsNot Nothing Then Return
         BtnTitleOverflowArrow = New System.Windows.Shapes.Path With {
-            .Data = Geometry.Parse("M 2.5,4.5 L 8,10 L 13.5,4.5"),
+            .Data = Geometry.Parse("M 0,4 L 8,12 L 16,4"),
+            .Width = 16,
+            .Height = 16,
+            .Stretch = Stretch.Uniform,
             .Stroke = New SolidColorBrush(Color.FromRgb(255, 255, 255)),
             .StrokeThickness = 1.7,
             .StrokeStartLineCap = PenLineCap.Round,
@@ -2007,6 +2010,7 @@ Public Class FormMain
         AddHandler BtnTitleOverflow.MouseEnter, AddressOf BtnTitleOverflow_MouseEnter
         AddHandler BtnTitleOverflow.MouseLeave, AddressOf BtnTitleOverflow_MouseLeave
         PanTitleSelect.Children.Add(BtnTitleOverflow)
+
         BuildOverflowPopup()
     End Sub
 
