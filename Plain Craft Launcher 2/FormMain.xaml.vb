@@ -1992,11 +1992,11 @@ Public Class FormMain
             .IsHitTestVisible = False
         }
         BtnTitleOverflow = New Border With {
-            .Width = 27,
-            .Height = 27,
+            .Width = 27.5,
+            .Height = 27.5,
             .HorizontalAlignment = HorizontalAlignment.Center,
             .VerticalAlignment = VerticalAlignment.Center,
-            .CornerRadius = New CornerRadius(13.5),
+            .CornerRadius = New CornerRadius(13.75),
             .Background = New SolidColorBrush(ColorSemiTransparent),
             .Margin = New Thickness(5, 0, 5, 0),
             .Cursor = Cursors.Hand,
