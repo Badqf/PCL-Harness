@@ -23,6 +23,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 472 Then 'PCL Harness 3.9.8
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 窗口变窄时自编版标识收缩成 PCL │ H，不再整块消失，也不会压到左边第一个入口；扩张回去有 240ms 的宽度过渡。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 慢慢拉窗口时标识会在阈值上反复抖动、展开时先弹出来再缩回去。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 插件新增 Host.OpenUrl，用系统浏览器打开网页；只接受 http / https。"))
+            End If
             If LastVersion < 471 Then 'PCL Harness 3.9.7
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 鼠标反复划过「更多」按钮和菜单条目时，悬停底色会一层层累加、越变越白；提示框也不会再挂在按钮上不走。"))
