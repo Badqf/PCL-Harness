@@ -4006,10 +4006,23 @@ Public Class PluginHost
         MyMsgBox(Text, Title)
     End Sub
 
-    ''' <summary>用默认浏览器打开网址。</summary>
-    Public Sub OpenUrl(Url As String)
-        ModBase.OpenWebsite(Url)
-    End Sub
+    ''' <summary>
+    ''' 用系统默认浏览器打开一个网页。只接受 http / https，其它协议一律拒绝并返回 False。
+    ''' 这里走的是启动器自己的打开逻辑：打不开时会记日志、把网址复制到剪贴板并弹提示。
+    ''' </summary>
+    ''' <param name="Url">完整网址，例如 https://example.com。</param>
+    ''' <returns>网址被接受并发起打开时返回 True。</returns>
+    Public Function OpenUrl(Url As String) As Boolean
+        Dim Text As String = If(Url, "").Trim()
+        If Not Text.StartsWithF("http://", True) AndAlso Not Text.StartsWithF("https://", True) Then
+            '插件只允许打开网页：minecraft:// 之类会让插件借系统协议处理器做别的事
+            Logger.Warn($"[插件 {Info.DisplayName}] 拒绝打开非网页地址：{Text}")
+            Info.AddEvent("拒绝打开非网页地址：" & Text)
+            Return False
+        End If
+        ModBase.OpenWebsite(Text)
+        Return True
+    End Function
 
     ''' <summary>在资源管理器中打开插件目录。</summary>
     Public Sub OpenFolder()

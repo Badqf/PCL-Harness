@@ -1,4 +1,4 @@
-﻿Imports System.Collections.Generic
+Imports System.Collections.Generic
 
 ''' <summary>
 ''' PCL Harness 示例插件：演示 v4 的能力——内嵌 UI（IPclPluginUi2）、生命周期/下载/联机事件、文件 API，以及 v3 的事件钩子（IPclPluginEvents）、
@@ -92,7 +92,7 @@ Public Class DemoPlugin
 #End If
     End Function
 
-    ''' <summary>注册一个标题栏入口（默认关闭）。</summary>
+    ''' <summary>注册标题栏入口（默认关闭）。第二个入口没有页面，点击直接用浏览器打开项目主页。</summary>
     Public Function GetNavItems() As IEnumerable(Of PCL.PluginNavItem) Implements PCL.IPclPluginUi.GetNavItems
 #If DemoPageEnabled Then
         Return New List(Of PCL.PluginNavItem) From {
@@ -100,6 +100,11 @@ Public Class DemoPlugin
                 .Text = "示例",
                 .Icon = "M2,2 h9 v9 h-9 z M13,2 h9 v9 h-9 z M2,13 h9 v9 h-9 z M13,13 h9 v9 h-9 z",
                 .Page = PageInfo
+            },
+            New PCL.PluginNavItem With {
+                .Text = "文档",
+                .Icon = "M4,3 h10 l4,4 v14 h-14 z",
+                .Action = Sub() Host.OpenUrl("https://github.com/Badqf/PCL-Harness")
             }
         }
 #Else

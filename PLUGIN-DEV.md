@@ -157,11 +157,26 @@ End Class
 | `Hint(Text, HintType)` | 左下角提示 |
 | `ShowNotification(Text, HintType)` | 更醒目的通知 |
 | `Message(Title, Text)` | 模态对话框 |
-| `OpenUrl(Url)` / `OpenFolder()` | 打开网页 / 插件目录 |
+| `OpenUrl(Url)` / `OpenFolder()` | 打开网页（返回 `Boolean`）/ 插件目录 |
 | `InstanceName` / `InstanceFolder` / `PlayerName` | 当前版本与玩家 |
 | `Navigate(Page)` | 跳主页面（1 = 启动） |
 | `RunInUi(Action)` | 切到 UI 线程 |
 | `RunLater(ms, Action)` | 延迟后回 UI 线程执行 |
+
+### 打开网页
+
+```vb
+' 用系统默认浏览器打开；只需要 http / https，不需要额外权限
+If Not Host.OpenUrl("https://github.com/Badqf/PCL-Harness") Then
+    Host.Hint("这个地址不是网页链接，已拒绝", HintType.Red)
+End If
+```
+
+几条约定：
+
+- 只接受 `http://` 与 `https://`。`minecraft://` 这类系统协议一律拒绝并返回 `False`，避免插件借协议处理器做别的事；
+- 走的是启动器自己的打开逻辑：浏览器打不开时会把网址复制到剪贴板，并弹一个提示，插件不用自己兜底；
+- 返回值只表示「地址被接受并发起了打开」，不代表浏览器一定起来了。
 
 ### 文件与网络
 
