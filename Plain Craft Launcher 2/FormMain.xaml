@@ -110,9 +110,9 @@
                                        LogoScale="0.72" Logo="F1 M0,0 h15 v2 h-15 v-2 Z" />
                     <Grid x:Name="PanTitleMain" HorizontalAlignment="Left" Width="{Binding ActualWidth, ElementName=PanTitle, Mode=OneWay}">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1*" />
                             <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="1*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Path x:Name="ShapeTitleLogo" Data="M26,29 v-25 h6 a7,7 180 0 1 0,14 h-6 M62.5,6.5 a10,11.5 180 1 0 0,18 M71,2.5 v24.5 h13.5" SnapsToDevicePixels="False" UseLayoutRounding="False" IsHitTestVisible="False" HorizontalAlignment="Left" Margin="19,15.5,0,15.5" Stretch="fill" StrokeThickness="2.2" Width="39">
                             <Path.Stroke>
@@ -128,7 +128,7 @@
                         </Path>
                         <TextBlock x:Name="LabTitleLogo" Visibility="Collapsed" SnapsToDevicePixels="False" UseLayoutRounding="False" IsHitTestVisible="False" HorizontalAlignment="Left" Margin="18,0,0,0" Foreground="White" FontSize="17" VerticalAlignment="Center" />
                         <local:MyImage x:Name="ImageTitleLogo" SnapsToDevicePixels="False" UseLayoutRounding="False" IsHitTestVisible="False" HorizontalAlignment="Left" Margin="7" VerticalAlignment="Center" Visibility="Collapsed" />
-                        <Border x:Name="BorTitleSuffixDiv" Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Center" Width="1" Height="19" Margin="60,0,0,0" IsHitTestVisible="False">
+                        <StackPanel x:Name="PanTitleBrand" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="64,0,12,0"><Border x:Name="BorTitleSuffixDiv" VerticalAlignment="Center" Width="1" Height="19" Margin="0,0,8,0" IsHitTestVisible="False">
                             <Border.Background>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                                     <GradientStop Color="#00FFFFFF" Offset="0" />
@@ -137,7 +137,7 @@
                                 </LinearGradientBrush>
                             </Border.Background>
                         </Border>
-                        <Border x:Name="BorTitleSuffix" Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="68,0,0,0" CornerRadius="4" Padding="7,0,8,1" BorderThickness="1" ClipToBounds="True" IsHitTestVisible="False">
+                        <Border x:Name="BorTitleSuffix" VerticalAlignment="Center" Margin="0" CornerRadius="4" Padding="7,0,7,1" MinWidth="32" BorderThickness="1" ClipToBounds="True" IsHitTestVisible="False" UseLayoutRounding="True" SnapsToDevicePixels="True">
                             <Border.Background>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                     <GradientStop Color="#336FA9E8" Offset="0" />
@@ -145,10 +145,7 @@
                                 </LinearGradientBrush>
                             </Border.Background>
                             <Border.BorderBrush>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#7AAFD8FF" Offset="0" />
-                                    <GradientStop Color="#14FFFFFF" Offset="1" />
-                                </LinearGradientBrush>
+                                <SolidColorBrush Color="#4DFFFFFF" />
                             </Border.BorderBrush>
                             <Border.Triggers>
                                 <EventTrigger RoutedEvent="FrameworkElement.Loaded">
@@ -193,6 +190,7 @@
                                 </StackPanel>
                             </Grid>
                         </Border>
+                        </StackPanel>
                         <StackPanel Grid.Column="1" x:Name="PanTitleSelect" HorizontalAlignment="Left" Height="27" VerticalAlignment="Center" Orientation="Horizontal" Margin="13,0">
                             <local:MyRadioButton x:Name="BtnTitleSelect0" Text="启动" Tag="0" Margin="5,0" Checked="True" Padding="2,0"
                                              LogoScale="0.9" Logo="M52.1,164.5c-1.4,0-3.1-0.5-4.2-1.3c-2.6-1.7-4-4.2-4-7V43.8c0-2.9,1.6-5.8,4.1-7c1.2-0.8,2.7-1.2,4.1-1.2c1.5,0,2.9,0.4,4.2,1.2L153.1,93c0,0,0.1,0,0.1,0.1c2.6,1.7,4,4.2,4,7c0,3-1.7,5.8-4.2,7.1l-96.8,56.2C55.1,164,53.5,164.5,52.1,164.5z M60.4,142.1l72.1-42.1L60.4,58.2V142.1z" />

@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -1125,13 +1125,180 @@ Public Class FormMain
         FitPluginNav()
     End Sub
 
+    '标识收缩/展开的动画时长，导航折叠与之一致
+    Private Const TitleCollapseMs As Integer = 240
+    '完整徽标的自然宽度，用于判断收不收'
+    Private SuffixFullWidth As Double = 0
+    Private SuffixCompactNow As Boolean = False
+    '是否已经按真实宽度求过一次值（首次不播动画）
+    Private SuffixStateKnown As Boolean = False
+    '换字动画的序号，用于丢弃过期的回调
+    Private SuffixSwapId As Integer = 0
+    '徽标宽度动画进行中：此时暂停导航折叠计算，避免每一帧都改变「更多」按钮的显隐
+    Private SuffixLastFitTs As Long
+    Private SuffixPendingCompact As Boolean
+    Private SuffixDebounce As System.Windows.Threading.DispatcherTimer
+    Private SuffixWideBg As Brush
+    Private SuffixWideBgSaved As Boolean
+    Private SuffixAnimating As Boolean = False
+    '完整/紧凑标识的自然宽度（只用 Measure 量一次）
+    Private SuffixWideWidth As Double = 0
+    Private SuffixNarrowWidth As Double = 0
+
     Public Sub RefreshTitleSuffixFit()
         If BorTitleSuffix Is Nothing Then Return
-        Dim W As Double = If(Double.IsNaN(Width) OrElse Width <= 0, ActualWidth, Width)
+        Dim W As Double = ActualWidth
+        If W <= 0 Then Return
         Dim LogoTypeNow As Integer = Settings.Get(Of Integer)("UiLogoType")
-        Dim ShowSuffix As Boolean = (W >= 860) AndAlso (LogoTypeNow = 1 OrElse LogoTypeNow = 2)
-        BorTitleSuffix.Visibility = If(ShowSuffix, Visibility.Visible, Visibility.Collapsed)
-        BorTitleSuffixDiv.Visibility = If(ShowSuffix, Visibility.Visible, Visibility.Collapsed)
+        If LogoTypeNow <> 1 AndAlso LogoTypeNow <> 2 Then
+            PanTitleBrand.Visibility = Visibility.Collapsed
+            Return
+        End If
+        PanTitleBrand.Visibility = Visibility.Visible
+        '导航左边缘压到徽标就收成 H；导航折叠后宽度变小，徽标会自动展开
+        '窄到一定程度就把完整标识收成 H（940 是实测边界：960 放得下，905 会被导航压住）
+        Dim WantCompact As Boolean = If(SuffixCompactNow, W < 956, W < 940)
+        'During a drag SizeChanged fires every few tens of ms: only remember the
+        'target and apply it 140ms after the drag stops. Animating on every
+        'crossing is what made fast drags flicker.
+        Dim Ts As Long = System.Diagnostics.Stopwatch.GetTimestamp()
+        Dim DeltaMs As Double = If(SuffixLastFitTs = 0, 999.0, (Ts - SuffixLastFitTs) * 1000.0 / System.Diagnostics.Stopwatch.Frequency)
+        SuffixLastFitTs = Ts
+        If DeltaMs < 80 Then
+            SuffixPendingCompact = WantCompact
+            If SuffixDebounce Is Nothing Then
+                SuffixDebounce = New System.Windows.Threading.DispatcherTimer With {.Interval = New TimeSpan(0, 0, 0, 0, 140)}
+                AddHandler SuffixDebounce.Tick, Sub(Sender, Args)
+                                                    SuffixDebounce.Stop()
+                                                    If SuffixAnimating Then
+                                                        SuffixDebounce.Start()
+                                                        Return
+                                                    End If
+                                                    ApplySuffixState(SuffixPendingCompact)
+                                                End Sub
+            End If
+            SuffixDebounce.Stop()
+            SuffixDebounce.Start()
+            Return
+        End If
+        ApplySuffixState(WantCompact)
+    End Sub
+
+    '两种标识的自然宽度只在第一次切换时量一次，之后复用，避免每次过渡都改文本再改回来（那会让框先弹一下）
+    Private Sub MeasureSuffixWidths()
+        Dim OldText As String = LabTitleSuffix.Text
+        Dim OldShine As Visibility = RectSuffixShine.Visibility
+        '外框重新 Measure 会命中缓存，直接量文本本身再补内边距与描边
+        RectSuffixShine.Visibility = Visibility.Collapsed
+        LabTitleSuffix.Text = "Harness"
+        LabTitleSuffix.Measure(New Size(Double.PositiveInfinity, Double.PositiveInfinity))
+        Dim TextWide As Double = LabTitleSuffix.DesiredSize.Width
+        SuffixWideWidth = Math.Ceiling((TextWide + 14 + 2) / 0.8) * 0.8
+        '紧凑态按需求固定 38.4（= 48 物理像素），不再依赖量出来的数值
+        SuffixNarrowWidth = 38.4
+        LabTitleSuffix.Text = OldText
+        RectSuffixShine.Visibility = OldShine
+        BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Nothing)
+        BorTitleSuffix.Width = Double.NaN
+    End Sub
+
+    '在完整标识与紧凑标识之间切换：宽度沿曲线收缩/展开，中点换字，合计 TitleCollapseMs
+    '紧凑/完整两种外观；早退路径也必须走这里，否则宽度与描边会停在旧状态
+    Private Sub ApplySuffixStyle(Compact As Boolean)
+        If Not SuffixWideBgSaved Then
+            SuffixWideBg = BorTitleSuffix.Background
+            SuffixWideBgSaved = True
+        End If
+        If Compact Then
+            '紧凑态不画框：30px 宽的盒子无论描边还是实底都容易被读成"右边被切"，直接只留 H
+            BorTitleSuffix.BorderBrush = Brushes.Transparent
+            BorTitleSuffix.BorderThickness = New Thickness(0)
+            BorTitleSuffix.Background = Brushes.Transparent
+            BorTitleSuffix.MinWidth = 0
+        Else
+            BorTitleSuffix.BorderBrush = New LinearGradientBrush(Color.FromArgb(&H7A, &HD8, &HFF, &HFF), Color.FromArgb(&H40, &HFF, &HFF, &HFF), 0)
+            BorTitleSuffix.BorderThickness = New Thickness(1)
+            BorTitleSuffix.Background = SuffixWideBg
+            BorTitleSuffix.MinWidth = 0
+        End If
+        BorTitleSuffix.ClipToBounds = True
+    End Sub
+    Private Sub ApplySuffixState(Compact As Boolean)
+        If SuffixStateKnown AndAlso SuffixCompactNow = Compact Then
+            '空闲时把文本与宽度强制对齐：上一次过渡的换字定时器可能已被判废，字会卡在旧状态
+            If SuffixAnimating Then Return
+            If SuffixWideWidth <= 0 Then MeasureSuffixWidths()
+            Dim Want As String = If(Compact, "H", "Harness")
+            If LabTitleSuffix.Text <> Want Then LabTitleSuffix.Text = Want
+            ApplySuffixStyle(Compact)
+            RectSuffixShine.Visibility = If(Compact, Visibility.Collapsed, Visibility.Visible)
+            BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Nothing)
+            BorTitleSuffix.Width = If(Compact, SuffixNarrowWidth, SuffixWideWidth)
+            Return
+        End If
+        Dim Animate As Boolean = SuffixStateKnown
+        SuffixStateKnown = True
+        SuffixCompactNow = Compact
+        SuffixSwapId += 1
+        Dim SwapId As Integer = SuffixSwapId
+
+        ApplySuffixStyle(Compact)
+
+        If Not Animate Then
+            BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Nothing)
+            BorTitleSuffix.Width = If(Compact, SuffixNarrowWidth, SuffixWideWidth)
+            LabTitleSuffix.Text = If(Compact, "H", "Harness")
+            RectSuffixShine.Visibility = If(Compact, Visibility.Collapsed, Visibility.Visible)
+            LabTitleSuffix.Opacity = 1
+            Return
+        End If
+
+        If SuffixWideWidth <= 0 OrElse SuffixNarrowWidth <= 0 Then MeasureSuffixWidths()
+        '展开时先换字：宽度由窄变宽，文字被裁剪着逐步露出，避免中点半换字时文字溢出再回缩
+        If Not Compact Then LabTitleSuffix.Text = "Harness"
+        Dim FromWidth As Double = BorTitleSuffix.ActualWidth
+        Dim TargetWidth As Double = If(Compact, SuffixNarrowWidth, SuffixWideWidth)
+        If FromWidth <= 0 Then FromWidth = If(Compact, SuffixWideWidth, SuffixNarrowWidth)
+
+        '宽度沿曲线走完：这才是"看得到的收缩/展开"；FillBehavior=Stop 让中断时自动回落
+        If FromWidth > 0 AndAlso TargetWidth > 0 AndAlso Math.Abs(FromWidth - TargetWidth) > 0.5 Then
+            BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Nothing)
+            BorTitleSuffix.Width = FromWidth
+            Dim Shrink As New System.Windows.Media.Animation.DoubleAnimation(FromWidth, TargetWidth, New Duration(TimeSpan.FromMilliseconds(TitleCollapseMs)))
+            Shrink.EasingFunction = New System.Windows.Media.Animation.CubicEase With {.EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut}
+            Shrink.FillBehavior = System.Windows.Media.Animation.FillBehavior.Stop
+            BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Shrink)
+        End If
+
+        SuffixAnimating = True
+        Dim Half As Integer = TitleCollapseMs \ 2
+        AniStart({AaOpacity(LabTitleSuffix, 0, Half, 0, New AniEaseInoutFluent())}, "TitleSuffixFadeOut")
+        Dim Timer As New System.Windows.Threading.DispatcherTimer With {.Interval = New TimeSpan(0, 0, 0, 0, Half)}
+        AddHandler Timer.Tick, Sub(Sender, Args)
+                                   Dim T = DirectCast(Sender, System.Windows.Threading.DispatcherTimer)
+                                   T.Stop()
+                                   If SwapId <> SuffixSwapId Then Return
+                                   If Compact Then LabTitleSuffix.Text = "H"
+                                   RectSuffixShine.Visibility = If(Compact, Visibility.Collapsed, Visibility.Visible)
+                                   AniStart({AaOpacity(LabTitleSuffix, 1, Half, 0, New AniEaseInoutFluent())}, "TitleSuffixFadeIn")
+                               End Sub
+        Timer.Start()
+
+        '动画结束后把 Width 交还给自适应，别把临时宽度固化下来
+        Dim Settle As New System.Windows.Threading.DispatcherTimer With {.Interval = New TimeSpan(0, 0, 0, 0, TitleCollapseMs + 20)}
+        AddHandler Settle.Tick, Sub(Sender, Args)
+                                    Dim T = DirectCast(Sender, System.Windows.Threading.DispatcherTimer)
+                                    T.Stop()
+                                    If SwapId <> SuffixSwapId Then Return
+                                    SuffixAnimating = False
+                                    BorTitleSuffix.BeginAnimation(FrameworkElement.WidthProperty, Nothing)
+                                    '落定必须写具体宽度：留 NaN 会退回内容自适应，38.4 的目标就白设了
+                                    BorTitleSuffix.Width = If(SuffixCompactNow, SuffixNarrowWidth, SuffixWideWidth)
+                                    LabTitleSuffix.Opacity = 1
+                                    SuffixAnimating = False
+                                    FitPluginNav()
+                                End Sub
+        Settle.Start()
     End Sub
 
     '最小化
@@ -1268,16 +1435,15 @@ Public Class FormMain
         BorTitleSuffix.Visibility = If(SuffixVisible, Visibility.Visible, Visibility.Collapsed)
         BorTitleSuffixDiv.Visibility = If(SuffixVisible, Visibility.Visible, Visibility.Collapsed)
         If SuffixVisible Then
-            Dim SuffixLeft As Double
+            Dim BrandLeft As Double
             If LogoTypeNow = 2 Then
                 LabTitleLogo.UpdateLayout()
                 Dim LogoW As Double = If(LabTitleLogo.ActualWidth > 0, LabTitleLogo.ActualWidth, If(LabTitleLogo.Text?.Length, 0) * 9.5)
-                SuffixLeft = 18 + LogoW + 11
+                BrandLeft = 18 + LogoW + 11
             Else
-                SuffixLeft = 68
+                BrandLeft = 64
             End If
-            BorTitleSuffix.Margin = New Thickness(SuffixLeft, 0, 0, 0)
-            BorTitleSuffixDiv.Margin = New Thickness(SuffixLeft - 8, 0, 0, 0)
+            PanTitleBrand.Margin = New Thickness(BrandLeft, 0, 0, 0)
         End If
         RefreshTitleSuffixFit()
     End Sub
@@ -1966,6 +2132,8 @@ Public Class FormMain
     ' 最后被窗口边缘裁掉——末尾几个入口既看不见也点不到。这里改成先量宽度再决定显示。
 
     Private ReadOnly PluginNavButtons As New List(Of MyRadioButton)
+    '上一次折叠位置；-1 表示还没算过，用来判断这次是否真的发生了折叠
+    '折叠过渡只碰 Opacity 与 ScaleX，纯视觉，不影响布局
     Private BtnTitleOverflow As Border
     Private BtnTitleOverflowArrow As System.Windows.Shapes.Path
     Private BtnTitleOverflowTip As ToolTip
@@ -2334,6 +2502,8 @@ Public Class FormMain
     ''' 超过就会压到左侧品牌区（Harness 徽标）或右侧窗口按钮上。
     ''' </summary>
     Private Sub FitPluginNav()
+        '徽标正在做宽度动画：先不重算，等它落定再算一次，否则「更多」会每帧闪
+        If SuffixAnimating Then Return
         If IsFittingPluginNav Then Return
         If PanTitleSelect Is Nothing OrElse Not PanTitleSelect.IsLoaded Then Return
         Dim W As Double = PanTitle.ActualWidth
@@ -2344,9 +2514,6 @@ Public Class FormMain
             For Each Btn In PluginNavButtons
                 Btn.Visibility = Visibility.Visible
             Next
-            BtnTitleOverflow.Visibility = Visibility.Collapsed
-            If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False
-            OverflowList.Children.Clear()
 
             '左侧品牌区实际占到多宽（logo 与 Harness 徽标都在第 0 列）
             Dim LeftBlock As Double = 60
@@ -2366,7 +2533,7 @@ Public Class FormMain
             Catch
             End Try
 
-            Dim Available As Double = W - 2 * Math.Max(LeftBlock, RightBlock) - 26 '两侧各 13 的边距
+            Dim Available As Double = W - LeftBlock - RightBlock - 26 '导航紧跟在品牌右侧，不再居中
             If Available <= 0 Then Return
 
             '内置入口是固定成本，先扣掉
@@ -2387,8 +2554,13 @@ Public Class FormMain
                 Widths.Add(Btn.DesiredSize.Width)
                 Total += Btn.DesiredSize.Width
             Next
-            Dim Budget As Double = Available - Used
-            If Total <= Budget Then Return '放得下，全部显示
+            Dim Budget As Double = Available - Used - 12
+            If Total <= Budget Then
+                BtnTitleOverflow.Visibility = Visibility.Collapsed
+                If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False
+                OverflowList.Children.Clear()
+                Return
+            End If
 
             '放不下：先给「更多」按钮留出位置，再从尾部往前折叠
             BtnTitleOverflow.Measure(New Size(Double.PositiveInfinity, 27))
@@ -2407,12 +2579,15 @@ Public Class FormMain
                 PluginNavButtons(I).Visibility = Visibility.Collapsed
             Next
             BtnTitleOverflow.Visibility = Visibility.Visible
+            If OverflowPopup.IsOpen Then OverflowPopup.IsOpen = False
+            OverflowList.Children.Clear()
 
             For I As Integer = FirstHidden To PluginNavButtons.Count - 1
                 If I >= ModPlugin.PluginNavItems.Count Then Exit For
                 OverflowList.Children.Add(CreateOverflowRow(ModPlugin.PluginNavItems(I), PluginNavButtons(I)))
             Next
             Logger.Info($"插件入口溢出：折叠 {OverflowList.Children.Count} 个到「更多」（可用 {Available:0}，需要 {Total:0}）")
+            '事务到这里已经全部落地（可见性、菜单、日志），这时才放纯视觉过渡
         Catch ex As Exception
             Logger.Error(ex, "计算标题栏入口宽度失败", LogBehavior.None)
         Finally
