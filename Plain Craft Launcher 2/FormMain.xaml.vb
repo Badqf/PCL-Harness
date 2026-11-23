@@ -23,6 +23,10 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 476 Then 'PCL Harness 3.9.12
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
+            End If
             If LastVersion < 475 Then 'PCL Harness 3.9.11
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 下载页里 Forge / NeoForge 版本列表不再先等官方源 5 秒——官方只试 1 秒，连不上就直接走镜像，列表从 5.3 秒缩到约 1.2 秒。"))

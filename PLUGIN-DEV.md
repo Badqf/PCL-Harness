@@ -782,6 +782,17 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 - `ui` 现在真的拦：没有 `ui` 权限就不会采集你的页面、导航入口、设置项与卡片，事件记录里写「没有 ui 权限，界面扩展已跳过」。
 - `events` 两条路径都拦：既不会调 `OnLoad` 之后的 `IPclPluginEvents` 回调，也不允许 `Host.Events.On/Once` 订阅任何事件（会记「没有 events 权限，订阅被拒绝：…」）。
 
+> **v9.1（3.9.12）安全修复 —— 读写权限分家**
+>
+> 之前没有 `files` 权限的插件，`ReadTextFile` / `WriteTextFile` 的允许范围是「自己 data 目录 + 当前实例目录」，读写共用一张表，等于任何插件都能改写实例里的文件（包括 `versions\<id>\<id>.json`）。
+>
+> 现在的规则：
+>
+> - 自己 data 目录：读写都行，不需要任何权限；
+> - 当前实例目录：**读**照旧（`ReadTextFile` / `FileExists` / `ListContents`）；
+> - 当前实例目录：**写**必须显式声明 `instance.write`（或 `files` 里给出可写路径），否则抛 `UnauthorizedAccessException`。
+>
+> 只读实例、不写文件的插件不受影响；需要在实例里写 `config` / `options.txt` 的插件，请把 `"instance.write"` 加进 `permissions`。
 **权限表**
 
 | 权限 | 风险 | 说明 |
@@ -796,6 +807,7 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 | `logs.read` | 低 | 读游戏日志与崩溃报告 |
 | `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
 | `instance.install` | **中** | 往 mods / resourcepacks / shaderpacks / datapacks 写入 |
+| `instance.write` | **中** | 往当前实例目录写任意文件（config、options.txt、versions\<id>\<id>.json 等） |
 | `modpack.install` | **中** | 安装整合包（会新建一个游戏实例并写入大量文件） |
 | `launch` | **中** | 主动启动游戏 |
 | `account` | **中** | 读用户名、UUID、登录方式 |

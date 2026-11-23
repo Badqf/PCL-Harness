@@ -361,6 +361,7 @@ Public Module ModPlugin
             Case "mods.read" : Return "查看当前实例的模组、资源包与光影列表（只读）"
             Case "mods.write" : Return "启用或禁用当前实例里的模组、资源包与光影（会改动游戏文件）"
             Case "modpack.install" : Return "安装整合包（会新建一个游戏实例并写入大量文件）"
+            Case "instance.write" : Return "在当前游戏实例的目录里写文件（会改动游戏文件，例如 config、options.txt）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
     End Function
@@ -371,7 +372,7 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionRisk(Name As String) As Integer
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins", "modpack.install"
+            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins", "modpack.install", "instance.write"
                 'v7.4（安全审计 V9）：args 能注入 -javaagent、plugins 能安装/启用别的插件，二者都等价于执行任意代码
                 Return 1
             Case "process"
@@ -390,6 +391,7 @@ Public Module ModPlugin
         Select Case If(Name, "").Trim().ToLowerInvariant()
             Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
             Case "instance.install" : Return "可以把文件写进当前实例的 mods、resourcepacks、shaderpacks 或 datapacks 目录，放进来的内容会随游戏加载。"
+            Case "instance.write" : Return "可以往当前实例目录里写任意文件（例如 versions\<版本>\<版本>.json、options.txt、config\*.toml），改写后的内容会在下次启动时生效。"
             Case "account" : Return "可以读到当前登录账号的名称与 UUID（拿不到登录令牌），并能据此区分你和其他玩家。"
             Case "mods.write" : Return "可以改写当前实例 mods / resourcepacks / shaderpacks 里文件的启用状态（重命名成 .disabled），游戏下次启动会加载不同内容。"
             Case "args" : Return "可以往游戏启动命令里追加 JVM / 游戏参数（例如 -javaagent），等同于往游戏进程里注入代码。"
@@ -4821,15 +4823,27 @@ Public Class PluginHost
             Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 的 files 权限未包含该路径：{FullPath}（plugin.json 中 permissions.files 只允许 {String.Join("、", Patterns)}）")
         End If
         Dim Full = IO.Path.GetFullPath(Path)
-        Dim Allowed As New List(Of String) From {IO.Path.GetFullPath(DataFolder)}
+        'v9.1（安全审计 V12）：没有 files 权限时，data 目录读写都行；
+        '实例目录读可以、写必须另外声明 instance.write —— 之前读写共用一张允许表，
+        '一个只有 ui 权限的插件也能改写 versions\<id>\<id>.json 或覆盖 mods 里的 jar。
+        Dim OwnDataRoot = IO.Path.GetFullPath(DataFolder).TrimEnd("\"c) & "\"
+        If Full.StartsWith(OwnDataRoot, StringComparison.OrdinalIgnoreCase) Then Return
+        Dim InstanceRoot As String = Nothing
         Try
-            Dim Indie = InstanceFolder
-            If Not String.IsNullOrWhiteSpace(Indie) Then Allowed.Add(IO.Path.GetFullPath(Indie))
+            Dim IndieRaw = InstanceFolder
+            If Not String.IsNullOrWhiteSpace(IndieRaw) Then InstanceRoot = IO.Path.GetFullPath(IndieRaw)
         Catch
-            '忽略
+            '实例没选好时当作不存在
         End Try
-        'v7.4（安全审计 V6）：围栏必须按目录边界比较，否则 versions\1.20 会放行 versions\1.20.1
-        If Allowed.Any(Function(A) Full.StartsWith(If(A.EndsWith("\"c), A, A & "\"), StringComparison.OrdinalIgnoreCase)) Then Return
+        If InstanceRoot IsNot Nothing Then
+            Dim InstancePrefix = If(InstanceRoot.EndsWith("\"c), InstanceRoot, InstanceRoot & "\")
+            'v7.4（安全审计 V6）：围栏必须按目录边界比较，否则 versions\1.20 会放行 versions\1.20.1
+            If Full.StartsWith(InstancePrefix, StringComparison.OrdinalIgnoreCase) Then
+                If Not ForWrite Then Return
+                If Info.HasPermission("instance.write") Then Return
+                Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 没有 instance.write 权限，不能往实例目录写文件：{Full}（只读请用 ReadTextFile / ListContents；写入需要在 plugin.json 里声明 instance.write 或 files 的写路径）")
+            End If
+        End If
         Throw New UnauthorizedAccessException($"插件 {Info.DisplayName} 没有 files 权限，只能访问自己的 data 目录：" & Full)
     End Sub
 
