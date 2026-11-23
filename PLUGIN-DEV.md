@@ -975,6 +975,15 @@ v7 的能力没有单独成章，散在 v6 的后续小节里：
 
 v8 继续兼容这些接口，v7 及更早的插件无需改代码即可加载。
 
+### 整合包安装的三条注意事项
+
+- **静默模式会跳过可选内容。** `InstallModpack` 在后台完成安装，期间不弹任何提问：CurseForge 的可选文件、Modrinth 里 `env.client = "optional"` 的文件都会被跳过，只装必需项。`InspectModpack` 的 `OptionalCount` 就是被跳过的数量，可以先读它再决定要不要提示用户改用启动器界面手动安装。
+- **两种包必须在界面里装。** 内含启动器的整合包（包里有 `modpack.zip` / `modpack.mrpack`）和纯压缩包没有现成的实例名和目录，`CanInstallSilently` 会是 `False`，此时调用 `InstallModpack` 会立刻抛异常，请提示用户去「下载 → 安装整合包」。
+- **失败会清理本次新建的实例目录。** 安装失败或取消时，本次新出现的 `versions\<名字>` 会被删掉；安装前就存在的实例不会被碰。所以插件不需要自己做回滚，但也不要在安装期间往那个目录里写自己的文件。
+
+已实测的格式：CurseForge、Modrinth、MultiMC（`mmc-pack.json` + `instance.cfg`）、HMCL（`modpack.json`）、MCBBS（`mcbbs.packmeta`，缺失字段会回读同包 `manifest.json`）。
+
+> 示例代码只放在本仓库 `samples\DemoPlugin\`，不进插件 SDK：SDK 只带接口与文档，避免示例被当成模板复制进生产插件。
 ## API v9（当前版本）
 
 v9 只加一件事：**整合包**。插件可以只读识别一个整合包文件，也可以把它装成一个新实例；安装走「任务管理」，可看进度、可取消，结束后广播事件。

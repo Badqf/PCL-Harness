@@ -1097,6 +1097,23 @@ Public Module ModModpack
                             End Select
                         Next
                     End If
+                    '名称优先用 mmc-pack.json 的 name，其次 instance.cfg 的 name=，都没有才用文件名
+                    Dim MmcName As String = If(Json Is Nothing, "", TextOf(Json("name")))
+                    If String.IsNullOrWhiteSpace(MmcName) Then
+                        Try
+                            Dim CfgEntry = Archive.GetEntry(BaseFolder & "instance.cfg")
+                            If CfgEntry IsNot Nothing Then
+                                For Each CfgLine In CfgEntry.Open().ReadString().Split(New String() {ControlChars.CrLf, ControlChars.Lf}, StringSplitOptions.RemoveEmptyEntries)
+                                    If CfgLine.StartsWith("name=", StringComparison.OrdinalIgnoreCase) Then
+                                        MmcName = CfgLine.Substring(5).Trim()
+                                        Exit For
+                                    End If
+                                Next
+                            End If
+                        Catch
+                        End Try
+                    End If
+                    If Not String.IsNullOrWhiteSpace(MmcName) Then Result.Name = MmcName
                 Case 1 'HMCL
                     Dim Json = ReadJson("modpack.json")
                     If Json IsNot Nothing Then
@@ -1112,9 +1129,27 @@ Public Module ModModpack
                         Result.Version = TextOf(Json("version"))
                         Result.MinecraftVersion = TextOf(Json("mcversion"))
                     End If
+                    'packmeta 通常只有名字和版本，MC 与加载器要回到 manifest.json 里找
+                    If String.IsNullOrWhiteSpace(Result.MinecraftVersion) OrElse String.IsNullOrWhiteSpace(Result.Loader) Then
+                        Dim Man = ReadJson("manifest.json")
+                        If Man IsNot Nothing Then
+                            If String.IsNullOrWhiteSpace(Result.MinecraftVersion) Then
+                                Result.MinecraftVersion = TextOf(Man("minecraft")?("version"))
+                            End If
+                            If String.IsNullOrWhiteSpace(Result.Loader) Then
+                                Dim LoaderId As String = TextOf(Man("minecraft")?("modLoaders")?.First?("id"))
+                                If LoaderId <> "" Then
+                                    Dim Parts = LoaderId.Split("-"c)
+                                    Result.Loader = Parts(0)
+                                    If Parts.Length > 1 Then Result.LoaderVersion = Parts(1)
+                                End If
+                            End If
+                        End If
+                    End If
             End Select
         End Using
         Return Result
     End Function
+
 
 End Module
