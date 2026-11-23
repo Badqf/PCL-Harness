@@ -23,6 +23,14 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 473 Then 'PCL Harness 3.9.9
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件可以识别并安装整合包——Host.InspectModpack 读格式/版本/加载器/文件数，Host.InstallModpack 交给宿主任务系统安装，进度与取消都在任务栏里。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 权限 modpack.install（中风险）；插件接口版本 ApiVersionUi 8 → 9。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 整合包安装失败会清掉本次新建的实例目录；含 .. 的条目在解压前就被拒绝；加载器 Failed 时不再谎报成功。"))
+            End If
             If LastVersion < 472 Then 'PCL Harness 3.9.8
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 窗口变窄时自编版标识收缩成 PCL │ H，不再整块消失，也不会压到左边第一个入口；扩张回去有 240ms 的宽度过渡。"))
