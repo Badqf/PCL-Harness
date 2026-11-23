@@ -95,7 +95,24 @@ foreach ($sampleName in @("V6Demo", "InstanceMenu")) {
 # 打包
 $zip = Join-Path $OutputDirectory "$name.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path $root -DestinationPath $zip -CompressionLevel Optimal
+# 不用 Compress-Archive：PowerShell 5.1 版本写进 zip 的条目名是 `\`（不符合 zip 规范，
+# Linux/macOS 上 unzip 会解开成带反斜杠的文件名），而 PowerShell 7 写的是 `/`，
+# 同一份源码在两个宿主打出来的包内容相同、字节不同。这里统一按 `/` 手写。
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zipStream = [IO.File]::Open($zip, [IO.FileMode]::Create)
+try {
+    $archive = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem $root -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $entryName = $name + '/' + $_.FullName.Substring($root.Length + 1).Replace('\', '/')
+            $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+            $entryStream = $entry.Open()
+            $fileStream = [IO.File]::OpenRead($_.FullName)
+            try { $fileStream.CopyTo($entryStream) } finally { $fileStream.Close(); $entryStream.Close() }
+        }
+    } finally { $archive.Dispose() }
+} finally { $zipStream.Close() }
 
 # 断言（2026-11-17 复盘）：3.9.5 的包里 PLUGIN-DEV.md 还写着 3.9.4，是发完版才发现。
 # 这里在打包当场验两件事：指南声明的适用版本不能比本次打的版本还新；包内文件与仓库逐字节一致。
