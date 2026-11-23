@@ -87,38 +87,107 @@ Public Module ModModpack
                 End If
             End Try
             '执行对应的安装方法
-            Select Case PackType
-                Case 0
-                    Logger.Info("整合包种类：CurseForge")
-                    Return InstallPackCurseForge(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
-                Case 1
-                    Logger.Info("整合包种类：HMCL")
-                    Return InstallPackHMCL(File, Archive, ArchiveBaseFolder)
-                Case 2
-                    Logger.Info("整合包种类：MMC")
-                    Return InstallPackMMC(File, Archive, ArchiveBaseFolder)
-                Case 3
-                    Logger.Info("整合包种类：MCBBS")
-                    Return InstallPackMCBBS(File, Archive, ArchiveBaseFolder, InstanceName)
-                Case 4
-                    Logger.Info("整合包种类：Modrinth")
-                    Return InstallPackModrinth(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
-                Case 9
-                    Logger.Info("整合包种类：带启动器的压缩包")
-                    Return InstallPackLauncherPack(File, Archive, ArchiveBaseFolder)
-                Case Else
-                    Logger.Info("整合包种类：未能识别，假定为压缩包")
-                    Return InstallPackCompress(File, Archive)
-            End Select
+            '安装失败时把这次新建的实例目录清掉，避免留下打不开的半成品
+            Dim VersionsRoot As String = PathUtils.AddSlashSuffix(Path.Combine(McFolderSelected, "versions"))
+            Dim InstallStartedAt As Date = Date.Now
+            Dim ExistingVersions As New List(Of String)
+            If DirectoryUtils.Exists(VersionsRoot) Then
+                For Each Folder In IO.Directory.GetDirectories(VersionsRoot)
+                    ExistingVersions.Add(IO.Path.GetFileName(Folder).ToLowerInvariant())
+                Next
+            End If
+            Try
+                Select Case PackType
+                    Case 0
+                        Logger.Info("整合包种类：CurseForge")
+                        Return InstallPackCurseForge(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
+                    Case 1
+                        Logger.Info("整合包种类：HMCL")
+                        Return InstallPackHMCL(File, Archive, ArchiveBaseFolder)
+                    Case 2
+                        Logger.Info("整合包种类：MMC")
+                        Return InstallPackMMC(File, Archive, ArchiveBaseFolder)
+                    Case 3
+                        Logger.Info("整合包种类：MCBBS")
+                        Return InstallPackMCBBS(File, Archive, ArchiveBaseFolder, InstanceName)
+                    Case 4
+                        Logger.Info("整合包种类：Modrinth")
+                        Return InstallPackModrinth(File, Archive, ArchiveBaseFolder, InstanceName, Logo)
+                    Case 9
+                        Logger.Info("整合包种类：带启动器的压缩包")
+                        Return InstallPackLauncherPack(File, Archive, ArchiveBaseFolder)
+                    Case Else
+                        Logger.Info("整合包种类：未能识别，假定为压缩包")
+                        Return InstallPackCompress(File, Archive)
+                End Select
+            Catch
+                CleanupIncompleteVersions(VersionsRoot, ExistingVersions, InstallStartedAt)
+                Throw
+            End Try
         Finally
             If Archive IsNot Nothing Then Archive.Dispose()
         End Try
     End Function
 
     Private Sub ExtractModpackFiles(InstallTemp As String, FileAddress As String, Optional c As CancellationToken = Nothing, Optional p As ProgressProvider = Nothing)
+        '先自己扫一遍条目：运行库虽然会拦住越界路径，但报的是框架原文，
+        '而且那时实例目录已经建好了。提前拒绝能给出看得懂的原因，也省掉后续清理。
+        AssertModpackEntriesSafe(FileAddress)
         DirectoryUtils.Delete(InstallTemp)
         c.ThrowIfCancellationRequested()
-        FileUtils.ExtractToDirectory(FileAddress, InstallTemp, c, p)
+        Try
+            FileUtils.ExtractToDirectory(FileAddress, InstallTemp, c, p)
+        Catch ex As Exception
+            DirectoryUtils.Delete(InstallTemp)
+            If TypeOf ex Is IO.InvalidDataException Then Throw New Exception($"整合包内含有非法路径，已拒绝安装：{IO.Path.GetFileName(FileAddress)}", ex)
+            Throw
+        End Try
+    End Sub
+    ''' <summary>
+    ''' 清理安装失败后残留的实例目录。只删本次调用新建的，绝不碰用户原有实例。
+    ''' </summary>
+    Private Sub CleanupIncompleteVersions(VersionsRoot As String, Existing As List(Of String), InstallStartedAt As Date)
+        Try
+            If Not DirectoryUtils.Exists(VersionsRoot) Then Return
+            For Each Folder In IO.Directory.GetDirectories(VersionsRoot)
+                Dim Name As String = IO.Path.GetFileName(Folder).ToLowerInvariant()
+                If Existing.Contains(Name) Then Continue For
+                '双保险：早于本次安装创建的目录一律不碰，哪怕快照漏了它
+                Try
+                    If IO.Directory.GetCreationTime(Folder) < InstallStartedAt.AddSeconds(-2) Then Continue For
+                Catch
+                End Try
+                Logger.Warn($"整合包安装失败，清理未完成的实例：{Folder}")
+                Try
+                    DirectoryUtils.Delete(Folder, True)
+                Catch ex As Exception
+                    Logger.Warn($"清理未完成的实例失败：{ex.Message}")
+                End Try
+            Next
+        Catch ex As Exception
+            Logger.Warn($"清理未完成的实例时出错：{ex.Message}")
+        End Try
+    End Sub
+    ''' <summary>
+    ''' 预扫压缩包条目，拒绝绝对路径、盘符与 .. 段落，避免把文件写到解压目标之外。
+    ''' </summary>
+    Private Sub AssertModpackEntriesSafe(FileAddress As String)
+        Try
+            Using Zip = IO.Compression.ZipFile.OpenRead(FileAddress)
+                For Each Entry In Zip.Entries
+                    Dim Name As String = Entry.FullName
+                    If String.IsNullOrWhiteSpace(Name) Then Continue For
+                    Dim Normalized As String = Name.Replace("\"c, "/"c)
+                    If Normalized.StartsWith("/") OrElse Name.Contains(":") Then Throw New Exception($"整合包内含有非法路径，已拒绝安装：{Name}")
+                    For Each Part In Normalized.Split("/"c)
+                        If Part = ".." Then Throw New Exception($"整合包内含有非法路径，已拒绝安装：{Name}")
+                    Next
+                Next
+            End Using
+        Catch ex As IO.InvalidDataException
+            '不是合法 zip（损坏、分卷或不支持的格式），交给调用方按原有错误处理
+            Throw New Exception("打开整合包文件失败，文件可能损坏或为不支持的压缩包格式", ex)
+        End Try
     End Sub
     ''' <summary>
     ''' 从整合包的 override 目录复制文件，同时设置 PCL 的配置文件与版本隔离。
