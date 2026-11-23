@@ -23,6 +23,10 @@ Public Class FormMain
         Dim FeatureList As New List(Of KeyValuePair(Of Integer, String))
         '统计更新日志条目
         If BuildType = BuildTypes.Release Then
+            If LastVersion < 474 Then 'PCL Harness 3.9.10
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 安装 NeoForge / Forge 时不再先连官方 Maven 白等十几秒——加载器的库文件改为镜像优先，官方源留作兜底。"))
+            End If
             If LastVersion < 473 Then 'PCL Harness 3.9.9
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件可以识别并安装整合包——Host.InspectModpack 读格式/版本/加载器/文件数，Host.InstallModpack 交给宿主任务系统安装，进度与取消都在任务栏里。"))
