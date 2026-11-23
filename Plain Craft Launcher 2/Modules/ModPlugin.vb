@@ -4701,6 +4701,8 @@ Public Class PluginHost
                         Thread.Sleep(200)
                     Loop
                     Loader.WaitForExit()
+                    'State 只会在成功时是 Finished；Failed / Canceled 不能当成功上报
+                    If Loader.State <> LoadState.Finished Then Throw New Exception("安装整合包失败，加载器最终状态：" & Loader.State.ToString())
                     Result.Success = True
                     Ctx.Report(1, "整合包安装完成：" & Name)
                 Catch ex As Exception
