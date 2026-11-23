@@ -796,6 +796,7 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 | `logs.read` | 低 | 读游戏日志与崩溃报告 |
 | `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
 | `instance.install` | **中** | 往 mods / resourcepacks / shaderpacks / datapacks 写入 |
+| `modpack.install` | **中** | 安装整合包（会新建一个游戏实例并写入大量文件） |
 | `launch` | **中** | 主动启动游戏 |
 | `account` | **中** | 读用户名、UUID、登录方式 |
 | `settings.global` | **中** | 读启动器全局设置（只读） |
@@ -974,7 +975,53 @@ v7 的能力没有单独成章，散在 v6 的后续小节里：
 
 v8 继续兼容这些接口，v7 及更早的插件无需改代码即可加载。
 
-## API v8（当前版本）
+## API v9（当前版本）
+
+v9 只加一件事：**整合包**。插件可以只读识别一个整合包文件，也可以把它装成一个新实例；安装走「任务管理」，可看进度、可取消，结束后广播事件。
+
+**新增权限**
+
+| 权限 | 风险 | 说明 |
+| --- | --- | --- |
+| `modpack.install` | **中** | 安装整合包（会新建一个游戏实例并写入大量文件） |
+
+识别用老的 `instance.read`，不需要新权限。
+
+**新接口**
+
+```vb
+' instance.read：只读识别（不解压、不联网，几十毫秒）
+Dim Info = Host.InspectModpack("D:\packs\MyPack.mrpack")
+If Info IsNot Nothing Then
+    Host.LogInfo($"{Info.Format} · {Info.Name} {Info.Version} · MC {Info.MinecraftVersion} · {Info.Loader} {Info.LoaderVersion} · {Info.FileCount} 个文件（{Info.OptionalCount} 个可选）")
+    If Not Info.CanInstallSilently Then Host.Hint("这个包要手动选目录，请用「下载 → 安装整合包」")
+End If
+
+' modpack.install（中风险）：装成一个新实例，返回任务句柄
+Dim Task = Host.InstallModpack("D:\packs\MyPack.mrpack", New PluginModpackOptions With {.InstanceName = "我的整合包"})
+Task.ProgressChanged += Sub(P) Host.LogInfo($"安装进度 {P:P0}")
+Task.Wait()   ' 不想阻塞可以不等，结果通过事件回调
+
+' 安装结束（成功 / 失败 / 取消都会来）
+Public Sub OnModpackInstalled(Result As PluginModpackResult) Implements IPclPluginModpack.OnModpackInstalled
+    If Result.Success Then
+        Host.Hint($"已装好：{Result.InstanceName}")
+    Else
+        Host.LogError($"安装失败：{Result.Message}")
+    End If
+End Sub
+```
+
+**规则**
+
+- 支持的格式：CurseForge（`manifest.json`）、Modrinth（`modrinth.index.json`）、MultiMC（`mmc-pack.json`）、HMCL（`modpack.json`）、MCBBS（`mcbbs.packmeta`），以及普通压缩包。
+- `InspectModpack` 认不出或文件不存在时返回 `Nothing`，不抛异常；字段全部来自包内描述文件，没有的留空。
+- `CanInstallSilently` 为 `False` 的包（带启动器的包、只有压缩层级的包）**不能**静默安装——它们需要用户选一个空目录；`InstallModpack` 会立刻失败并给出提示，别硬试。
+- `InstallModpack` 会新建实例、写入文件并刷新下载页；它**不会**自动启动游戏，要启动请另外调用 `LaunchGame()`（需要 `launch`）。
+- 重名会自动加 `(2)`、`(3)`；也可以自己传 `InstanceName`，非法字符会被替换成 `_`。
+- 安装期间启动器自己的界面不受影响，进度同时出现在「任务管理」里；`Task.Cancel()` 会中止并清理未完成的步骤。
+
+## API v8（历史版本）
 
 v8 只改一件事：**内置功能页默认不再随启动器提供**。`1 = 下载`、`2 = 联机` 两页的正文仍是启动器原版实现，只是默认隐藏、页面不可达；由插件显式启用后，标题栏入口才会出现。
 

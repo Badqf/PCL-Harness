@@ -3,6 +3,12 @@ Imports System.Text.RegularExpressions
 
 Public Module ModModpack
 
+    ''' <summary>
+    ''' 插件调用时的静默模式：不弹任何对话框，按最保守的选项继续。
+    ''' 由 PluginHost.InstallModpack 在工作线程里临时置 True，结束后复原。
+    ''' </summary>
+    Friend ModpackSilentInstall As Boolean = False
+
     '触发整合包安装的外部接口
     ''' <summary>
     ''' 弹窗要求选择一个整合包文件并进行安装。
@@ -147,6 +153,10 @@ Public Module ModModpack
     ''' 如果取消，则抛出 CancelledException。
     ''' </summary>
     Private Sub NotifyIncompatibleLoader(LoaderName As String)
+        If ModpackSilentInstall Then
+            Logger.Warn($"整合包中存在不兼容的加载器：{LoaderName}，插件静默安装时已跳过")
+            Return
+        End If
         If MyMsgBox($"整合包中存在不兼容的加载器：{LoaderName}{vbCrLf}如果你知道如何手动安装它，可以先选择跳过，然后在整合包下载结束后手动安装。",
             "不兼容的加载器", "取消", $"不安装 {LoaderName} 并继续") = 1 Then Throw New OperationCanceledException
     End Sub
@@ -171,7 +181,8 @@ Public Module ModModpack
             InstanceName = If(Json("name"), "")
             Dim Validate As New ValidateFolderName(McFolderSelected & "versions")
             If Validate.Validate(InstanceName) <> "" Then InstanceName = ""
-            If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
+            If ModpackSilentInstall Then Throw New Exception("整合包没有提供合法的实例名，请在 Options.InstanceName 里指定一个")
+        If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
             If String.IsNullOrEmpty(InstanceName) Then Throw New OperationCanceledException
         End If
         Dim VersionFolder As String = PathUtils.AddSlashSuffix(Path.Combine(McFolderSelected, "versions", InstanceName) & "\")
@@ -253,9 +264,13 @@ Public Module ModModpack
                         MissingDesc.Add($"{Project.TranslatedName} (文件 ID {Missing.FileId})")
                     End If
                 Next
-                If MyMsgBox($"未找到该整合包所需的以下内容，它们可能已被原作者删除：{vbCrLf}- {MissingDesc.Join(vbCrLf + "- ")}{vbCrLf}{vbCrLf}是否继续安装？缺失这些内容可能导致整合包出现异常！",
-                    "整合包内容缺失", "继续", "取消", IsWarn:=True) = 2 Then
-                    Task.Cancel()
+                If Not ModpackSilentInstall Then
+                    If MyMsgBox($"未找到该整合包所需的以下内容，它们可能已被原作者删除：{vbCrLf}- {MissingDesc.Join(vbCrLf + "- ")}{vbCrLf}{vbCrLf}是否继续安装？缺失这些内容可能导致整合包出现异常！",
+                        "整合包内容缺失", "继续", "取消", IsWarn:=True) = 2 Then
+                        Task.Cancel()
+                    End If
+                Else
+                    Logger.Warn($"插件静默安装：整合包缺少 {MissingDesc.Count} 项内容，继续安装")
                 End If
             End Sub) With {.ProgressWeight = ModList.Count / 10}) '每 10 Mod 需要 1s
             '构造 NetFile
@@ -268,6 +283,7 @@ Public Module ModModpack
                     If FileList.ContainsKey(Id) Then Continue For
                     '可选 Mod 提示
                     If ModOptionalList.Contains(Id) Then
+                        If ModpackSilentInstall Then Continue For
                         If MyMsgBox("是否要下载整合包中的可选文件 " & ModJson("displayName").ToString & "？", "下载可选文件", "是", "否") = 2 Then
                             Continue For
                         End If
@@ -393,7 +409,8 @@ Public Module ModModpack
             InstanceName = If(Json("name"), "")
             Dim Validate As New ValidateFolderName(McFolderSelected & "versions")
             If Validate.Validate(InstanceName) <> "" Then InstanceName = ""
-            If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
+            If ModpackSilentInstall Then Throw New Exception("整合包没有提供合法的实例名，请在 Options.InstanceName 里指定一个")
+        If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
             If String.IsNullOrEmpty(InstanceName) Then Throw New OperationCanceledException
         End If
         Dim VersionFolder As String = Path.Combine(McFolderSelected, "versions", InstanceName) & "\"
@@ -413,6 +430,7 @@ Public Module ModModpack
             If File("env") IsNot Nothing Then
                 Select Case File("env")("client").ToString
                     Case "optional"
+                        If ModpackSilentInstall Then Continue For
                         If MyMsgBox("是否要下载可选文件 " & PathUtils.GetLastPart(File("path").ToString) & "？",
                                     "下载可选文件", "是", "否") = 2 Then
                             Continue For
@@ -498,6 +516,7 @@ Public Module ModModpack
         Dim InstanceName As String = If(Json("name"), "")
         Dim Validate As New ValidateFolderName(McFolderSelected & "versions")
         If Validate.Validate(InstanceName) <> "" Then InstanceName = ""
+        If ModpackSilentInstall Then Throw New Exception("整合包没有提供合法的实例名，请在 Options.InstanceName 里指定一个")
         If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
         If String.IsNullOrEmpty(InstanceName) Then Throw New OperationCanceledException
         Dim VersionFolder As String = Path.Combine(McFolderSelected, "versions", InstanceName) & "\"
@@ -548,6 +567,7 @@ Public Module ModModpack
         Dim InstanceName As String = If(PackInstance.RegexSeek("(?<=\nname\=)[^\n]+"), "")
         Dim Validate As New ValidateFolderName(McFolderSelected & "versions")
         If Validate.Validate(InstanceName) <> "" Then InstanceName = ""
+        If ModpackSilentInstall Then Throw New Exception("整合包没有提供合法的实例名，请在 Options.InstanceName 里指定一个")
         If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
         If String.IsNullOrEmpty(InstanceName) Then Throw New OperationCanceledException
         Dim VersionFolder As String = Path.Combine(McFolderSelected, "versions", InstanceName) & "\"
@@ -684,7 +704,8 @@ Public Module ModModpack
             InstanceName = If(Json("name"), "")
             Dim Validate As New ValidateFolderName(McFolderSelected & "versions")
             If Validate.Validate(InstanceName) <> "" Then InstanceName = ""
-            If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
+            If ModpackSilentInstall Then Throw New Exception("整合包没有提供合法的实例名，请在 Options.InstanceName 里指定一个")
+        If InstanceName = "" Then InstanceName = MyMsgBoxInput("输入版本名称", "", "", New Collection(Of Validate) From {Validate})
             If String.IsNullOrEmpty(InstanceName) Then Throw New OperationCanceledException
         End If
         Dim VersionFolder As String = Path.Combine(McFolderSelected, "versions", InstanceName) & "\"
@@ -757,6 +778,7 @@ Public Module ModModpack
 
     '带启动器的压缩包
     Private Function InstallPackLauncherPack(FileAddress As String, Archive As ZipArchive, ArchiveBaseFolder As String) As LoaderCombo(Of String)
+        If ModpackSilentInstall Then Throw New Exception("这个整合包里带了启动器，需要手动选择安装目录，请在「下载 → 安装整合包」里装")
         '获取解压路径
         MyMsgBox("接下来请选择一个空文件夹，它会被安装到这个文件夹里。", "安装", "继续", ForceWait:=True)
         Dim TargetFolder As String = Dialogs.SelectFolder("选择安装目标（必须是一个空文件夹）", False).FirstOrDefault
@@ -819,6 +841,7 @@ Public Module ModModpack
 
     '普通压缩包
     Private Function InstallPackCompress(FileAddress As String, Archive As ZipArchive) As LoaderCombo(Of String)
+        If ModpackSilentInstall Then Throw New Exception("这个压缩包需要手动选择安装目录，请在「下载 → 安装整合包」里装")
         '尝试定位 .minecraft 文件夹：寻找形如 “/versions/XXX/XXX.json” 的路径
         Dim Match As Match = Nothing
         Dim Regex As New Regex("^.*\/(?=versions\/(?<ver>[^\/]+)\/(\k<ver>)\.json$)", RegexOptions.IgnoreCase)
@@ -857,5 +880,172 @@ Public Module ModModpack
     End Function
 
 #End Region
+
+    '整合包识别（供插件 API 使用，只读，不解压不安装）
+
+    Public Class ModpackInspectResult
+        ''' <summary>curseforge / modrinth / mcbbs / mmc / hmcl / launcher / archive</summary>
+        Public Format As String = ""
+        ''' <summary>内部 PackType：0 CurseForge，1 HMCL，2 MMC，3 MCBBS，4 Modrinth，9 带启动器，-1 未知</summary>
+        Public PackType As Integer = -1
+        Public Name As String = ""
+        Public Version As String = ""
+        Public MinecraftVersion As String = ""
+        Public Loader As String = ""
+        Public LoaderVersion As String = ""
+        ''' <summary>包内声明的文件数（CurseForge / Modrinth 才有，其余为 0）</summary>
+        Public FileCount As Integer = 0
+        ''' <summary>其中标记为可选的文件数</summary>
+        Public OptionalCount As Integer = 0
+        ''' <summary>能否被插件静默安装（带启动器与纯压缩包需要选目录，不能）</summary>
+        Public SilentInstallable As Boolean = False
+    End Class
+
+    ''' <summary>
+    ''' 只读识别一个整合包文件，不解压、不安装、不联网。
+    ''' </summary>
+    Public Function InspectModpack(File As String) As ModpackInspectResult
+        Dim Result As New ModpackInspectResult With {.Name = PathUtils.GetFileNameWithoutExtension(File)}
+        Using Archive As ZipArchive = FileUtils.OpenZip(File)
+            Dim BaseFolder As String = ""
+            Dim DetectTarget As Func(Of String, Integer) =
+                Function(Prefix As String) As Integer
+                    If Archive.GetEntry(Prefix & "mcbbs.packmeta") IsNot Nothing Then Return 3
+                    If Archive.GetEntry(Prefix & "mmc-pack.json") IsNot Nothing Then Return 2
+                    If Archive.GetEntry(Prefix & "modrinth.index.json") IsNot Nothing Then Return 4
+                    If Archive.GetEntry(Prefix & "modpack.json") IsNot Nothing Then Return 1
+                    If Archive.GetEntry(Prefix & "manifest.json") IsNot Nothing Then
+                        Try
+                            Dim Cf As JObject = Archive.GetEntry(Prefix & "manifest.json").Open().ReadString().DeserializeJson()
+                            Return If(Cf("addons") Is Nothing, 0, 3)
+                        Catch
+                            Return 0
+                        End Try
+                    End If
+                    If Archive.GetEntry(Prefix & "modpack.zip") IsNot Nothing OrElse Archive.GetEntry(Prefix & "modpack.mrpack") IsNot Nothing Then Return 9
+                    Return -1
+                End Function
+            Result.PackType = DetectTarget("")
+            If Result.PackType < 0 Then
+                For Each Entry In Archive.Entries
+                    Dim FullName As String = Entry.FullName
+                    Dim Slash As Integer = FullName.LastIndexOf("/"c)
+                    If Slash >= 0 Then
+                        Dim Prefix As String = FullName.Substring(0, Slash + 1)
+                        Dim T As Integer = DetectTarget(Prefix)
+                        If T >= 0 Then
+                            Result.PackType = T
+                            BaseFolder = Prefix
+                            Exit For
+                        End If
+                    End If
+                Next
+            End If
+
+            Result.Format = If(Result.PackType >= 0 AndAlso Result.PackType <= 4,
+                {"curseforge", "hmcl", "mmc", "mcbbs", "modrinth"}(Result.PackType),
+                If(Result.PackType = 9, "launcher", "archive"))
+            Result.SilentInstallable = Result.PackType >= 0 AndAlso Result.PackType <= 4
+
+            Dim ReadJson As Func(Of String, JObject) =
+                Function(Name As String) As JObject
+                    Dim Entry = Archive.GetEntry(BaseFolder & Name)
+                    If Entry Is Nothing Then Return Nothing
+                    Try
+                        Return Entry.Open().ReadString().DeserializeJson()
+                    Catch
+                        Return Nothing
+                    End Try
+                End Function
+            Dim TextOf As Func(Of JToken, String) = Function(Tok) If(Tok Is Nothing, "", Tok.ToString())
+
+            Select Case Result.PackType
+                Case 0 'CurseForge
+                    Dim Json = ReadJson("manifest.json")
+                    If Json IsNot Nothing Then
+                        If Not String.IsNullOrWhiteSpace(TextOf(Json("name"))) Then Result.Name = TextOf(Json("name"))
+                        Result.Version = TextOf(Json("version"))
+                        Result.MinecraftVersion = TextOf(Json("minecraft")?("version"))
+                        If Json("files") IsNot Nothing Then
+                            Dim CfFiles = CType(Json("files"), JArray)
+                            Result.FileCount = CfFiles.Count
+                            Dim CfOpt As Integer = 0
+                            For Each Item In CfFiles
+                                If TextOf(Item("required")).ToLowerInvariant() = "false" Then CfOpt += 1
+                            Next
+                            Result.OptionalCount = CfOpt
+                        End If
+                        Dim LoaderId As String = TextOf(Json("minecraft")?("modLoaders")?.First?("id"))
+                        If LoaderId <> "" Then
+                            Dim Parts = LoaderId.Split("-"c)
+                            Result.Loader = Parts(0)
+                            If Parts.Length > 1 Then Result.LoaderVersion = Parts(1)
+                        End If
+                    End If
+                Case 4 'Modrinth
+                    Dim Json = ReadJson("modrinth.index.json")
+                    If Json IsNot Nothing Then
+                        If Not String.IsNullOrWhiteSpace(TextOf(Json("name"))) Then Result.Name = TextOf(Json("name"))
+                        Result.Version = TextOf(Json("versionId"))
+                        Result.MinecraftVersion = TextOf(Json("dependencies")?("minecraft"))
+                        Dim Files = TryCast(Json("files"), JArray)
+                        If Files IsNot Nothing Then
+                            Result.FileCount = Files.Count
+                            Dim OptCount As Integer = 0
+                            For Each F In Files
+                                If TextOf(F("env")?("client")) = "optional" Then OptCount += 1
+                            Next
+                            Result.OptionalCount = OptCount
+                        End If
+                        Dim LoaderPairs As String()() = {({"forge", "forge"}), ({"neoforge", "neoforge"}), ({"fabric-loader", "fabric"}), ({"quilt-loader", "quilt"})}
+                        For Each Pair As String() In LoaderPairs
+                            Dim Ver As String = TextOf(Json("dependencies")?(Pair(0)))
+                            If Ver <> "" Then
+                                Result.Loader = Pair(1)
+                                Result.LoaderVersion = Ver
+                                Exit For
+                            End If
+                        Next
+                    End If
+                Case 2 'MultiMC
+                    Dim Json = ReadJson("mmc-pack.json")
+                    If Json IsNot Nothing AndAlso Json("components") IsNot Nothing Then
+                        For Each Comp In CType(Json("components"), JArray)
+                            Dim Uid As String = TextOf(Comp("uid"))
+                            Dim Ver As String = TextOf(Comp("version"))
+                            Select Case Uid
+                                Case "net.minecraft"
+                                    Result.MinecraftVersion = Ver
+                                Case "net.minecraftforge", "net.neoforged"
+                                    Result.Loader = "forge"
+                                    Result.LoaderVersion = Ver
+                                Case "net.fabricmc.fabric-loader"
+                                    Result.Loader = "fabric"
+                                    Result.LoaderVersion = Ver
+                                Case "org.quiltmc.quilt-loader"
+                                    Result.Loader = "quilt"
+                                    Result.LoaderVersion = Ver
+                            End Select
+                        Next
+                    End If
+                Case 1 'HMCL
+                    Dim Json = ReadJson("modpack.json")
+                    If Json IsNot Nothing Then
+                        If Not String.IsNullOrWhiteSpace(TextOf(Json("name"))) Then Result.Name = TextOf(Json("name"))
+                        Result.Version = TextOf(Json("version"))
+                        Result.MinecraftVersion = If(TextOf(Json("gameVersion")) <> "", TextOf(Json("gameVersion")), TextOf(Json("mcversion")))
+                    End If
+                Case 3 'MCBBS
+                    Dim Json = ReadJson("mcbbs.packmeta")
+                    If Json Is Nothing Then Json = ReadJson("manifest.json")
+                    If Json IsNot Nothing Then
+                        If Not String.IsNullOrWhiteSpace(TextOf(Json("name"))) Then Result.Name = TextOf(Json("name"))
+                        Result.Version = TextOf(Json("version"))
+                        Result.MinecraftVersion = TextOf(Json("mcversion"))
+                    End If
+            End Select
+        End Using
+        Return Result
+    End Function
 
 End Module

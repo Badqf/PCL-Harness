@@ -360,6 +360,7 @@ Public Module ModPlugin
             Case "instance.select" : Return "切换当前选中的游戏实例（会改变之后「启动游戏」用的版本）"
             Case "mods.read" : Return "查看当前实例的模组、资源包与光影列表（只读）"
             Case "mods.write" : Return "启用或禁用当前实例里的模组、资源包与光影（会改动游戏文件）"
+            Case "modpack.install" : Return "安装整合包（会新建一个游戏实例并写入大量文件）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
     End Function
@@ -370,7 +371,7 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionRisk(Name As String) As Integer
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins"
+            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins", "modpack.install"
                 'v7.4（安全审计 V9）：args 能注入 -javaagent、plugins 能安装/启用别的插件，二者都等价于执行任意代码
                 Return 1
             Case "process"
@@ -465,9 +466,10 @@ Public Module ModPlugin
     ''' v5 事件总线、强类型设置、日志分级、Ask；
     ''' v6 事件总线全覆盖（含优先级/一次性/异步）、插件服务注册与依赖版本约束、后台任务与进度、开发模式控制台；
     ''' v7 ui / events 权限真正生效、权限必须显式声明（新插件不再默认全开）、实例信息与日志读取、换肤、
-    '''    内容安装、启动游戏、账号信息、全局设置只读，以及中高风险权限的风险确认。
+    '''    内容安装、启动游戏、账号信息、全局设置只读，以及中高风险权限的风险确认；
+    ''' v9 整合包识别与静默安装（InspectModpack / InstallModpack，需 instance.read / modpack.install）。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 8
+    Public Const ApiVersionUi As Integer = 9
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -3954,6 +3956,65 @@ Public Class PluginLogFile
 End Class
 
 ''' <summary>
+''' 一个整合包的识别结果（API v9，只读）。
+''' </summary>
+Public Class PluginModpackInfo
+    ''' <summary>格式名：CurseForge / Modrinth / MultiMC / HMCL / MCBBS / LauncherPack / Compress。</summary>
+    Public Property Format As String = ""
+    ''' <summary>整合包名称（读取自包内描述文件，没有则为空）。</summary>
+    Public Property Name As String = ""
+    ''' <summary>整合包版本号（包内声明的，不是游戏版本）。</summary>
+    Public Property Version As String = ""
+    ''' <summary>需要的 Minecraft 版本。</summary>
+    Public Property MinecraftVersion As String = ""
+    ''' <summary>加载器名：Forge / NeoForge / Fabric / Quilt / 空。</summary>
+    Public Property Loader As String = ""
+    ''' <summary>加载器版本。</summary>
+    Public Property LoaderVersion As String = ""
+    ''' <summary>包内文件条目数（模组、资源包等的合计，不含 overrides）。</summary>
+    Public Property FileCount As Integer
+    ''' <summary>其中标记为客户端可选的文件数（CurseForge 的 optional / Modrinth 的 env.client="optional"）。</summary>
+    Public Property OptionalCount As Integer
+    ''' <summary>能否在不弹出任何对话框的情况下装完；False 表示需要人工选目录或填版本名。</summary>
+    Public Property CanInstallSilently As Boolean
+End Class
+
+''' <summary>
+''' 安装整合包时可选的参数（API v9）。
+''' </summary>
+Public Class PluginModpackOptions
+    ''' <summary>目标实例名；留空则用整合包自带的名字，重名会自动加 (2)、(3)。</summary>
+    Public Property InstanceName As String = ""
+    ''' <summary>实例图标路径（可选，需要在 files 权限的授权范围内）。</summary>
+    Public Property Logo As String = ""
+End Class
+
+''' <summary>
+''' 一次整合包安装的结果（API v9）。
+''' </summary>
+Public Class PluginModpackResult
+    ''' <summary>被安装的整合包文件路径。</summary>
+    Public Property File As String = ""
+    ''' <summary>识别到的格式名。</summary>
+    Public Property Format As String = ""
+    ''' <summary>实际创建的实例名。</summary>
+    Public Property InstanceName As String = ""
+    ''' <summary>是否安装成功。</summary>
+    Public Property Success As Boolean
+    ''' <summary>失败原因或取消说明；成功时为空。</summary>
+    Public Property Message As String = ""
+End Class
+
+''' <summary>
+''' 可选的整合包事件接口（API v9）。插件在实现 IPclPlugin 的同时实现本接口，
+''' 即可在它自己发起（或任何插件发起）的整合包安装结束时收到回调。
+''' </summary>
+Public Interface IPclPluginModpack
+    ''' <summary>整合包安装结束（成功、失败或被取消都会调用）。</summary>
+    Sub OnModpackInstalled(Result As PluginModpackResult)
+End Interface
+
+''' <summary>
 ''' 提供给插件的宿主对象。
 ''' </summary>
 Public Class PluginHost
@@ -4570,6 +4631,116 @@ Public Class PluginHost
             Return False
         End Try
     End Function
+
+    ''' <summary>
+    ''' API v9：只读识别一个整合包文件（需要 instance.read）。
+    ''' 支持 CurseForge / Modrinth / MultiMC / HMCL / MCBBS / 带启动器的包 / 普通压缩包。
+    ''' 文件不存在或包结构认不出来时返回 Nothing（不会抛异常）。
+    ''' </summary>
+    Public Function InspectModpack(FilePath As String) As PluginModpackInfo
+        Info.EnsurePermission("instance.read")
+        Try
+            If String.IsNullOrWhiteSpace(FilePath) OrElse Not IO.File.Exists(FilePath) Then Return Nothing
+            CheckFileAccess(FilePath, False)
+            Dim R = ModModpack.InspectModpack(FilePath)
+            If R Is Nothing Then Return Nothing
+            Info.AddEvent($"识别整合包：{R.Name}（{R.Format}）")
+            Return New PluginModpackInfo With {
+                .Format = R.Format,
+                .Name = R.Name,
+                .Version = R.Version,
+                .MinecraftVersion = R.MinecraftVersion,
+                .Loader = R.Loader,
+                .LoaderVersion = R.LoaderVersion,
+                .FileCount = R.FileCount,
+                .OptionalCount = R.OptionalCount,
+                .CanInstallSilently = R.SilentInstallable
+            }
+        Catch ex As Exception
+            Info.AddEvent("识别整合包失败：" & ex.Message)
+            Return Nothing
+        End Try
+    End Function
+
+    ''' <summary>
+    ''' API v9：把整合包装成一个新实例（需要 modpack.install）。
+    ''' 返回任务句柄，进度与「任务管理」里的双向同步；结束时（成功 / 失败 / 取消）广播 IPclPluginModpack.OnModpackInstalled。
+    ''' 需要人工选目录或填版本名的包（例如带启动器的包）会直接失败，请在「下载 → 安装整合包」里装。
+    ''' </summary>
+    Public Function InstallModpack(FilePath As String, Optional Options As PluginModpackOptions = Nothing) As PluginTaskHandle
+        Info.EnsurePermission("modpack.install")
+        If String.IsNullOrWhiteSpace(FilePath) OrElse Not IO.File.Exists(FilePath) Then Throw New ArgumentException("整合包文件不存在：" & FilePath)
+        CheckFileAccess(FilePath, False)
+        Dim Opts = If(Options Is Nothing, New PluginModpackOptions(), Options)
+        Dim Title As String = "安装整合包：" & IO.Path.GetFileNameWithoutExtension(FilePath)
+        Return Tasks.Run(Title,
+            Sub(Ctx)
+                Dim Result As New PluginModpackResult With {.File = FilePath}
+                Dim PrevSilent As Boolean = ModModpack.ModpackSilentInstall
+                Try
+                    Ctx.Report(0.02, "识别整合包")
+                    Dim Inspect = ModModpack.InspectModpack(FilePath)
+                    If Inspect Is Nothing Then Throw New Exception("认不出这个整合包的格式：" & IO.Path.GetFileName(FilePath))
+                    Result.Format = Inspect.Format
+                    If Not Inspect.SilentInstallable Then Throw New Exception("这个整合包需要手动选择安装目录，请在「下载 → 安装整合包」里装")
+                    Dim Name = NormalizeInstanceName(If(String.IsNullOrWhiteSpace(Opts.InstanceName), Inspect.Name, Opts.InstanceName))
+                    Result.InstanceName = Name
+                    Ctx.ThrowIfCancelled()
+                    Ctx.Report(0.05, "安装整合包：" & Name)
+                    ModModpack.ModpackSilentInstall = True
+                    Dim Loader = ModModpack.ModpackInstall(FilePath, Name, Opts.Logo)
+                    Do While Loader.State = LoadState.Loading OrElse Loader.State = LoadState.Waiting
+                        If Ctx.Cancelled Then
+                            Try
+                                Loader.Cancel()
+                            Catch
+                            End Try
+                            Ctx.ThrowIfCancelled()
+                        End If
+                        Ctx.Report(0.05 + 0.9 * Loader.Progress, "安装整合包：" & Name)
+                        Thread.Sleep(200)
+                    Loop
+                    Loader.WaitForExit()
+                    Result.Success = True
+                    Ctx.Report(1, "整合包安装完成：" & Name)
+                Catch ex As Exception
+                    Result.Message = ex.Message
+                    If Ctx.Cancelled AndAlso String.IsNullOrEmpty(Result.Message) Then Result.Message = "已取消"
+                    Throw
+                Finally
+                    ModModpack.ModpackSilentInstall = PrevSilent
+                    EmitModpackInstalled(Result)
+                End Try
+            End Sub)
+    End Function
+
+    ''' <summary>把整合包名清成合法的实例名，重名时自动加 (2)、(3)。</summary>
+    Private Function NormalizeInstanceName(Raw As String) As String
+        Dim Name = If(Raw, "").Trim()
+        For Each C In IO.Path.GetInvalidFileNameChars()
+            Name = Name.Replace(C, "_"c)
+        Next
+        Name = Name.Trim().TrimEnd("."c)
+        If String.IsNullOrEmpty(Name) Then Name = "整合包"
+        Dim Base As String = Name
+        Dim Idx As Integer = 2
+        Do While IO.Directory.Exists(IO.Path.Combine(McFolderSelected, "versions", Name))
+            Name = Base & " (" & Idx & ")"
+            Idx += 1
+            If Idx > 999 Then Exit Do
+        Loop
+        Return Name
+    End Function
+
+    ''' <summary>把安装结果广播给所有实现了 IPclPluginModpack 的已加载插件。</summary>
+    Private Sub EmitModpackInstalled(Result As PluginModpackResult)
+        For Each Target In ModPlugin.Plugins.ToList()
+            If Target Is Nothing OrElse Not Target.Loaded OrElse Target.Instance Is Nothing Then Continue For
+            Dim Hook = TryCast(Target.Instance, IPclPluginModpack)
+            If Hook Is Nothing Then Continue For
+            GuardCall(Target, "整合包安装回调", Sub() Hook.OnModpackInstalled(Result))
+        Next
+    End Sub
 
     ''' <summary>API v7：启动当前实例（需要 launch）。已经在启动或没有选中实例时返回 False。</summary>
     Public Function LaunchGame() As Boolean
