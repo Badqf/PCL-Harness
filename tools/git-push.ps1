@@ -60,6 +60,19 @@ try {
         return $code
     }
 
+    $pushUrl = (& git remote get-url --push $Remote 2>$null | Select-Object -First 1)
+    if ($pushUrl -match '^ssh://' -or $pushUrl -match '^git@') {
+        # 推送地址是 SSH（ssh.github.com:443）：走公网 443，不经 S302 中继，
+        # 也就不需要探活 127.0.0.1 或 curloptResolve（那两个只对 https 有意义）。
+        Write-Host ("推送通道：SSH（{0}）" -f $pushUrl)
+        $code = Invoke-GitPush @()
+        if ($code -eq 0) {
+            Write-Host 'OK：已通过 SSH 推送完成。'
+            exit 0
+        }
+        throw ("SSH 推送失败（exit {0}）：检查公钥是否在 GitHub 上、或 ssh -T -p 443 git@ssh.github.com。" -f $code)
+    }
+
     $relay = Test-Relay
     if ($relay) {
         Write-Host '中继 127.0.0.1:443 可用 → plain push'
