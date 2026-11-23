@@ -1,4 +1,4 @@
-﻿Public Module ModMinecraft
+Public Module ModMinecraft
 
 #Region "文件夹"
 
@@ -1870,7 +1870,11 @@ OnLoaded:
                 If Token.Url.Contains("maven") Then
                     Dim BmclapiUrl As String =
                         Token.Url.Replace(Token.Url.Substring(0, Token.Url.IndexOfF("maven")), "https://bmclapi2.bangbang93.com/").Replace("maven.fabricmc.net", "maven").Replace("maven.minecraftforge.net", "maven").Replace("maven.neoforged.net/releases", "maven")
-                    If DlSourcePreferMojang Then
+                    '第三方加载器的 Maven 一律镜像优先：maven.neoforged.net 在境内基本连不上，按 Mojang 速度推断的
+                    '“官方源优先”只对 Mojang 自己的域名成立，套到这些站上会让每个文件先白等 15~30 秒，NeoForge 的
+                    'universal.jar 之类的大文件因此常被报成“无法下载”。
+                    Dim IsLoaderMaven As Boolean = Token.Url.Contains("maven.neoforged.net") OrElse Token.Url.Contains("maven.minecraftforge.net")
+                    If DlSourcePreferMojang AndAlso Not IsLoaderMaven Then
                         Urls.Add(BmclapiUrl) '官方源优先
                     Else
                         Urls.Insert(0, BmclapiUrl) '镜像源优先
