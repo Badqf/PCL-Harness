@@ -27,6 +27,10 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 478 Then 'PCL Harness 3.10.1
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件导出整合包可以选择格式——Modrinth（.mrpack）、CurseForge（manifest.json）或纯压缩包。"))
+            End If
             If LastVersion < 477 Then 'PCL Harness 3.10.0
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件 API v10——可以把一批下载交给启动器（经过镜像与校验）、可以往当前实例写文本文件、可以把实例导出成 Modrinth 整合包。"))
