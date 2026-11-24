@@ -807,6 +807,7 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 | `logs.read` | 低 | 读游戏日志与崩溃报告 |
 | `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
 | `instance.install` | **中** | 往 mods / resourcepacks / shaderpacks / datapacks 写入 |
+| `modpack.export` | 中 | 把当前实例导出成整合包文件（读取 mods、config 等目录并打包） |
 | `instance.write` | **中** | 往当前实例目录写任意文件（config、options.txt、versions\<id>\<id>.json 等） |
 | `modpack.install` | **中** | 安装整合包（会新建一个游戏实例并写入大量文件） |
 | `launch` | **中** | 主动启动游戏 |
@@ -1034,6 +1035,17 @@ End Sub
 | `Skipped` | `Overwrite=False` 且目标已存在 |
 | `Failed` / `Canceled` | 网络或磁盘失败；用户取消 |
 
+**导出整合包（v10）**
+
+```vb
+Host.ExportModpack("我的整合包", "1.0.0", "PCL/Export/pack.mrpack")
+Host.ExportModpack("仅 mods", "1.0.0", "PCL/Export/mods-only.mrpack", New List(Of String) From {"mods"})
+```
+
+- 目标路径相对实例根目录，需要 `modpack.export` 权限；返回是否生成了文件。
+- 生成的是 Modrinth 格式（`.mrpack`）：所有内容放在 `overrides/`，`files` 留空，**不联网匹配** Modrinth / CurseForge 的项目 ID。
+- 默认打包 `mods` / `config` / `defaultconfigs` / `resourcepacks` / `shaderpacks` / `scripts`；第四个参数可覆盖。
+- 导入自检：导出后可以直接把路径交给 `Host.InspectModpack`，应返回 `Format = Modrinth`、名称版本与你传入的一致。
 **下载源（v10）**
 
 ```vb

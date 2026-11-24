@@ -361,6 +361,7 @@ Public Module ModPlugin
             Case "mods.read" : Return "查看当前实例的模组、资源包与光影列表（只读）"
             Case "mods.write" : Return "启用或禁用当前实例里的模组、资源包与光影（会改动游戏文件）"
             Case "modpack.install" : Return "安装整合包（会新建一个游戏实例并写入大量文件）"
+            Case "modpack.export" : Return "把当前实例导出成整合包文件（会读取实例里的 mods、config 等目录）"
             Case "instance.write" : Return "在当前游戏实例的目录里写文件（会改动游戏文件，例如 config、options.txt）"
             Case Else : Return If(Name, "") & "（未知权限）"
         End Select
@@ -372,7 +373,7 @@ Public Module ModPlugin
     ''' </summary>
     Public Function PermissionRisk(Name As String) As Integer
         Select Case If(Name, "").Trim().ToLowerInvariant()
-            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins", "modpack.install", "instance.write"
+            Case "skin", "instance.install", "launch", "account", "settings.global", "instance.select", "mods.write", "args", "plugins", "modpack.install", "instance.write", "modpack.export"
                 'v7.4（安全审计 V9）：args 能注入 -javaagent、plugins 能安装/启用别的插件，二者都等价于执行任意代码
                 Return 1
             Case "process"
@@ -391,6 +392,7 @@ Public Module ModPlugin
         Select Case If(Name, "").Trim().ToLowerInvariant()
             Case "process" : Return "可以启动任意外部程序，等同于在你的电脑上执行代码。"
             Case "instance.install" : Return "可以把文件写进当前实例的 mods、resourcepacks、shaderpacks 或 datapacks 目录，放进来的内容会随游戏加载。"
+            Case "modpack.export" : Return "会把当前实例的 mods、config 等目录打包成一个整合包文件，写到实例目录里；打包内容可能包含你的私有配置。"
             Case "instance.write" : Return "可以往当前实例目录里写任意文件（例如 versions\<版本>\<版本>.json、options.txt、config\*.toml），改写后的内容会在下次启动时生效。"
             Case "account" : Return "可以读到当前登录账号的名称与 UUID（拿不到登录令牌），并能据此区分你和其他玩家。"
             Case "mods.write" : Return "可以改写当前实例 mods / resourcepacks / shaderpacks 里文件的启用状态（重命名成 .disabled），游戏下次启动会加载不同内容。"
@@ -4927,6 +4929,18 @@ Public Class PluginHost
         Next
     End Sub
 
+    ''' <summary>把当前实例导出成 .mrpack（API v10，overrides-only，不联网匹配平台项目）。</summary>
+    ''' <param name="PackName">整合包名称，写进 modrinth.index.json 的 name。</param>
+    ''' <param name="PackVersion">整合包版本号，写进 versionId。</param>
+    ''' <param name="RelativeTargetPath">导出文件路径，相对当前实例目录（例如 PCL\Export\我的整合包.mrpack）。</param>
+    ''' <param name="Folders">要打包的实例子目录，留空则用 mods / config / defaultconfigs / resourcepacks / shaderpacks / scripts。</param>
+    ''' <remarks>需要 modpack.export 权限；返回是否生成了文件。生成的文件只包含 overrides/，导入后与被导出的实例内容一致。</remarks>
+    Public Function ExportModpack(PackName As String, PackVersion As String, RelativeTargetPath As String, Optional Folders As List(Of String) = Nothing) As Boolean
+        Info.EnsurePermission("modpack.export")
+        Dim Target As String = ResolveInstanceRelativePath(RelativeTargetPath, "ExportModpack")
+        ModModpackExport.ExportInstance(McInstanceSelected, PackName, PackVersion, Target, Folders)
+        Return FileUtils.Exists(Target)
+    End Function
     ''' <summary>把官方地址换成当前下载源下"优先尝试"的地址（API v10）。认不出的地址原样返回。</summary>
     Public Function ResolveDownloadUrl(Url As String) As String
         If String.IsNullOrWhiteSpace(Url) Then Return Url
