@@ -1,4 +1,4 @@
-﻿'由于包含加解密等安全信息，本文件中的部分代码已被删除
+'由于包含加解密等安全信息，本文件中的部分代码已被删除
 
 Friend Module ModSecret
 
@@ -334,6 +334,8 @@ Friend Module ModSecret
 
     ''' <summary>启动后自动检查更新（受 设置 → 其他 → 启动器更新 控制）。</summary>
     Friend Sub StartAutoUpdateCheck()
+        ' 上次退出时没能替换成功的话，这里提示一次（放在更新开关判断之前，关了更新也要告诉用户）
+        ReportLastUpdateFailure()
         Dim Mode As Integer = Settings.Get(Of Integer)("SystemSystemUpdate")
         If Not IsDebugUpdate() Then
             If Mode = 3 Then Return '关闭更新提示
@@ -375,6 +377,41 @@ Friend Module ModSecret
     ''' <summary>当前正在进行的更新下载任务；Nothing 表示没有。</summary>
     Private UpdateDownloadTask As LoaderDownload = Nothing
 
+    ''' <summary>启动器所在目录是否可写：自动更新要在退出时覆盖 exe 本身。</summary>
+    Private Function CanWriteExeFolder() As Boolean
+        Dim Probe As String = PathExe & ".wprobe"
+        Try
+            IO.File.WriteAllText(Probe, "probe")
+            IO.File.Delete(Probe)
+            Return True
+        Catch ex As Exception
+            Logger.Warn("[Update] 启动器所在目录不可写：" & ex.GetBaseException().Message)
+            Return False
+        End Try
+    End Function
+
+    ''' <summary>上次退出时替换更新失败留下的 &lt;exe&gt;.update.log：启动时读一次、提示一次，然后删掉。</summary>
+    Friend Sub ReportLastUpdateFailure()
+        Try
+            Dim FailLog As String = PathExe & ".update.log"
+            If Not IO.File.Exists(FailLog) Then Return
+            Dim Reason As String = IO.File.ReadAllText(FailLog).Trim()
+            IO.File.Delete(FailLog)
+            Logger.Warn("[Update] 上次自动更新失败：" & Reason)
+            RunInUi(Sub()
+                        Hint("上次自动更新没能替换启动器文件，详见提示", HintType.Red)
+                        If MyMsgBox("上次已经下载了新版本，但替换启动器文件时失败：" & vbCrLf & vbCrLf & Reason & vbCrLf & vbCrLf &
+                                    "常见原因：启动器所在目录没有写入权限，或被杀毒软件 /「受控文件夹访问」拦截。" & vbCrLf &
+                                    "可以到 Release 页手动下载，或把启动器换到普通文件夹后再更新。",
+                                    "自动更新失败", "打开发布页", "知道了") = 1 Then
+                            OpenWebsite("https://github.com/" & UpdateRepo & "/releases/latest")
+                        End If
+                    End Sub)
+        Catch ex As Exception
+            Logger.Warn("[Update] 处理上次更新失败记录出错：" & ex.GetBaseException().Message)
+        End Try
+    End Sub
+
 
     ''' <summary>
     ''' 把更新包作为普通下载任务放进任务栏：右下角显示进度圆环，点进去能看进度并手动取消。
@@ -406,8 +443,22 @@ Friend Module ModSecret
                             End If
                             PendingUpdateExe = Target
                             PendingUpdateVersion = Info.Version
-                            Logger.Info($"[Update] 已下载 {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换，下次启动生效")
-                            Hint($"新版本 {Info.Version} 已下载完成，退出启动器时静默替换；下次打开即为新版本", HintType.Green)
+                            If CanWriteExeFolder() Then
+                                Logger.Info($"[Update] 已下载 {Target}（{New IO.FileInfo(Target).Length} 字节），退出启动器时替换，下次启动生效")
+                                Hint($"新版本 {Info.Version} 已下载完成，退出启动器时静默替换；下次打开即为新版本", HintType.Green)
+                            Else
+                                '目录不可写：让 updater 在退出时启动也注定失败，直接说清楚并给手动下载的入口
+                                PendingUpdateExe = ""
+                                Logger.Warn($"[Update] 已下载 {Target}，但 {PathExe} 所在目录不可写，放弃自动替换")
+                                Hint($"新版本 {Info.Version} 已下载，但启动器所在目录不可写，无法自动替换", HintType.Red)
+                                If MyMsgBox("已经下载了新版本 " & Info.Version & "，但启动器所在目录没有写入权限，退出时没法替换自己。" & vbCrLf & vbCrLf &
+                                            "可以把启动器换到普通文件夹（例如 D:\PCL）后再更新，或直接到 Release 页手动下载。",
+                                            "无法自动更新", "打开所在文件夹", "打开发布页") = 1 Then
+                                    OpenExplorer(PathExe)
+                                Else
+                                    OpenWebsite("https://github.com/" & UpdateRepo & "/releases/latest")
+                                End If
+                            End If
                         Case LoadState.Canceled
                             UpdateDownloadTask = Nothing
                             Try
@@ -570,8 +621,20 @@ Friend Module ModSecret
                 IO.File.WriteAllText(OldFileName & ".update.log", ex.ToString())
             Catch
             End Try
+            ' 目录不可写时 .update.log 也写不出来：再往临时目录留一份，并在屏幕上直接告知，别让用户以为更新成功了
+            Try
+                IO.Directory.CreateDirectory(PathTemp & "Update")
+                IO.File.WriteAllText(PathTemp & "Update\failed.txt", ex.ToString())
+            Catch
+            End Try
+            Try
+                MsgBox("自动更新没能替换启动器文件：" & vbCrLf & vbCrLf & ex.GetBaseException().Message & vbCrLf & vbCrLf &
+                       "请手动下载新版本，或把启动器移动到有写入权限的文件夹后再更新。" & vbCrLf & OldFileName,
+                       MsgBoxStyle.OkOnly, "自动更新失败")
+            Catch
+            End Try
         Finally
-            '删除更新器自身副本（稍等本进程退出后再删）；全程隐藏窗口，避免闪出黑框
+            ' 删除更新器自身副本（稍等本进程退出后再删）；全程隐藏窗口，避免闪出黑框
             Try
                 Dim CmdPath As String = IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe")
                 Dim CmdInfo As New ProcessStartInfo With {
