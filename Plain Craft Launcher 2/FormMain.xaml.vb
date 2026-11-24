@@ -1,4 +1,4 @@
-﻿Imports System.ComponentModel
+Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -26,6 +26,20 @@ Public Class FormMain
             If LastVersion < 476 Then 'PCL Harness 3.9.12
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
+            End If
+            If LastVersion < 481 Then 'PCL Harness 3.10.4
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 打开插件页不再卡住——插件的扫描与加载改到后台进行，页面立即显示，并在加载期间给出「正在后台加载插件…」提示。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 插件的 OnLoad 最多等 10 秒，超时只跳过该插件并在插件卡片上说明原因，不会再把整个启动器界面卡死。"))
+            End If
+            If LastVersion < 480 Then 'PCL Harness 3.10.3
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件批量下载支持有序备用源（AltUrls）——主源 404 / 410 / 内容校验失败时自动换下一个镜像，每个文件最多尝试 3 次，失败时列出逐个源的诊断原因。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "变更: 单次批量下载新增 16 GiB 宿主硬上限，插件只能把上限调低；超出时在联网前直接报 TooLarge，不会静默截断。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 多源下载的进度按已接收字节取高水位，换源不回退，校验通过并写盘完成后才显示 100%。"))
             End If
             If LastVersion < 479 Then 'PCL Harness 3.10.2
                 FeatureCount += 1

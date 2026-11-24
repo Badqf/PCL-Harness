@@ -26,15 +26,20 @@ Public Class PagePlugin
         If HasInitialized Then Return
         HasInitialized = True
         Try
-            ModPlugin.Refresh(True)
+            'v10.3：插件加载与 OnLoad 放到后台线程，插件卡住不再冻结插件页
+            ModPlugin.RefreshAsync(True)
         Catch ex As Exception
             Logger.Error(ex, "扫描插件失败", LogBehavior.Toast)
         End Try
         RefreshNav()
-        ModPlugin.WarnFailed()
         SwitchSection(SectionIndex, Animate:=False)
         '插件列表在别处发生变化（例如从插件页按钮装了插件市场）时，跟着刷新计数与卡片
         AddHandler ModPlugin.PluginsChanged, Sub() RefreshAfterImport()
+        '后台加载完成（含插件 OnLoad 超时跳过）后自动刷新页面
+        AddHandler ModPlugin.PluginsLoaded, Sub()
+                                                 ModPlugin.WarnFailed()
+                                                 RefreshAfterImport()
+                                             End Sub
     End Sub
 
     ''' <summary>
@@ -170,6 +175,20 @@ Public Class PagePlugin
                                        End Sub
         PanContent.Children.Add(Search)
 
+        'v10.3：后台加载期间给出占位提示，加载完成后由 PluginsLoaded 自动重建
+        If ModPlugin.PluginRefreshBusy Then
+            Dim CardBusy As New MyCard With {.Margin = New Thickness(0, 0, 0, 10)}
+            Dim PanBusy As New StackPanel With {.Margin = New Thickness(18, 12, 18, 12)}
+            PanBusy.Children.Add(New TextBlock With {
+                .Text = "正在后台加载插件，加载完成后会自动刷新本页；期间启动器可以正常使用。",
+                .FontSize = 12,
+                .TextWrapping = TextWrapping.Wrap,
+                .Foreground = Res("ColorBrushGray2")
+            })
+            CardBusy.Children.Add(PanBusy)
+            PanContent.Children.Add(CardBusy)
+        End If
+
         ' ---- 插件目录 ----
         Dim CardPath = NewCard("插件目录")
         Dim Body As New StackPanel
@@ -188,7 +207,8 @@ Public Class PagePlugin
         PanBtn.Children.Add(MkButton("打开插件目录", Sub() ModPlugin.OpenFolder()))
         PanBtn.Children.Add(MkButton("重新扫描", Sub()
                                                     Try
-                                                        ModPlugin.Refresh(True)
+                                                        'v10.3：后台加载，避免插件 OnLoad 卡住界面
+                                                        If Not ModPlugin.RefreshAsync(True) Then Hint("插件正在后台加载，请稍候", HintType.Blue)
                                                     Catch ex As Exception
                                                         Logger.Error(ex, "扫描插件失败", LogBehavior.Toast)
                                                     End Try
@@ -575,8 +595,12 @@ Public Class PagePlugin
         End If
         If Info.Loaded Then
             PanBtn.Children.Add(MkButtonSmall("重新加载插件", Sub()
-                                                              Hint("已重新读取插件清单；改了代码请重启启动器才能生效", HintType.Blue)
-                                                              ModPlugin.Refresh(True)
+                                                              'v10.3：重新加载走后台，完成后再由 PluginsLoaded 刷新卡片
+                                                              If ModPlugin.RefreshAsync(True) Then
+                                                                  Hint("正在后台重新加载插件…", HintType.Blue)
+                                                              Else
+                                                                  Hint("插件正在后台加载，请稍候", HintType.Blue)
+                                                              End If
                                                               RefreshNav()
                                                               ReplacePluginCard(Info.Id)
                                                           End Sub))

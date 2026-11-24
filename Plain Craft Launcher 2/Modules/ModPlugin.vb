@@ -763,7 +763,60 @@ Public Module ModPlugin
     <Obsolete("v6.4 起不再需要调用：界面已不再显示插件状态文字。")>
     Public Sub RefreshStatusWidgets()
     End Sub
-    Public Function Refresh(Optional LoadEnabled As Boolean = True) As Integer
+    ''' <summary>v10.3：插件 OnLoad 的最长等待时间（毫秒）。超过后本次不启用该插件，界面不再被拖住。</summary>
+    Public Const PluginOnLoadTimeoutMs As Integer = 10000
+
+    Private _RefreshBusy As Integer
+
+    ''' <summary>v10.3：是否正在后台加载插件。供插件页显示「正在加载」占位。</summary>
+    Public ReadOnly Property PluginRefreshBusy As Boolean
+        Get
+            Return System.Threading.Interlocked.CompareExchange(_RefreshBusy, 0, 0) = 1
+        End Get
+    End Property
+
+    ''' <summary>v10.3：异步刷新完成（插件已全部加载完或已超时跳过）后在 UI 线程触发。</summary>
+    Public Event PluginsLoaded()
+
+    ''' <summary>
+    ''' v10.3：异步刷新插件。扫描与卸载在当前线程完成（很快），插件加载与 OnLoad 放到后台线程，
+    ''' 完成后回到 UI 线程触发 PluginsLoaded。已有一轮加载在进行时返回 False。
+    ''' </summary>
+    Public Function RefreshAsync(Optional LoadEnabled As Boolean = True) As Boolean
+        If PluginRefreshBusy Then
+            Logger.Info("plugins：已有一轮插件加载在进行，忽略本次刷新请求")
+            Return False
+        End If
+        System.Threading.Interlocked.Exchange(_RefreshBusy, 1)
+        Try
+            RefreshScan()
+        Catch
+            System.Threading.Interlocked.Exchange(_RefreshBusy, 0)
+            Throw
+        End Try
+        If Not LoadEnabled Then
+            FinishRefresh()
+            Return True
+        End If
+        Dim Worker As New System.Threading.Thread(
+            Sub()
+                Try
+                    LoadPendingPlugins()
+                Catch ex As Exception
+                    'LoadPendingPlugins 内部已兜底，这里只做最后防线
+                    ScanError = ex.GetBaseException().Message
+                    Logger.Error(ex, "后台加载插件失败", LogBehavior.None)
+                Finally
+                    FinishRefresh()
+                End Try
+            End Sub, 8 * 1024 * 1024) With {.IsBackground = True, .Name = "PluginLoad"}
+        Worker.SetApartmentState(System.Threading.ApartmentState.STA)
+        Worker.Start()
+        Return True
+    End Function
+
+    ''' <summary>扫描插件目录并重建 Plugins 列表；不加载 DLL，很快。</summary>
+    Private Sub RefreshScan()
         UnloadAll()
         Plugins.Clear()
         ScanError = ""
@@ -811,67 +864,94 @@ Public Module ModPlugin
             Dim DiscoveredCount As Integer = Plugins.Count
             Dim EnabledCount As Integer = Plugins.Where(Function(P) P.Enabled).Count
             Logger.Info($"扫描完成：共 {DiscoveredCount} 个插件，已启用 {EnabledCount} 个。")
-            If LoadEnabled Then
-                '按依赖顺序加载：依赖先加载，缺依赖的插件标记失败
-                Dim Pending = Plugins.Where(Function(P) P.Enabled AndAlso String.IsNullOrEmpty(P.[Error])).ToList()
-                Dim Guard As Integer = 0
-                Do While Pending.Count > 0 AndAlso Guard < 50
-                    Guard += 1
-                    Dim Progress As Boolean = False
-                    For Each Info In Pending.ToList()
-                        Dim Missing As String = Nothing
-                        Dim Blocked As Boolean = False
-                        For Each DepRaw In Info.Dependencies
-                            'API v6：支持 "其它插件id@>=1.2" 形式的版本约束
-                            Dim AtPos As Integer = DepRaw.IndexOf("@"c)
-                            Dim DepId As String = If(AtPos >= 0, DepRaw.Substring(0, AtPos).Trim(), DepRaw.Trim())
-                            Dim DepConstraint As String = If(AtPos >= 0, DepRaw.Substring(AtPos + 1).Trim(), "")
-                            Dim Dep = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, DepId, StringComparison.OrdinalIgnoreCase))
-                            If Dep Is Nothing Then
-                                Missing = DepRaw
-                                Exit For
-                            End If
-                            If Not SatisfiesVersion(Dep.Version, DepConstraint) Then
-                                Info.[Error] = $"依赖插件 {Dep.DisplayName} 的版本是 {If(Dep.Version, "未知")}，不满足要求 {DepConstraint}"
-                                Missing = DepRaw
-                                Exit For
-                            End If
-                            If Dep.Enabled AndAlso Not Dep.Loaded AndAlso Pending.Contains(Dep) Then
-                                Blocked = True
-                                Exit For
-                            End If
-                            If Dep.Enabled AndAlso Not String.IsNullOrEmpty(Dep.[Error]) Then
-                                Missing = DepRaw
-                                Exit For
-                            End If
-                        Next
-                        If Missing IsNot Nothing Then
-                            Info.[Error] = $"缺少依赖插件：{Missing}"
-                            Pending.Remove(Info)
-                            Progress = True
-                        ElseIf Not Blocked Then
-                            LoadOne(Info)
-                            Pending.Remove(Info)
-                            Progress = True
-                        End If
-                    Next
-                    If Not Progress Then
-                        For Each Info In Pending
-                            Info.[Error] = "插件依赖存在循环或无法满足：" & String.Join("、", Info.Dependencies)
-                        Next
-                        Exit Do
-                    End If
-                Loop
-            End If
-            StartWatcher()
-            WriteEnabledExample()
-            WarnRiskyPlugins()
         Catch ex As Exception
             ScanError = ex.Message
             Logger.Error(ex, "扫描插件目录失败", LogBehavior.None)
-        Finally
-            LoadDone = True
         End Try
+    End Sub
+
+    ''' <summary>按依赖顺序加载已启用的插件（会执行插件 OnLoad，耗时不可控，允许在后台线程调用）。</summary>
+    Private Sub LoadPendingPlugins()
+        Try
+            '按依赖顺序加载：依赖先加载，缺依赖的插件标记失败
+            Dim Pending = Plugins.Where(Function(P) P.Enabled AndAlso String.IsNullOrEmpty(P.[Error])).ToList()
+            Dim Guard As Integer = 0
+            Do While Pending.Count > 0 AndAlso Guard < 50
+                Guard += 1
+                Dim Progress As Boolean = False
+                For Each Info In Pending.ToList()
+                    Dim Missing As String = Nothing
+                    Dim Blocked As Boolean = False
+                    For Each DepRaw In Info.Dependencies
+                        'API v6：支持 "其它插件id@>=1.2" 形式的版本约束
+                        Dim AtPos As Integer = DepRaw.IndexOf("@"c)
+                        Dim DepId As String = If(AtPos >= 0, DepRaw.Substring(0, AtPos).Trim(), DepRaw.Trim())
+                        Dim DepConstraint As String = If(AtPos >= 0, DepRaw.Substring(AtPos + 1).Trim(), "")
+                        Dim Dep = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, DepId, StringComparison.OrdinalIgnoreCase))
+                        If Dep Is Nothing Then
+                            Missing = DepRaw
+                            Exit For
+                        End If
+                        If Not SatisfiesVersion(Dep.Version, DepConstraint) Then
+                            Info.[Error] = $"依赖插件 {Dep.DisplayName} 的版本是 {If(Dep.Version, "未知")}，不满足要求 {DepConstraint}"
+                            Missing = DepRaw
+                            Exit For
+                        End If
+                        If Dep.Enabled AndAlso Not Dep.Loaded AndAlso Pending.Contains(Dep) Then
+                            Blocked = True
+                            Exit For
+                        End If
+                        If Dep.Enabled AndAlso Not String.IsNullOrEmpty(Dep.[Error]) Then
+                            Missing = DepRaw
+                            Exit For
+                        End If
+                    Next
+                    If Missing IsNot Nothing Then
+                        Info.[Error] = $"缺少依赖插件：{Missing}"
+                        Pending.Remove(Info)
+                        Progress = True
+                    ElseIf Not Blocked Then
+                        LoadOne(Info)
+                        Pending.Remove(Info)
+                        Progress = True
+                    End If
+                Next
+                If Not Progress Then
+                    For Each Info In Pending
+                        Info.[Error] = "插件依赖存在循环或无法满足：" & String.Join("、", Info.Dependencies)
+                    Next
+                    Exit Do
+                End If
+            Loop
+        Catch ex As Exception
+            ScanError = ex.Message
+            Logger.Error(ex, "加载插件失败", LogBehavior.None)
+        End Try
+    End Sub
+
+    ''' <summary>插件加载收尾：回到 UI 线程启动热重载、写示例、提示风险，并通知插件页刷新。</summary>
+    Private Sub FinishRefresh()
+        ModBase.RunInUiWait(
+            Sub()
+                Try
+                    StartWatcher()
+                    WriteEnabledExample()
+                    WarnRiskyPlugins()
+                Catch ex As Exception
+                    Logger.Warn(ex, "插件加载收尾失败")
+                Finally
+                    LoadDone = True
+                    System.Threading.Interlocked.Exchange(_RefreshBusy, 0)
+                End Try
+                RaiseEvent PluginsLoaded()
+            End Sub)
+    End Sub
+
+    ''' <summary>同步刷新插件（兼容旧调用）：扫描 + 加载都在当前线程完成；插件 OnLoad 仍带超时。</summary>
+    Public Function Refresh(Optional LoadEnabled As Boolean = True) As Integer
+        RefreshScan()
+        If LoadEnabled Then LoadPendingPlugins()
+        FinishRefresh()
         Return Plugins.Count
     End Function
 
@@ -1166,22 +1246,46 @@ Public Module ModPlugin
             End If
             Info.Host = New PluginHost(Info)
             Info.Instance = Activator.CreateInstance(Type)
-            CType(Info.Instance, IPclPlugin).OnLoad(Info.Host)
-            Info.Loaded = True
-            Info.Host.Log("插件已加载")
-            Info.AddEvent("已加载（API v" & ApiVersionUi & "）")
-            CollectUi(Info)
-            '注册 v4 事件接口
-            If TypeOf Info.Instance Is IPclPluginLifecycle Then PluginLifecycleHandlers.Add((CType(Info.Instance, IPclPluginLifecycle), Info))
-            If TypeOf Info.Instance Is IPclPluginLink Then PluginLinkHandlers.Add((CType(Info.Instance, IPclPluginLink), Info))
-            If TypeOf Info.Instance Is IPclPluginDownload Then PluginDownloadHandlers.Add((CType(Info.Instance, IPclPluginDownload), Info))
-            If TypeOf Info.Instance Is IPclPluginClosing Then PluginClosingHandlers.Add((CType(Info.Instance, IPclPluginClosing), Info))
-            ' 加载成功说明这次是好的：清掉上次会话留下的失败计数与熔断提示，避免卡片一直挂着「重置失败计数」
-            ResetPluginFailures(Info)
-            If Not String.IsNullOrEmpty(Info.[Error]) AndAlso
-               (Info.[Error].StartsWith("已熔断", StringComparison.Ordinal) OrElse Info.[Error].StartsWith("上次会话连续失败", StringComparison.Ordinal)) Then
-                Info.[Error] = ""
+            'v10.3：OnLoad 放到独立 STA 线程并限时等待，插件卡住时不再拖死启动器
+            Dim OnLoadError As Exception = Nothing
+            Dim OnLoadThread As New System.Threading.Thread(
+                Sub()
+                    Try
+                        CType(Info.Instance, IPclPlugin).OnLoad(Info.Host)
+                    Catch ex As Exception
+                        OnLoadError = ex
+                    End Try
+                End Sub, 2 * 1024 * 1024) With {.IsBackground = True, .Name = "PluginOnLoad " & Info.Id}
+            OnLoadThread.SetApartmentState(System.Threading.ApartmentState.STA)
+            OnLoadThread.Start()
+            If Not OnLoadThread.Join(PluginOnLoadTimeoutMs) Then
+                Info.Loaded = False
+                Info.[Error] = $"OnLoad 超过 {PluginOnLoadTimeoutMs \ 1000} 秒没有返回，本次已跳过该插件（插件若仍在后台运行，可重启启动器后重试）"
+                Info.AddEvent($"加载超时：OnLoad 超过 {PluginOnLoadTimeoutMs \ 1000} 秒")
+                Logger.Warn($"[插件 {Info.DisplayName}] OnLoad 超时（>{PluginOnLoadTimeoutMs}ms），已跳过")
+                PluginDevLog.Warn(Info.DisplayName, $"OnLoad 超时（>{PluginOnLoadTimeoutMs}ms），已跳过")
+                Return
             End If
+            If OnLoadError IsNot Nothing Then Throw OnLoadError
+            '加载完成后的登记工作回到 UI 线程：插件页可能正在读取这些列表，避免并发修改
+            ModBase.RunInUiWait(
+                Sub()
+                    Info.Loaded = True
+                    Info.Host.Log("插件已加载")
+                    Info.AddEvent("已加载（API v" & ApiVersionUi & "）")
+                    CollectUi(Info)
+                    '注册 v4 事件接口
+                    If TypeOf Info.Instance Is IPclPluginLifecycle Then PluginLifecycleHandlers.Add((CType(Info.Instance, IPclPluginLifecycle), Info))
+                    If TypeOf Info.Instance Is IPclPluginLink Then PluginLinkHandlers.Add((CType(Info.Instance, IPclPluginLink), Info))
+                    If TypeOf Info.Instance Is IPclPluginDownload Then PluginDownloadHandlers.Add((CType(Info.Instance, IPclPluginDownload), Info))
+                    If TypeOf Info.Instance Is IPclPluginClosing Then PluginClosingHandlers.Add((CType(Info.Instance, IPclPluginClosing), Info))
+                    ' 加载成功说明这次是好的：清掉上次会话留下的失败计数与熔断提示，避免卡片一直挂着「重置失败计数」
+                    ResetPluginFailures(Info)
+                    If Not String.IsNullOrEmpty(Info.[Error]) AndAlso
+                       (Info.[Error].StartsWith("已熔断", StringComparison.Ordinal) OrElse Info.[Error].StartsWith("上次会话连续失败", StringComparison.Ordinal)) Then
+                        Info.[Error] = ""
+                    End If
+                End Sub)
         Catch ex As Exception
             Info.[Error] = ex.GetBaseException().Message
             Info.AddEvent("加载失败：" & ex.GetBaseException().Message)
@@ -4196,7 +4300,8 @@ Public Class PluginHost
 
     ''' <summary>弹出对话框。</summary>
     Public Sub Message(Title As String, Text As String)
-        MyMsgBox(Text, Title)
+        'v10.3：OnLoad 现在可能在后台线程执行，模态框必须回到 UI 线程
+        ModBase.RunInUiWait(Sub() MyMsgBox(Text, Title))
     End Sub
 
     ''' <summary>

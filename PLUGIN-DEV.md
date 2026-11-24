@@ -1106,6 +1106,13 @@ Dim Files = New List(Of PluginDownloadRequest) From {
 - 启用 `AltUrls` 时进度用候选文件的字节高水位（换源不清零、不回退），只有 SHA-1 校验通过且文件提交到目标位置后才报 `Finished` / 100%；`Size` 未知或失真时不伪造百分比。
 - 不设 `AltUrls` 的单 URL 调用与 3.10.2 行为完全一致，唯一例外是超过 16 GiB 会得到 `TooLarge`。
 
+**插件加载与 OnLoad 超时（v10.3）**
+
+- 插件扫描完成后，DLL 加载与 `OnLoad` 改在后台线程执行；插件页立即显示，加载期间给出「正在后台加载插件…」占位提示，全部加载完自动刷新（`ModPlugin.PluginsLoaded` 事件）。
+- `OnLoad` 最多等 **10 秒**。超时只会跳过该插件，并在插件卡片与日志里写明原因（可重启启动器重试），不会再卡住界面或启动流程；`OnUnload` 仍在卸载时同步调用。
+- `OnLoad` 已经**不在 UI 线程**：不要在里面直接创建或修改 WPF 控件。页面/卡片/状态栏继续用 `IPclPluginUi.GetPages` 等返回的描述对象，让宿主在 UI 线程构建；确实要碰界面时用 `Host.RunInUi(Sub() ...)` 或 `RunInUiWait`。
+- `Host.Log` / `Host.LogInfo` / `Host.Hint` 可从任意线程调用；`Host.Message` 会自动切回 UI 线程再弹窗。
+- 不要在 `OnLoad` 里做长时间阻塞、等网络或等用户操作。超时后宿主不再等待，但线程本身无法强杀，耗时工作请自己起后台任务并把状态回报到日志或插件页。
 
 **规则**
 
