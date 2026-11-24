@@ -1043,7 +1043,9 @@ Host.ExportModpack("仅 mods", "1.0.0", "PCL/Export/mods-only.mrpack", New List(
 ```
 
 - 目标路径相对实例根目录，需要 `modpack.export` 权限；返回是否生成了文件。
-- 生成的是 Modrinth 格式（`.mrpack`）：所有内容放在 `overrides/`，`files` 留空，**不联网匹配** Modrinth / CurseForge 的项目 ID。
+- 第五个参数选格式：`"modrinth"`（默认，`.mrpack`）、`"curseforge"`（`manifest.json`）、`"zip"`（纯压缩包，不带清单）。
+- 前两种都是 overrides-only：所有内容放在 `overrides/`，`files` 留空，**不联网匹配**平台的项目 ID；`zip` 直接把目录打进压缩包。
+- 回读自检：`Host.InspectModpack` 对 `.mrpack` 返回 `Modrinth`、对 CurseForge 包返回 `CurseForge`、对纯 zip 返回 `Archive`（无版本信息）。
 - 默认打包 `mods` / `config` / `defaultconfigs` / `resourcepacks` / `shaderpacks` / `scripts`；第四个参数可覆盖。
 - 导入自检：导出后可以直接把路径交给 `Host.InspectModpack`，应返回 `Format = Modrinth`、名称版本与你传入的一致。
 **下载源（v10）**

@@ -4934,11 +4934,21 @@ Public Class PluginHost
     ''' <param name="PackVersion">整合包版本号，写进 versionId。</param>
     ''' <param name="RelativeTargetPath">导出文件路径，相对当前实例目录（例如 PCL\Export\我的整合包.mrpack）。</param>
     ''' <param name="Folders">要打包的实例子目录，留空则用 mods / config / defaultconfigs / resourcepacks / shaderpacks / scripts。</param>
+    ''' <param name="Format">导出格式：modrinth（默认，.mrpack）、curseforge（manifest.json）、zip（纯压缩包）。</param>
     ''' <remarks>需要 modpack.export 权限；返回是否生成了文件。生成的文件只包含 overrides/，导入后与被导出的实例内容一致。</remarks>
-    Public Function ExportModpack(PackName As String, PackVersion As String, RelativeTargetPath As String, Optional Folders As List(Of String) = Nothing) As Boolean
+    Public Function ExportModpack(PackName As String, PackVersion As String, RelativeTargetPath As String, Optional Folders As List(Of String) = Nothing, Optional Format As String = "modrinth") As Boolean
         Info.EnsurePermission("modpack.export")
+        Dim UseFormat As ModModpackExport.ModpackExportFormat
+        Select Case If(Format, "").Trim().ToLowerInvariant()
+            Case "curseforge", "cf"
+                UseFormat = ModModpackExport.ModpackExportFormat.CurseForge
+            Case "zip", "plain", "plainzip"
+                UseFormat = ModModpackExport.ModpackExportFormat.PlainZip
+            Case Else
+                UseFormat = ModModpackExport.ModpackExportFormat.Modrinth
+        End Select
         Dim Target As String = ResolveInstanceRelativePath(RelativeTargetPath, "ExportModpack")
-        ModModpackExport.ExportInstance(McInstanceSelected, PackName, PackVersion, Target, Folders)
+        ModModpackExport.ExportInstance(McInstanceSelected, PackName, PackVersion, Target, Folders, UseFormat)
         Return FileUtils.Exists(Target)
     End Function
     ''' <summary>把官方地址换成当前下载源下"优先尝试"的地址（API v10）。认不出的地址原样返回。</summary>
