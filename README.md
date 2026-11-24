@@ -2,12 +2,13 @@
 
 基于 [Plain Craft Launcher 2 开源版](https://github.com/Meloong-Git/PCL)（上游版本 2.14.0.0）二次开发的自编版启动器：保留原版全部功能，另外加入独立配置目录、主题系统、插件框架等扩展。下载与联机功能自 3.9.0 起改为插件提供。
 
-- 当前版本：**3.9.5**
+- 当前版本：**3.10.5**（VersionCode 482）
+- 下载：[最新 Release](https://github.com/Badqf/PCL-Harness/releases/latest)（镜像：<https://ghfast.top/https://github.com/Badqf/PCL-Harness/releases/latest>）
 - 插件市场：<https://github.com/Badqf/PCL-Harness-Market>（启动器「插件市场」页可直接浏览、安装与更新）
 - 发布流程与版本规范：[docs/发布流程.md](docs/发布流程.md)
 - 上游基线：PCL 2.14.0.0（2026-10-16 发布）
 - 反馈 / 问题：<https://github.com/Badqf/PCL-Harness/issues>
-- 插件开发文档：[PLUGIN-DEV.md](PLUGIN-DEV.md)（API v8）
+- 插件开发文档：[PLUGIN-DEV.md](PLUGIN-DEV.md)（API v10）
 
 ## 下载与联机由插件提供（3.9.0 起）
 
@@ -33,12 +34,12 @@
 - **切换即重启**：改动明暗或配色后自动重启启动器，不再需要手动重启才能整体生效。
 - 色相按上游许可限制在蓝色系（200°–230°），提供标准蓝 / 冰蓝 / 海蓝 / 靛青四档预设。
 
-### 插件框架（API v8）
+### 插件框架（API v10）
 - 清单 `plugin.json`：`id`/`name`/`version`/`author`/`description`/`entry`/`dll`/`permissions`/`dependencies`/`minApiVersion`/`update`。
 - 接口：`IPclPlugin`、`PclPluginBase`、`IPclPluginUi`/`IPclPluginUi2`/`IPclPluginUi3`（主页卡片 / 设置页卡片 / 状态栏 / 自定义页面）、`IPclPluginEvents`、`IPclPluginLifecycle`、`IPclPluginLink`、`IPclPluginDownload`、`IPclPluginClosing`、`IPclPluginInstanceMenu`。
 - 宿主能力：日志与提示、消息框、打开网页/文件夹、主题信息、受控文件读写、HTTP 请求与下载（含 5 跳重定向校验）、追加 JVM / 游戏参数、跨页导航、插件间服务与后台任务、实例与内容（Mod / 资源包 / 光影包）查询与启停。
 - 权限分级：`0` 只读提示、`1` 需要留意、`2` 高风险（当前为 `process`）。启用前逐条确认并记住指纹；权限或授权主机有变化会重新询问，卡片上的「重新确认权限」可撤销；高风险在启动时会单独弹一次醒目提示，取消即自动禁用。
-- 版本演进：v5 事件总线 / 强类型设置 / 白名单 / `sha256`；v6 界面扩展点 / 服务 / 后台任务 / 崩溃熔断；v7 实例与内容读写、权限分级与风险提示；v8 内置页面开关（`Host.EnableBuiltInPage`）与插件原生页面。
+- 版本演进：v5 事件总线 / 强类型设置 / 白名单 / `sha256`；v6 界面扩展点 / 服务 / 后台任务 / 崩溃熔断；v7 实例与内容读写、权限分级与风险提示；v8 内置页面开关（`Host.EnableBuiltInPage`）与插件原生页面；v9 整合包识别与安装；v10 批量下载 / 实例写文件、多镜像回退，插件加载改为后台（v10.3）。
 - **可靠性**：热重载、单份备份与「回滚到上一版」、`.trash`/`.backup` 30 天清理、卸载时目录移入 Windows 回收站（3.9.1，可从回收站还原）、按字节流隔离加载（同名 DLL 的多个插件互不干扰）。
 - 示例插件与开发包：`samples/DemoPlugin`；SDK 随 Release 发布（`PCL-Harness-Plugin-SDK-*.zip`），构建脚本在 `tools/sdk/`。
 
