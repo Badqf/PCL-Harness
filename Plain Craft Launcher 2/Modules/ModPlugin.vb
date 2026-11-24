@@ -4927,6 +4927,35 @@ Public Class PluginHost
         Next
     End Sub
 
+    ''' <summary>把官方地址换成当前下载源下"优先尝试"的地址（API v10）。认不出的地址原样返回。</summary>
+    Public Function ResolveDownloadUrl(Url As String) As String
+        If String.IsNullOrWhiteSpace(Url) Then Return Url
+        Try
+            Dim Candidates As IEnumerable(Of String) = Nothing
+            If Url.Contains("resources.download.minecraft.net") OrElse Url.Contains("piston-data.mojang.com") OrElse Url.Contains("piston-meta.mojang.com") Then
+                Candidates = DlSourceAssetsGet(Url)
+            ElseIf Url.Contains("libraries.minecraft.net") OrElse Url.Contains("maven.minecraftforge.net") OrElse Url.Contains("maven.neoforged.net") OrElse Url.Contains("maven.fabricmc.net") Then
+                Candidates = DlSourceLibraryGet(Url)
+            End If
+            If Candidates Is Nothing Then Return Url
+            Dim First = Candidates.FirstOrDefault()
+            Return If(String.IsNullOrWhiteSpace(First), Url, First)
+        Catch ex As Exception
+            PluginDevLog.Warn("下载源", "解析下载地址失败，按原地址返回：" & ex.Message)
+            Return Url
+        End Try
+    End Function
+
+    ''' <summary>当前下载源是否优先官方（API v10，只读）：True 官方优先，False 镜像优先。</summary>
+    Public ReadOnly Property PreferOfficialSource As Boolean
+        Get
+            Try
+                Return DlSourcePreferMojang
+            Catch
+                Return False
+            End Try
+        End Get
+    End Property
     ''' <summary>最近一次 DownloadFiles 的逐文件结果（API v10，只读视图）。</summary>
     Public Property LastDownloadResults As List(Of PluginDownloadItemResult) = Nothing
 

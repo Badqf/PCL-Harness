@@ -1034,6 +1034,13 @@ End Sub
 | `Skipped` | `Overwrite=False` 且目标已存在 |
 | `Failed` / `Canceled` | 网络或磁盘失败；用户取消 |
 
+**下载源（v10）**
+
+```vb
+Dim Preferred = Host.ResolveDownloadUrl("https://libraries.minecraft.net/com/example/a.jar")
+' 官方优先时原样返回；镜像优先时给出 bmclapi 等价地址。认不出的地址原样返回。
+Dim OfficialFirst As Boolean = Host.PreferOfficialSource
+```
 **规则**
 
 - `RelativePath` 一律相对实例根目录，`..`、`\`/`/` 开头、盘符都会被拒绝（抛 `UnauthorizedAccessException`）。
