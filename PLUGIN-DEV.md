@@ -1055,6 +1055,37 @@ Dim Preferred = Host.ResolveDownloadUrl("https://libraries.minecraft.net/com/exa
 ' 官方优先时原样返回；镜像优先时给出 bmclapi 等价地址。认不出的地址原样返回。
 Dim OfficialFirst As Boolean = Host.PreferOfficialSource
 ```
+**逐文件进度与启动同步（v10.1）**
+
+想让界面跟着下载动，插件类再实现两个可选接口：
+
+```vb
+Public Class MyPlugin
+    Implements IPclPlugin
+    Implements IPclPluginDownloadProgress
+    Implements IPclPluginServerSync
+
+    Public Sub OnDownloadProgress(Item As PluginDownloadFileProgress) Implements IPclPluginDownloadProgress.OnDownloadProgress
+        'Item.RelativePath / State / BytesReceived / TotalBytes / Progress
+        'State：Waiting（排队）、Downloading、Finished、Failed、Canceled
+        If Item.State = "Downloading" Then UpdateBar(Item.Progress)
+    End Sub
+
+    Public Sub OnBeforeLaunch(Info As PluginLaunchInfo) Implements IPclPluginServerSync.OnBeforeLaunch
+        '开服前：补齐缺失文件、校验配置——这里还能改实例里的文件
+    End Sub
+
+    Public Sub OnAfterLaunch(Info As PluginLaunchInfo) Implements IPclPluginServerSync.OnAfterLaunch
+        '进程已起：Info.ProcessId 可用，适合记录状态或上报
+    End Sub
+End Class
+```
+
+- 进度只在**状态或字节数变化**时回调，不用自己节流；一次 `DownloadFiles` 结束还会给每个进过队列的文件补一次终态。
+- 两个同步钩子跑在独立任务上：`OnBeforeLaunch` 最多等 **15 秒**、`OnAfterLaunch` 最多等 **5 秒**；超时只记一条事件与日志，不阻塞启动。
+- 想改 JVM / 游戏参数仍然用 `IPclPluginEvents.OnGameLaunching` 的 `ExtraJvmArgs` / `ExtraGameArgs`；同步钩子只管文件与状态。
+- 没实现这两个接口的插件不受影响，`DownloadFiles` 的行为与 v10.0 完全一致。
+
 **规则**
 
 - `RelativePath` 一律相对实例根目录，`..`、`\`/`/` 开头、盘符都会被拒绝（抛 `UnauthorizedAccessException`）。
@@ -1062,6 +1093,7 @@ Dim OfficialFirst As Boolean = Host.PreferOfficialSource
 - 同一 URL 出现多次时只下一次；结果仍按请求逐条给出。
 - 不想让宿主替你校验就留空 `Sha1`（此时只看文件是否落地）。
 - 需要逐字节控制、或要写到实例以外的地方，继续用 `HttpDownload`（串行、无进度）。
+
 ## API v9（历史版本）
 
 v9 只加一件事：**整合包**。插件可以只读识别一个整合包文件，也可以把它装成一个新实例；安装走「任务管理」，可看进度、可取消，结束后广播事件。

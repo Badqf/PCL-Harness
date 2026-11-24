@@ -27,6 +27,13 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 479 Then 'PCL Harness 3.10.2
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件批量下载时可以逐文件收到进度回调；启动游戏前后也能收到同步钩子，超时不会拖住启动。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 启动器所在目录没有写入权限时，自动更新不再假装成功——下载完就提示，替换失败也会在下次启动时告知。"))
+            End If
+
             If LastVersion < 478 Then 'PCL Harness 3.10.1
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件导出整合包可以选择格式——Modrinth（.mrpack）、CurseForge（manifest.json）或纯压缩包。"))

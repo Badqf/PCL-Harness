@@ -1064,6 +1064,24 @@ Public Module ModPlugin
             Return Fallback
         End Try
     End Function
+
+    ''' <summary>API v10：带超时的插件钩子调用。钩子跑在独立任务上，超时只记一次事件并继续，不阻塞主流程。</summary>
+    Friend Function GuardCallTimed(Info As PluginInfo, Where As String, Work As Action, TimeoutMs As Integer) As Boolean
+        If Info Is Nothing OrElse Work Is Nothing Then Return False
+        Try
+            Dim HookTask = System.Threading.Tasks.Task.Run(Sub() Work())
+            If HookTask.Wait(TimeoutMs) Then Return True
+            Info.AddEvent(Where & " 超过 " & TimeoutMs & " ms 未返回，已跳过等待")
+            Logger.Warn($"[Plugin] 插件 {Info.Id} 的 {Where} 超过 {TimeoutMs} ms 未返回，已跳过等待")
+            Return False
+        Catch ex As AggregateException
+            NotePluginFailure(Info, Where, If(ex.InnerException, ex))
+            Return False
+        Catch ex As Exception
+            NotePluginFailure(Info, Where, ex)
+            Return False
+        End Try
+    End Function
     ''' <summary>
     ''' 加载单个插件。
     ''' </summary>
@@ -1920,6 +1938,14 @@ Public Module ModPlugin
                 NotePluginFailure(Entry.Owner, "事件 OnGameLaunching", ex)
             End Try
         Next
+        ' API v10：服务器同步钩子（启动前 15 秒预算；超时只记事件，不阻塞启动）
+        For Each Target In Plugins.ToList()
+            If Target Is Nothing OrElse Target.Instance Is Nothing Then Continue For
+            Dim Sync = TryCast(Target.Instance, IPclPluginServerSync)
+            If Sync Is Nothing Then Continue For
+            GuardCallTimed(Target, "同步钩子 OnBeforeLaunch", Sub() Sync.OnBeforeLaunch(Info), 15000)
+            Target.AddEvent($"OnBeforeLaunch({Info.InstanceName})")
+        Next
         EmitPluginEvent(PluginEvents.GameLaunching, Info)
     End Sub
 
@@ -1931,6 +1957,14 @@ Public Module ModPlugin
             Catch ex As Exception
                 NotePluginFailure(Entry.Owner, "事件 OnGameLaunched", ex)
             End Try
+        Next
+        ' API v10：服务器同步钩子（启动后 5 秒预算；此时 Info.ProcessId 已可用）
+        For Each Target In Plugins.ToList()
+            If Target Is Nothing OrElse Target.Instance Is Nothing Then Continue For
+            Dim Sync = TryCast(Target.Instance, IPclPluginServerSync)
+            If Sync Is Nothing Then Continue For
+            GuardCallTimed(Target, "同步钩子 OnAfterLaunch", Sub() Sync.OnAfterLaunch(Info), 5000)
+            Target.AddEvent($"OnAfterLaunch({Info.InstanceName}, 进程 {Info.ProcessId})")
         Next
         EmitPluginEvent(PluginEvents.GameLaunched, Info)
     End Sub
@@ -4068,6 +4102,45 @@ Public Interface IPclPluginDownloads
     Sub OnDownloadsFinished(Results As List(Of PluginDownloadItemResult))
 End Interface
 
+    ''' <summary>
+    ''' 批量下载中单个文件的实时进度（API v10，可选）。只在状态或字节数变化时回调，不会每毫秒刷一次。
+    ''' </summary>
+    Public Class PluginDownloadFileProgress
+        ''' <summary>原始请求的下载地址。</summary>
+        Public Property Url As String = ""
+        ''' <summary>原始请求的相对路径。</summary>
+        Public Property RelativePath As String = ""
+        ''' <summary>Waiting / Downloading / Finished / Failed / Canceled。</summary>
+        Public Property State As String = "Waiting"
+        ''' <summary>已接收字节数。</summary>
+        Public Property BytesReceived As Long = 0
+        ''' <summary>文件总字节数；服务器没报大小时为 0。</summary>
+        Public Property TotalBytes As Long = 0
+        ''' <summary>0~1 的完成比例；总大小未知时为 0。</summary>
+        Public Property Progress As Double = 0
+    End Class
+
+    ''' <summary>
+    ''' 可选的下载进度接口（API v10）。插件实现本接口后，任何插件发起的 DownloadFiles
+    ''' 都会在下载过程中回调每个文件的进度；只调用实现了本接口的插件。
+    ''' </summary>
+    Public Interface IPclPluginDownloadProgress
+        ''' <summary>某个文件的下载进度发生变化（Waiting / Downloading / Finished / Canceled）。</summary>
+        Sub OnDownloadProgress(Item As PluginDownloadFileProgress)
+    End Interface
+
+    ''' <summary>
+    ''' 可选的服务器同步接口（API v10）。启动游戏前后各回调一次，用于开服前补齐 / 校验文件、
+    ''' 开服后记录状态。钩子跑在独立任务上并带超时（启动前 15 秒、启动后 5 秒），超时只记一次、不阻塞启动。
+    ''' <para>想改 JVM / 游戏参数的插件仍用 IPclPluginEvents.OnGameLaunching 的 ExtraJvmArgs / ExtraGameArgs。</para>
+    ''' </summary>
+    Public Interface IPclPluginServerSync
+        ''' <summary>即将启动游戏（此时还能改实例里的文件）。</summary>
+        Sub OnBeforeLaunch(Info As PluginLaunchInfo)
+        ''' <summary>游戏进程已经启动（Info.ProcessId 已可用）。</summary>
+        Sub OnAfterLaunch(Info As PluginLaunchInfo)
+    End Interface
+
 ''' <summary>
 ''' 提供给插件的宿主对象。
 ''' </summary>
@@ -4837,6 +4910,7 @@ Public Class PluginHost
                 Try
                     Ctx.Report(0.01, "开始下载")
                     Loader.Start()
+                    Dim LastSig As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
                     Do While Loader.State = LoadState.Loading OrElse Loader.State = LoadState.Waiting
                         If Ctx.Cancelled Then
                             Try
@@ -4846,6 +4920,29 @@ Public Class PluginHost
                             Ctx.ThrowIfCancelled()
                         End If
                         Ctx.Report(0.01 + 0.97 * Loader.Progress, $"下载中（{Loader.Progress:P0}）")
+                        ' API v10：逐文件进度（只在状态或字节数变化时回调，避免刷屏）
+                        For Each Nf In Accepted
+                            Dim R0 As PluginDownloadItemResult = Nothing
+                            If Nf Is Nothing OrElse Nf.LocalPath Is Nothing Then Continue For
+                            If Not Map.TryGetValue(Nf.LocalPath, R0) Then Continue For
+                            Dim St As String
+                            Select Case Nf.State
+                                Case NetState.Finished : St = "Finished"
+                                Case NetState.Canceled : St = "Canceled"
+                                Case NetState.WaitingToCheck, NetState.WaitingToDownload, NetState.Connecting : St = "Waiting"
+                                Case Else : St = "Downloading"
+                            End Select
+                            Dim DoneBytes As Long = Nf.DownloadDone
+                            Dim FileTotal As Long = Math.Max(0, Nf.FileSize)
+                            Dim Sig As String = St & "|" & DoneBytes & "|" & FileTotal
+                            If LastSig.ContainsKey(Nf.LocalPath) AndAlso LastSig(Nf.LocalPath) = Sig Then Continue For
+                            LastSig(Nf.LocalPath) = Sig
+                            Dim Ratio As Double = 0
+                            If FileTotal > 0 Then Ratio = Math.Min(1.0, DoneBytes / FileTotal)
+                            EmitDownloadProgress(New PluginDownloadFileProgress With {
+                                .Url = R0.Url, .RelativePath = R0.RelativePath, .State = St,
+                                .BytesReceived = DoneBytes, .TotalBytes = FileTotal, .Progress = Ratio})
+                        Next
                         Thread.Sleep(200)
                     Loop
                     Loader.WaitForExit()
@@ -4911,6 +5008,22 @@ Public Class PluginHost
                     End If
                 Next
                 Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {BadCount} 个")
+                ' API v10：收尾时把每个文件的终态再广播一次（轮询期间可能没观察到 Finished / Canceled）
+                For Each R In Results
+                    If R Is Nothing OrElse String.IsNullOrWhiteSpace(R.RelativePath) Then Continue For
+                    ' 没进队列的（Denied / TooLarge / Skipped）已经在逐条结果里报过，不再发进度
+                    If R.Status = "Denied" OrElse R.Status = "TooLarge" OrElse R.Status = "Skipped" Then Continue For
+                    Dim FinalState As String
+                    Select Case R.Status
+                        Case "Ok" : FinalState = "Finished"
+                        Case "Canceled" : FinalState = "Canceled"
+                        Case Else : FinalState = "Failed"
+                    End Select
+                    EmitDownloadProgress(New PluginDownloadFileProgress With {
+                        .Url = R.Url, .RelativePath = R.RelativePath, .State = FinalState,
+                        .BytesReceived = R.Bytes, .TotalBytes = R.Bytes, .Progress = If(FinalState = "Finished", 1.0, 0.0)})
+                Next
+
                 EmitDownloadsFinished(Results)
             End Sub)
     End Function
@@ -4922,12 +5035,23 @@ Public Class PluginHost
         Catch
         End Try
         For Each Target In ModPlugin.Plugins.ToList()
-            If Target Is Nothing OrElse Not Target.Loaded OrElse Target.Instance Is Nothing Then Continue For
+            If Target Is Nothing OrElse Target.Instance Is Nothing Then Continue For
             Dim Hook = TryCast(Target.Instance, IPclPluginDownloads)
             If Hook Is Nothing Then Continue For
             GuardCall(Target, "批量下载回调", Sub() Hook.OnDownloadsFinished(Results))
         Next
     End Sub
+    ''' <summary>API v10：把单个文件的下载进度广播给实现了 IPclPluginDownloadProgress 的已加载插件。</summary>
+    Private Sub EmitDownloadProgress(Item As PluginDownloadFileProgress)
+        If Item Is Nothing Then Return
+        For Each Target In ModPlugin.Plugins.ToList()
+            If Target Is Nothing OrElse Target.Instance Is Nothing Then Continue For
+            Dim Hook = TryCast(Target.Instance, IPclPluginDownloadProgress)
+            If Hook Is Nothing Then Continue For
+            GuardCall(Target, "下载进度回调", Sub() Hook.OnDownloadProgress(Item))
+        Next
+    End Sub
+
 
     ''' <summary>把当前实例导出成 .mrpack（API v10，overrides-only，不联网匹配平台项目）。</summary>
     ''' <param name="PackName">整合包名称，写进 modrinth.index.json 的 name。</param>
@@ -5004,7 +5128,7 @@ Public Class PluginHost
     ''' <summary>把安装结果广播给所有实现了 IPclPluginModpack 的已加载插件。</summary>
     Private Sub EmitModpackInstalled(Result As PluginModpackResult)
         For Each Target In ModPlugin.Plugins.ToList()
-            If Target Is Nothing OrElse Not Target.Loaded OrElse Target.Instance Is Nothing Then Continue For
+            If Target Is Nothing OrElse Target.Instance Is Nothing Then Continue For
             Dim Hook = TryCast(Target.Instance, IPclPluginModpack)
             If Hook Is Nothing Then Continue For
             GuardCall(Target, "整合包安装回调", Sub() Hook.OnModpackInstalled(Result))
