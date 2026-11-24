@@ -996,7 +996,52 @@ v8 继续兼容这些接口，v7 及更早的插件无需改代码即可加载�
 已实测的格式：CurseForge、Modrinth、MultiMC（`mmc-pack.json` + `instance.cfg`）、HMCL（`modpack.json`）、MCBBS（`mcbbs.packmeta`，缺失字段会回读同包 `manifest.json`）。
 
 > 示例代码只放在本仓库 `samples\DemoPlugin\`，不进插件 SDK：SDK 只带接口与文档，避免示例被当成模板复制进生产插件。
-## API v9（当前版本）
+## API v10（当前版本）
+
+v10 把「往实例里写文件」和「批量下载到实例」做成宿主能力：插件只要给一份清单（地址 + 相对路径 + 期望 SHA-1），并发、重试、进度、取消、校验都由启动器负责，进度会出现在「任务管理」里。
+
+**新增权限**：无。写实例用 `instance.write`（v9.1 起必需），下载用 `net`（受 `net.hosts` 白名单约束）。
+
+```vb
+' instance.write：写到当前实例里（路径相对实例根，不允许 .. 或绝对路径）
+Dim Ok = Host.WriteInstanceFile("config\mypack.toml", "[settings]`r`nkey = 1", Overwrite:=True)
+
+' net + instance.write：批量下载，返回任务句柄
+Dim Files = New List(Of PluginDownloadRequest) From {
+    New PluginDownloadRequest With {.Url = "https://example.com/a.jar", .RelativePath = "mods\a.jar", .Sha1 = "…40 位…", .Size = 123456},
+    New PluginDownloadRequest With {.Url = "https://example.com/b.json", .RelativePath = "config\b.json"}
+}
+Dim Task = Host.DownloadFiles(Files, New PluginDownloadOptions With {.Overwrite = True, .TotalLimitBytes = 512L * 1024 * 1024})
+Task.Wait()
+For Each R In Host.LastDownloadResults
+    Host.LogInfo($"{R.RelativePath} → {R.Status}（{R.Bytes} B）{R.Message}")
+Next
+
+' 也可以不听进度、只在结束时收事件
+Public Sub OnDownloadsFinished(Results As List(Of PluginDownloadItemResult)) Implements IPclPluginDownloads.OnDownloadsFinished
+    Host.LogInfo($"完成 {Results.Where(Function(r) r.Status = "Ok").Count()} 个")
+End Sub
+```
+
+**逐条状态**
+
+| Status | 含义 |
+| --- | --- |
+| `Ok` | 已下载并（若给了 SHA-1）校验通过 |
+| `HashMismatch` | 内容与请求的 SHA-1 不符，文件已被丢弃 |
+| `Denied` | 主机不在 `net.hosts`，或路径越出实例目录 |
+| `TooLarge` | 超过 `TotalLimitBytes` 或单文件上限 |
+| `Skipped` | `Overwrite=False` 且目标已存在 |
+| `Failed` / `Canceled` | 网络或磁盘失败；用户取消 |
+
+**规则**
+
+- `RelativePath` 一律相对实例根目录，`..`、`\`/`/` 开头、盘符都会被拒绝（抛 `UnauthorizedAccessException`）。
+- 下载走启动器自己的网络栈（与「下载」页同一套镜像与重试策略），不是插件自己开线程。
+- 同一 URL 出现多次时只下一次；结果仍按请求逐条给出。
+- 不想让宿主替你校验就留空 `Sha1`（此时只看文件是否落地）。
+- 需要逐字节控制、或要写到实例以外的地方，继续用 `HttpDownload`（串行、无进度）。
+## API v9（历史版本）
 
 v9 只加一件事：**整合包**。插件可以只读识别一个整合包文件，也可以把它装成一个新实例；安装走「任务管理」，可看进度、可取消，结束后广播事件。
 

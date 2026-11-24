@@ -470,8 +470,9 @@ Public Module ModPlugin
     ''' v7 ui / events 权限真正生效、权限必须显式声明（新插件不再默认全开）、实例信息与日志读取、换肤、
     '''    内容安装、启动游戏、账号信息、全局设置只读，以及中高风险权限的风险确认；
     ''' v9 整合包识别与静默安装（InspectModpack / InstallModpack，需 instance.read / modpack.install）。
+    ''' v10 实例内写文件（WriteInstanceFile）、批量下载到实例（DownloadFiles），权限读写分家并新增 instance.write。
     ''' </summary>
-    Public Const ApiVersionUi As Integer = 9
+    Public Const ApiVersionUi As Integer = 10
 
     ''' <summary>插件注册的全部自定义页面。</summary>
     Public ReadOnly PluginPages As New List(Of PluginPageInfo)
@@ -4008,12 +4009,61 @@ Public Class PluginModpackResult
 End Class
 
 ''' <summary>
+''' 批量下载里的一个文件请求（API v10）。路径一律相对当前实例目录。
+''' </summary>
+Public Class PluginDownloadRequest
+    ''' <summary>下载地址；主机必须在 net.hosts 白名单里。</summary>
+    Public Property Url As String = ""
+    ''' <summary>相对当前实例目录的目标路径，例如 "mods\foo.jar" 或 "config\bar.toml"。</summary>
+    Public Property RelativePath As String = ""
+    ''' <summary>可选 SHA-1（40 位十六进制）；给了就会校验，不匹配记为 HashMismatch。</summary>
+    Public Property Sha1 As String = ""
+    ''' <summary>可选的文件大小；用于统计总量上限，也给下载器做参考。</summary>
+    Public Property Size As Long = 0
+End Class
+
+''' <summary>
+''' 批量下载的参数（API v10）。
+''' </summary>
+Public Class PluginDownloadOptions
+    ''' <summary>目标已存在时是否覆盖；False 时已校验通过的文件记为 Skipped。</summary>
+    Public Property Overwrite As Boolean = True
+    ''' <summary>本次下载的总字节上限，默认 2 GiB；超出的条目记为 TooLarge。</summary>
+    Public Property TotalLimitBytes As Long = 2048L * 1024 * 1024
+End Class
+
+''' <summary>
+''' 批量下载中单个文件的结果（API v10）。
+''' </summary>
+Public Class PluginDownloadItemResult
+    ''' <summary>原始请求的下载地址。</summary>
+    Public Property Url As String = ""
+    ''' <summary>原始请求的相对路径。</summary>
+    Public Property RelativePath As String = ""
+    ''' <summary>Ok / Skipped / Denied / TooLarge / HashMismatch / Failed / Canceled。</summary>
+    Public Property Status As String = "Failed"
+    ''' <summary>失败或跳过的中文说明。</summary>
+    Public Property Message As String = ""
+    ''' <summary>实际写入的字节数（未知时为 0）。</summary>
+    Public Property Bytes As Long = 0
+End Class
+
+''' <summary>
 ''' 可选的整合包事件接口（API v9）。插件在实现 IPclPlugin 的同时实现本接口，
 ''' 即可在它自己发起（或任何插件发起）的整合包安装结束时收到回调。
 ''' </summary>
 Public Interface IPclPluginModpack
     ''' <summary>整合包安装结束（成功、失败或被取消都会调用）。</summary>
     Sub OnModpackInstalled(Result As PluginModpackResult)
+End Interface
+
+''' <summary>
+''' 可选的批量下载事件接口（API v10）。插件实现本接口后，任何插件发起的
+''' DownloadFiles 结束时都会收到逐文件结果。
+''' </summary>
+Public Interface IPclPluginDownloads
+    ''' <summary>批量下载结束（每个文件的结果都在列表里，成功与失败都有）。</summary>
+    Sub OnDownloadsFinished(Results As List(Of PluginDownloadItemResult))
 End Interface
 
 ''' <summary>
@@ -4718,6 +4768,168 @@ Public Class PluginHost
             End Sub)
     End Function
 
+    ''' <summary>
+    ''' API v10：把一批文件下载到当前实例里（需要 net + instance.write）。
+    ''' 逐条先过主机白名单与路径围栏，不合法的直接记结果、不进入下载队列；
+    ''' 真正的下载交给宿主下载器（并发、断点、进度、取消都在任务栏里）。
+    ''' </summary>
+    Public Function DownloadFiles(Files As List(Of PluginDownloadRequest), Optional Options As PluginDownloadOptions = Nothing) As PluginTaskHandle
+        Info.EnsurePermission("net")
+        Info.EnsurePermission("instance.write")
+        If Files Is Nothing OrElse Files.Count = 0 Then Throw New ArgumentException("DownloadFiles：文件列表不能为空")
+        Dim Opts = If(Options Is Nothing, New PluginDownloadOptions(), Options)
+        Dim Results As New List(Of PluginDownloadItemResult)
+        Dim Accepted As New List(Of NetFile)
+        Dim Map As New Dictionary(Of String, PluginDownloadItemResult)(StringComparer.OrdinalIgnoreCase)
+        Dim ExpectMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim TotalBytes As Long = 0
+        For Each Item In Files
+            If Item Is Nothing Then Continue For
+            Dim R As New PluginDownloadItemResult With {.Url = If(Item.Url, ""), .RelativePath = If(Item.RelativePath, ""), .Status = "Denied"}
+            Results.Add(R)
+            If String.IsNullOrWhiteSpace(Item.Url) Then
+                R.Message = "下载地址为空" : Continue For
+            End If
+            Try
+                EnsureHostAllowed(Info, Item.Url)
+            Catch ex As UnauthorizedAccessException
+                R.Message = "主机不在 net.hosts 白名单：" & ex.Message : Continue For
+            End Try
+            Dim Target As String = Nothing
+            Try
+                Target = ResolveInstanceRelativePath(Item.RelativePath, "DownloadFiles")
+                CheckFileAccess(Target, True)
+            Catch ex As Exception
+                R.Message = ex.Message : Continue For
+            End Try
+            If Item.Size > 0 Then TotalBytes += Item.Size
+            If Opts.TotalLimitBytes > 0 AndAlso (Item.Size > Opts.TotalLimitBytes OrElse TotalBytes > Opts.TotalLimitBytes) Then
+                R.Status = "TooLarge" : R.Message = $"超过本次下载的总量上限（{Opts.TotalLimitBytes} 字节）" : Continue For
+            End If
+            If Not Opts.Overwrite AndAlso IO.File.Exists(Target) Then
+                R.Status = "Skipped" : R.Message = "目标已存在，按 Overwrite=False 跳过" : Continue For
+            End If
+            'NetFile 的 Checker 负责"下载完就校验"，不给它会让任务卡在待检查状态；
+            '但它校验失败会删文件，所以结果里再按"文件是否存在 + SHA-1"复核一次，给出 HashMismatch 而不是笼统的失败。
+            Dim Checker As FileChecker = Nothing
+            If Not String.IsNullOrWhiteSpace(Item.Sha1) Then Checker = New FileChecker With {.Hash = Item.Sha1.Trim()}
+            Dim Nf As New NetFile({Item.Url}, Target, Checker, False)
+            R.Status = "Pending"
+            Map(Target) = R
+            If Not String.IsNullOrWhiteSpace(Item.Sha1) Then ExpectMap(Target) = Item.Sha1.Trim()
+            Accepted.Add(Nf)
+        Next
+        Dim Title As String = $"插件下载：{Accepted.Count} 个文件"
+        If Accepted.Count = 0 Then
+            Dim Denied As Integer = Results.Where(Function(r) r.Status = "Denied" OrElse r.Status = "TooLarge").Count()
+            Return Tasks.Run($"插件下载：{Denied} 个文件未通过校验",
+                Sub(Ctx)
+                    Ctx.Report(1, "没有可以下载的文件")
+                    EmitDownloadsFinished(Results)
+                End Sub)
+        End If
+        Return Tasks.Run(Title,
+            Sub(Ctx)
+                Dim LoaderError As String = Nothing
+                Dim Loader As New LoaderDownload(Title, Accepted) With {.Block = False}
+                Try
+                    Ctx.Report(0.01, "开始下载")
+                    Loader.Start()
+                    Do While Loader.State = LoadState.Loading OrElse Loader.State = LoadState.Waiting
+                        If Ctx.Cancelled Then
+                            Try
+                                Loader.Cancel()
+                            Catch
+                            End Try
+                            Ctx.ThrowIfCancelled()
+                        End If
+                        Ctx.Report(0.01 + 0.97 * Loader.Progress, $"下载中（{Loader.Progress:P0}）")
+                        Thread.Sleep(200)
+                    Loop
+                    Loader.WaitForExit()
+                Catch ex As Exception
+                    'Loader 在任一文件失败时会抛异常（例如某个 URL 404）；此时不要把它们全判失败，
+                    '逐条结果仍按"文件是否真的落地 + 哈希是否符合"来定，异常只记日志。
+                    PluginDevLog.Warn("下载", "批量下载中断：" & ex.Message)
+                    LoaderError = ex.GetBaseException().Message
+                End Try
+                '汇总每个文件的结果：不依赖 Loader 的任务顺序（同一 URL 会被 Loader 合并），
+                '统一按"目标文件是否真的落地 + SHA-1 是否符合"判定，保证逐条结果与请求一一对应。
+                Dim OkCount As Integer = 0, BadCount As Integer = 0
+                For Each R In Results
+                    If R.Status <> "Pending" Then
+                        If R.Status = "Ok" Then OkCount += 1 Else BadCount += 1
+                        Continue For
+                    End If
+                    Dim Target As String = Nothing
+                    Try
+                        Target = ResolveInstanceRelativePath(R.RelativePath, "DownloadFiles")
+                    Catch ex As Exception
+                        R.Status = "Denied" : R.Message = ex.Message : BadCount += 1 : Continue For
+                    End Try
+                    If Not IO.File.Exists(Target) Then
+                        R.Status = If(Ctx.Cancelled, "Canceled", "Failed")
+                        R.Bytes = 0
+                        Dim Reason As String = Nothing
+                        If Map.ContainsKey(Target) Then
+                            Dim Nf = Accepted.FirstOrDefault(Function(n) String.Equals(n.LocalPath, Target, StringComparison.OrdinalIgnoreCase))
+                            If Nf IsNot Nothing Then
+                                Dim First As Exception = Nothing
+                                Try
+                                    First = Nf.Ex.FirstOrDefault()
+                                Catch
+                                End Try
+                                If First IsNot Nothing Then Reason = First.GetBaseException().Message
+                            End If
+                        End If
+                        If ExpectMap.ContainsKey(Target) Then
+                            R.Status = If(Ctx.Cancelled, "Canceled", "HashMismatch")
+                            R.Message = "下载内容与请求的 SHA-1 不符（文件已被丢弃）：" & If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "", LoaderError), Reason)
+                        Else
+                            R.Message = If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "文件没有下载完成", LoaderError), Reason)
+                        End If
+                        BadCount += 1 : Continue For
+                    End If
+                    R.Bytes = New IO.FileInfo(Target).Length
+                    Dim Expect As String = Nothing
+                    If ExpectMap.ContainsKey(Target) Then Expect = ExpectMap(Target)
+                    If String.IsNullOrWhiteSpace(Expect) Then
+                        R.Status = "Ok" : OkCount += 1
+                    Else
+                        Try
+                            Dim Actual = CryptographyUtils.ComputeFileHash(Target, CryptographyUtils.HashMethod.Sha1)
+                            If String.Equals(Actual, Expect, StringComparison.OrdinalIgnoreCase) Then
+                                R.Status = "Ok" : OkCount += 1
+                            Else
+                                R.Status = "HashMismatch" : R.Message = "SHA-1 与请求不一致：实际 " & Actual : BadCount += 1
+                            End If
+                        Catch ex As Exception
+                            R.Status = "Ok" : R.Message = "哈希复核失败，按完成处理：" & ex.Message : OkCount += 1
+                        End Try
+                    End If
+                Next
+                Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {BadCount} 个")
+                EmitDownloadsFinished(Results)
+            End Sub)
+    End Function
+
+    ''' <summary>把批量下载结果广播给实现了 IPclPluginDownloads 的已加载插件（API v10）。</summary>
+    Private Sub EmitDownloadsFinished(Results As List(Of PluginDownloadItemResult))
+        Try
+            Me.LastDownloadResults = Results
+        Catch
+        End Try
+        For Each Target In ModPlugin.Plugins.ToList()
+            If Target Is Nothing OrElse Not Target.Loaded OrElse Target.Instance Is Nothing Then Continue For
+            Dim Hook = TryCast(Target.Instance, IPclPluginDownloads)
+            If Hook Is Nothing Then Continue For
+            GuardCall(Target, "批量下载回调", Sub() Hook.OnDownloadsFinished(Results))
+        Next
+    End Sub
+
+    ''' <summary>最近一次 DownloadFiles 的逐文件结果（API v10，只读视图）。</summary>
+    Public Property LastDownloadResults As List(Of PluginDownloadItemResult) = Nothing
+
     ''' <summary>把整合包名清成合法的实例名，重名时自动加 (2)、(3)。</summary>
     Private Function NormalizeInstanceName(Raw As String) As String
         Dim Name = If(Raw, "").Trim()
@@ -4859,6 +5071,40 @@ Public Class PluginHost
         IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Path))
         IO.File.WriteAllText(Path, If(Text, ""), New UTF8Encoding(False))
     End Sub
+
+    ''' <summary>
+    ''' API v10：往当前实例里写文本文件（需要 instance.write）。路径相对实例目录，
+    ''' 只接受相对路径；越出实例目录会被拒绝。返回是否真的写了（Overwrite=False 且文件已存在时返回 False）。
+    ''' </summary>
+    Public Function WriteInstanceFile(RelativePath As String, Text As String, Optional Overwrite As Boolean = True) As Boolean
+        Info.EnsurePermission("instance.write")
+        Dim Target = ResolveInstanceRelativePath(RelativePath, "WriteInstanceFile")
+        CheckFileAccess(Target, True)
+        If IO.File.Exists(Target) AndAlso Not Overwrite Then Return False
+        IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(Target))
+        IO.File.WriteAllText(Target, If(Text, ""), New UTF8Encoding(False))
+        Return True
+    End Function
+
+    ''' <summary>
+    ''' 把相对实例目录的路径解析成绝对路径，并挡掉绝对路径、盘符与 .. 越界（API v10）。
+    ''' </summary>
+    Private Function ResolveInstanceRelativePath(RelativePath As String, CallerName As String) As String
+        Dim Rel = If(RelativePath, "").Trim()
+        If Rel.Length = 0 Then Throw New ArgumentException(CallerName & "：相对路径不能为空")
+        If IO.Path.IsPathRooted(Rel) OrElse Rel.StartsWith("\", StringComparison.Ordinal) OrElse Rel.StartsWith("/", StringComparison.Ordinal) Then
+            Throw New ArgumentException(CallerName & " 只接受相对实例目录的路径：" & RelativePath)
+        End If
+        Dim Root = InstanceFolder()
+        If String.IsNullOrWhiteSpace(Root) Then Throw New InvalidOperationException(CallerName & "：当前没有选中的游戏实例")
+        Dim RootFull = IO.Path.GetFullPath(Root)
+        Dim Prefix = If(RootFull.EndsWith("\"c), RootFull, RootFull & "\")
+        Dim Target = IO.Path.GetFullPath(IO.Path.Combine(RootFull, Rel))
+        If Not Target.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) Then
+            Throw New UnauthorizedAccessException($"{CallerName}：路径越出了当前实例目录：{RelativePath}")
+        End If
+        Return Target
+    End Function
 
     Public Function FileExists(Path As String) As Boolean
         CheckFileAccess(Path)
