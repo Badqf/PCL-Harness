@@ -31,7 +31,8 @@ Public Class PagePlugin
         Catch ex As Exception
             Logger.Error(ex, "扫描插件失败", LogBehavior.Toast)
         End Try
-        RefreshNav()
+        'v10.3：这里不再 RefreshNav——加载中重建标题栏会重置按下的导航按钮，
+        '表现为「加载期间点启动/设置没反应」。入口刷新由 ModPlugin.FinishRefresh 统一补。
         SwitchSection(SectionIndex, Animate:=False)
         '插件列表在别处发生变化（例如从插件页按钮装了插件市场）时，跟着刷新计数与卡片
         AddHandler ModPlugin.PluginsChanged, Sub() RefreshAfterImport()
@@ -158,6 +159,9 @@ Public Class PagePlugin
     End Sub
 
     Private Sub RefreshNav()
+        'v10.3：后台加载期间不要重建标题栏——重建会重置正被按下的导航按钮，
+        '表现为「加载期间点启动/设置没反应」。收尾由 ModPlugin.FinishRefresh 统一刷新。
+        If ModPlugin.PluginRefreshBusy Then Return
         If FrmMain IsNot Nothing Then FrmMain.RefreshPluginNav()
     End Sub
 
@@ -200,6 +204,7 @@ Public Class PagePlugin
         AddPlainRow(GridPath, 0, "路径", ModPlugin.PathPluginRoot)
         Dim EnabledCount = ModPlugin.Plugins.Where(Function(p) p.Enabled).Count()
         AddPlainRow(GridPath, 1, "已发现", $"共 {ModPlugin.Plugins.Count} 个，已启用 {EnabledCount} 个")
+        EnabledCountText = GridPath.Children.OfType(Of TextBlock)().FirstOrDefault(Function(T) Grid.GetRow(T) = 1 AndAlso Grid.GetColumn(T) = 1)
         Body.Children.Add(GridPath)
 
         Dim PanBtn As New StackPanel With {.Orientation = Orientation.Horizontal, .Margin = New Thickness(0, 10, 0, 0)}
@@ -482,7 +487,7 @@ Public Class PagePlugin
         Dim Right As New StackPanel With {.VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right}
         Dim Chk As New MyCheckBox With {.VerticalAlignment = VerticalAlignment.Center, .HorizontalAlignment = HorizontalAlignment.Right}
         Chk.Text = If(Info.Enabled, "已启用", "已禁用")
-        Chk.Checked = (Info.Enabled AndAlso String.IsNullOrEmpty(Info.[Error]))
+        Chk.Checked = Info.Enabled '加载失败但仍处于启用状态时也显示为已勾选，用户才能先取消勾选再重试
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
                                    'v7.2.1：中风险也弹醒目提示框（黄色），高风险用红色；风险窗已逐条列出权限，确认后不再重复弹权限确认框
@@ -553,6 +558,10 @@ Public Class PagePlugin
                                    End Try
                                    RefreshNav()
                                    ReplacePluginCard(Info.Id)
+                                   '页头计数就地更新（禁用不会触发 PluginsLoaded，不能只靠扫描重算）
+                                   If EnabledCountText IsNot Nothing Then
+                                       EnabledCountText.Text = $"共 {ModPlugin.Plugins.Count} 个，已启用 {ModPlugin.Plugins.Where(Function(P) P.Enabled).Count()} 个"
+                                   End If
                                End Sub
         Right.Children.Add(Chk)
 
@@ -651,6 +660,7 @@ Public Class PagePlugin
     Private ExtendFilter As Integer = 0 '0 全部 / 1 已启用 / 2 已禁用
     Private ExtendList As StackPanel
     Private LabExtendStat As TextBlock
+    Private EnabledCountText As TextBlock '「已发现」行右侧的计数，启用/禁用后就地更新，避免整页重排
 
     Private Sub BuildExtend()
         '搜索栏（照抄「版本设置 → Mod 管理」）

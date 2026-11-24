@@ -635,7 +635,9 @@ Public Module ModPlugin
         Logger.Info("plugins：内置功能页 " & Page & If(Enabled, " 已启用", " 已停用"))
         ModBase.RunInUi(Sub()
             If ModMain.FrmMain Is Nothing Then Return
-            ModMain.FrmMain.RefreshPluginNav()
+            'v10.3：加载进行中不要在每次启用内置页时重建标题栏——重建会重置按下的导航按钮，
+            '导致加载期间点「启动/设置」等入口没有反应。收尾由 FinishRefresh 统一刷新。
+            If Not PluginRefreshBusy Then ModMain.FrmMain.RefreshPluginNav()
             PageSetupUI.PluginFeatureRefresh()
             If Not Enabled AndAlso CInt(ModMain.FrmMain.PageCurrent.Page) = Page Then
                 ModMain.FrmMain.PageChange(New FormMain.PageStackData With {.Page = FormMain.PageType.Launch})
@@ -767,6 +769,10 @@ Public Module ModPlugin
     Public Const PluginOnLoadTimeoutMs As Integer = 10000
 
     Private _RefreshBusy As Integer
+
+    'v10.3：后台加载进行中又被要求启用插件时，记下来等这一轮结束后再补一轮加载
+    Private _ReloadPending As Boolean
+    Private ReadOnly _ReloadLock As New Object
 
     ''' <summary>v10.3：是否正在后台加载插件。供插件页显示「正在加载」占位。</summary>
     Public ReadOnly Property PluginRefreshBusy As Boolean
@@ -944,14 +950,37 @@ Public Module ModPlugin
                     System.Threading.Interlocked.Exchange(_RefreshBusy, 0)
                 End Try
                 RaiseEvent PluginsLoaded()
+                'v10.3：加载期间 SetBuiltInPageEnabled 会跳过入口刷新，收尾时统一补一次。
+                '加载中反复重建标题栏会让按下的按钮被程序化重置，表现为“点击被吞”。
+                Try
+                    If ModMain.FrmMain IsNot Nothing Then ModMain.FrmMain.RefreshPluginNav()
+                Catch ex As Exception
+                    Logger.Warn(ex, "刷新插件入口失败")
+                End Try
+                '加载期间被要求启用的插件：这一轮结束后再补一轮（本轮 Pending 列表是开始时算好的）
+                Dim Again As Boolean
+                SyncLock _ReloadLock
+                    Again = _ReloadPending
+                    _ReloadPending = False
+                End SyncLock
+                If Again Then RefreshAsync(True)
             End Sub)
     End Sub
 
-    ''' <summary>同步刷新插件（兼容旧调用）：扫描 + 加载都在当前线程完成；插件 OnLoad 仍带超时。</summary>
+    ''' <summary>同步刷新插件（兼容旧调用）：扫描 + 加载都在当前线程完成；插件 OnLoad 仍带超时。
+    ''' 与 RefreshAsync 共用忙标志，避免后台加载期间重复扫描/卸载。</summary>
     Public Function Refresh(Optional LoadEnabled As Boolean = True) As Integer
-        RefreshScan()
-        If LoadEnabled Then LoadPendingPlugins()
-        FinishRefresh()
+        If PluginRefreshBusy Then
+            Logger.Info("plugins：已有一轮插件加载在进行，忽略本次同步刷新请求")
+            Return Plugins.Count
+        End If
+        System.Threading.Interlocked.Exchange(_RefreshBusy, 1)
+        Try
+            RefreshScan()
+            If LoadEnabled Then LoadPendingPlugins()
+        Finally
+            FinishRefresh()
+        End Try
         Return Plugins.Count
     End Function
 
@@ -1247,11 +1276,13 @@ Public Module ModPlugin
             Info.Host = New PluginHost(Info)
             Info.Instance = Activator.CreateInstance(Type)
             'v10.3：OnLoad 放到独立 STA 线程并限时等待，插件卡住时不再拖死启动器
+            '本地引用不随 Info.Instance 被并发清空而丢失，保证禁用竞态下也能回收实例
+            Dim LoadedInstance As IPclPlugin = CType(Info.Instance, IPclPlugin)
             Dim OnLoadError As Exception = Nothing
             Dim OnLoadThread As New System.Threading.Thread(
                 Sub()
                     Try
-                        CType(Info.Instance, IPclPlugin).OnLoad(Info.Host)
+                        LoadedInstance.OnLoad(Info.Host)
                     Catch ex As Exception
                         OnLoadError = ex
                     End Try
@@ -1267,9 +1298,30 @@ Public Module ModPlugin
                 Return
             End If
             If OnLoadError IsNot Nothing Then Throw OnLoadError
+            '加载期间用户可能已经把它禁用：不要登记成已加载，直接回收实例
+            If Not Info.Enabled Then
+                If LoadedInstance IsNot Nothing Then
+                    Try
+                        LoadedInstance.OnUnload()
+                    Catch ex As Exception
+                        Logger.Warn(ex, "回收已禁用插件的实例失败：" & Info.DisplayName)
+                    End Try
+                End If
+                Return
+            End If
             '加载完成后的登记工作回到 UI 线程：插件页可能正在读取这些列表，避免并发修改
             ModBase.RunInUiWait(
                 Sub()
+                    If Not Info.Enabled Then '排队期间又被禁用
+                        If LoadedInstance IsNot Nothing Then
+                            Try
+                                LoadedInstance.OnUnload()
+                            Catch ex As Exception
+                                Logger.Warn(ex, "回收已禁用插件的实例失败：" & Info.DisplayName)
+                            End Try
+                        End If
+                        Return
+                    End If
                     Info.Loaded = True
                     Info.Host.Log("插件已加载")
                     Info.AddEvent("已加载（API v" & ApiVersionUi & "）")
@@ -1639,7 +1691,27 @@ Public Module ModPlugin
         If Value Then
             EnabledState.Add(Info.Id)
             ResetPluginFailures(Info) '用户重新启用就是重新计数，熔断状态解除
-            LoadOne(Info)
+            WriteEnabled()
+            'v10.3：加载放到后台，避免 OnLoad 把界面卡住；加载完由 PluginsLoaded 刷新卡片
+            If Not ModBase.RunInUi() Then
+                LoadOne(Info)
+            ElseIf PluginRefreshBusy Then
+                '已有一轮加载在进行：等它结束再补一轮，避免并发加载同一个插件
+                SyncLock _ReloadLock
+                    _ReloadPending = True
+                End SyncLock
+            Else
+                RunInNewThread(
+                    Sub()
+                        Try
+                            LoadOne(Info)
+                        Catch ex As Exception
+                            Logger.Error(ex, "启用插件时加载失败：" & Info.DisplayName, LogBehavior.None)
+                        Finally
+                            ModBase.RunInUi(Sub() RaiseEvent PluginsLoaded())
+                        End Try
+                    End Sub, "PluginEnable " & Info.Id, ThreadPriority.BelowNormal)
+            End If
         Else
             EnabledState.Remove(Info.Id)
             If Info.Loaded AndAlso Info.Instance IsNot Nothing Then
@@ -1699,7 +1771,7 @@ Public Module ModPlugin
             ForgetTrust(Info)
             WriteEnabled()
             SaveTrustState()
-            Refresh(True)
+            RefreshAsync(True)
             Logger.Info($"插件已卸载：{DisplayName}（{Id}）→ 系统回收站")
             RaisePluginUninstalled(Id, Version)
             Return True
@@ -2315,8 +2387,9 @@ Public Module ModPlugin
             Dim LoadedNames = Plugins.Where(Function(P) P.Loaded).Select(Function(P) P.DisplayName).ToList()
             ModBase.RunInUi(Sub()
                                 Try
-                                    Refresh(True)
-                                    If LoadedNames.Count > 0 Then ModMain.Hint("插件已热重载：" & String.Join("、", LoadedNames), HintType.Blue, True)
+                                    If RefreshAsync(True) AndAlso LoadedNames.Count > 0 Then
+                                        ModMain.Hint("插件正在后台热重载：" & String.Join("、", LoadedNames), HintType.Blue, True)
+                                    End If
                                 Catch ex As Exception
                                     Logger.Error(ex, "热重载插件失败", LogBehavior.None)
                                 End Try
@@ -3419,10 +3492,10 @@ Public Module ModPlugin
                                             Hint("插件市场安装失败：" & Result.Message, HintType.Red)
                                             Return
                                         End If
-                                        Refresh(True)
+                                        RefreshAsync(True)
                                         RaiseEvent PluginsChanged()
                                         Dim Ver As String = If(String.IsNullOrWhiteSpace(Result.Version), "", " " & Result.Version)
-                                        Hint($"插件市场{Ver} 已安装并加载", HintType.Green)
+                                        Hint($"插件市场{Ver} 已安装，正在后台加载", HintType.Green)
                                         If MyMsgBox($"插件市场{Ver} 已下载并安装完成，这次运行里就能用。" & vbCrLf & vbCrLf &
                                                     "顶栏已经出现「插件市场」，点开确认一次权限即可；如果没看到，重启启动器后会生效。",
                                                     "插件市场已就绪", "立即重启", "稍后") = 1 Then
@@ -3602,7 +3675,7 @@ Public Module ModPlugin
                 '忽略
             End Try
         End If
-        Refresh(True)
+        RefreshAsync(True)
         '原来启用过、且权限没变化，就继续启用；权限变了让它重新走一次确认
         Dim Installed = Plugins.FirstOrDefault(Function(P) String.Equals(P.Id, Info.Id, StringComparison.OrdinalIgnoreCase))
         If WasEnabled AndAlso Installed IsNot Nothing AndAlso PermissionFingerprint(Installed) = OldFingerprint Then

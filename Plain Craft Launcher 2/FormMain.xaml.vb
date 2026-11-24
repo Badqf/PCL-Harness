@@ -27,6 +27,15 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 482 Then 'PCL Harness 3.10.5
+                FeatureCount += 2
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 插件全部加载完成（或超时跳过）后才触发启动就绪事件，慢插件不会再让 OnLauncherReady 永远收不到。"))
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 插件加载或重扫进行中启用插件会排队到本轮结束再补加载，避免并发加载、卸载与重复 OnLoad。"))
+                BugCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 插件页勾选启用不再阻塞界面；禁用插件后页头「已启用」计数立即更新。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 热重载、插件市场安装、插件导入与卸载后的刷新统一走后台加载，慢插件不再卡住这些操作。"))
+            End If
             If LastVersion < 481 Then 'PCL Harness 3.10.4
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 打开插件页不再卡住——插件的扫描与加载改到后台进行，页面立即显示，并在加载期间给出「正在后台加载插件…」提示。"))
@@ -727,6 +736,9 @@ Public Class FormMain
 
     '窗口加载
     Private IsWindowLoadFinished As Boolean = False
+
+    '插件全部加载完（可能晚于启动等待窗口）后只播报一次就绪
+    Private Shared PluginReadyAnnounced As Integer
     Public Sub New()
         ApplicationStartTick = GetTimeMs()
         '窗体参数初始化
@@ -938,11 +950,25 @@ Public Class FormMain
                     End Try
                 End Sub, "PluginLoad", ThreadPriority.BelowNormal)
             '插件加载失败时才提示（等插件线程扫完再报，避免被弹窗挡住）
+            'v10.3：插件加载已后台化，可能晚于下面 5 秒的等待窗口；就绪事件改为「加载完即播报一次」
+            AddHandler ModPlugin.PluginsLoaded, Sub()
+                                                     If Not ModPlugin.LoadDone Then Return
+                                                     If System.Threading.Interlocked.CompareExchange(PluginReadyAnnounced, 1, 0) <> 0 Then Return
+                                                     RunInUi(Sub()
+                                                                 ModPlugin.WarnFailed()
+                                                                 ModPlugin.RaiseLauncherReady()
+                                                             End Sub)
+                                                 End Sub
             For i = 1 To 50
                 If ModPlugin.LoadDone Then Exit For
                 Threading.Thread.Sleep(100)
             Next
-            If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.WarnFailed())
+            If ModPlugin.LoadDone AndAlso System.Threading.Interlocked.CompareExchange(PluginReadyAnnounced, 1, 0) = 0 Then
+                RunInUi(Sub()
+                            ModPlugin.WarnFailed()
+                            ModPlugin.RaiseLauncherReady()
+                        End Sub)
+            End If
             '初始化结束后补刷一次插件入口，避免早期刷新被布局重建覆盖
             RunInUi(Sub() RefreshPluginNav())
             '自编版自动更新检查（后台延迟执行，无新版本时不打扰）
@@ -951,8 +977,6 @@ Public Class FormMain
             Catch ex As Exception
                 Logger.Warn(ex, "启动自动更新检查失败")
             End Try
-            '插件就绪事件（v3）：此时插件已全部加载、标题栏入口也已建好
-            If ModPlugin.LoadDone Then RunInUi(Sub() ModPlugin.RaiseLauncherReady())
         End Sub, "初始化", ThreadPriority.Lowest)
 
         Logger.Info($"第三阶段加载用时：{GetTimeMs() - ApplicationStartTick} ms")
