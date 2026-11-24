@@ -5168,7 +5168,7 @@ Public Class PluginHost
         Next
         Dim OkCount As Integer = Results.Where(Function(R) R.Status = "Ok").Count()
         Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {Results.Count - OkCount} 个")
-        BroadcastDownloadResults(Results)
+        BroadcastDownloadResults(Results, Plans)
         EmitDownloadsFinished(Results)
     End Sub
 
@@ -5377,7 +5377,7 @@ Public Class PluginHost
     End Function
 
     ''' <summary>3.10.3：收尾时把每个文件的终态再广播一次（轮询/顺序下载都可能没观察到终态）。</summary>
-    Private Sub BroadcastDownloadResults(Results As List(Of PluginDownloadItemResult))
+    Private Sub BroadcastDownloadResults(Results As List(Of PluginDownloadItemResult), Optional Plans As List(Of PluginDownloadPlan) = Nothing)
         For Each R In Results
             If R Is Nothing OrElse String.IsNullOrWhiteSpace(R.RelativePath) Then Continue For
             '没进队列的（Denied / TooLarge / Skipped）已经在逐条结果里报过，不再发进度
@@ -5388,9 +5388,21 @@ Public Class PluginHost
                 Case "Canceled" : FinalState = "Canceled"
                 Case Else : FinalState = "Failed"
             End Select
+            Dim Bytes As Long = R.Bytes, Total As Long = R.Bytes
+            Dim Ratio As Double = If(FinalState = "Finished", 1.0, 0.0)
+            '3.10.3：失败终态也保留字节高水位，避免 99% → 0% 回退；单 URL 旧路径不传 Plans，保持 3.10.2 行为
+            If FinalState <> "Finished" AndAlso Plans IsNot Nothing Then
+                Dim P = Plans.FirstOrDefault(Function(X) X IsNot Nothing AndAlso Object.ReferenceEquals(X.Result, R))
+                If P IsNot Nothing AndAlso P.PeakReceived > 0 Then
+                    Dim Denom As Long = If(P.DeclaredSize > 0, P.DeclaredSize, P.TotalKnown)
+                    Bytes = P.PeakReceived
+                    Total = If(Denom > 0, Denom, P.PeakReceived)
+                    If Denom > 0 Then Ratio = Math.Min(0.99, P.PeakReceived / Denom)
+                End If
+            End If
             EmitDownloadProgress(New PluginDownloadFileProgress With {
                 .Url = R.Url, .RelativePath = R.RelativePath, .State = FinalState,
-                .BytesReceived = R.Bytes, .TotalBytes = R.Bytes, .Progress = If(FinalState = "Finished", 1.0, 0.0)})
+                .BytesReceived = Bytes, .TotalBytes = Total, .Progress = Ratio})
         Next
     End Sub
 
