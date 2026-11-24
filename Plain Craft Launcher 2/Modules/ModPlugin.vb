@@ -4056,6 +4056,11 @@ Public Class PluginDownloadRequest
     Public Property Sha1 As String = ""
     ''' <summary>可选的文件大小；用于统计总量上限，也给下载器做参考。</summary>
     Public Property Size As Long = 0
+    ''' <summary>
+    ''' 可选的有序备用下载地址（3.10.3）：只有给了 Sha1 才生效，按 Url → AltUrls 的顺序换源；
+    ''' 主地址 404/410、确定性 4xx 或内容校验失败时换下一个源，不会对同一源重试。
+    ''' </summary>
+    Public Property AltUrls As List(Of String) = Nothing
 End Class
 
 ''' <summary>
@@ -4064,7 +4069,7 @@ End Class
 Public Class PluginDownloadOptions
     ''' <summary>目标已存在时是否覆盖；False 时已校验通过的文件记为 Skipped。</summary>
     Public Property Overwrite As Boolean = True
-    ''' <summary>本次下载的总字节上限，默认 2 GiB；超出的条目记为 TooLarge。</summary>
+    ''' <summary>本次下载的总字节上限，默认 2 GiB；最多可调到 16 GiB（宿主硬上限，声明更大时整批在联网前记为 TooLarge）。</summary>
     Public Property TotalLimitBytes As Long = 2048L * 1024 * 1024
 End Class
 
@@ -4844,24 +4849,112 @@ Public Class PluginHost
     End Function
 
     ''' <summary>
+    ''' 单次插件批量下载的宿主硬上限（3.10.3）：16 GiB。插件只能用 TotalLimitBytes 往下调，
+    ''' 声明得更大视为调用级配置错误，整批在联网前直接记 TooLarge。
+    ''' </summary>
+    Private Const HostDownloadLimitBytes As Long = 16L * 1024 * 1024 * 1024
+
+    ''' <summary>3.10.3 新下载路径里单个源的一次尝试结果（内部）。</summary>
+    Private Enum PluginSourceOutcome
+        Ok
+        HashMismatch
+        Retryable
+        Deterministic
+        Denied
+        TooLarge
+        Canceled
+    End Enum
+
+    ''' <summary>3.10.3 新下载路径里单个源的尝试结果（内部）。</summary>
+    Private Class PluginSourceAttempt
+        Public Outcome As PluginSourceOutcome = PluginSourceOutcome.Retryable
+        Public Message As String = ""
+    End Class
+
+    ''' <summary>3.10.3 新下载路径里一个待下载文件的计划（内部）。</summary>
+    Private Class PluginDownloadPlan
+        Public Result As PluginDownloadItemResult
+        Public Target As String = ""
+        Public Sources As New List(Of String)
+        Public Sha1 As String = ""
+        Public DeclaredSize As Long
+        Public Notes As New List(Of String)
+        Public PeakReceived As Long
+        Public TotalKnown As Long
+        Public TempPath As String = ""
+        Public LastProgressSignature As String = ""
+        Public LastProgressTick As Integer
+    End Class
+
+    ''' <summary>
     ''' API v10：把一批文件下载到当前实例里（需要 net + instance.write）。
     ''' 逐条先过主机白名单与路径围栏，不合法的直接记结果、不进入下载队列；
     ''' 真正的下载交给宿主下载器（并发、断点、进度、取消都在任务栏里）。
+    ''' <para>3.10.3：单次调用宿主硬上限 16 GiB，插件只能往下调；请求给了 AltUrls 且给了 SHA-1 时，
+    ''' 按 Url → AltUrls 的顺序逐源尝试（每文件最多 3 次，确定性失败只换源不重试），校验通过才提交目标文件。</para>
     ''' </summary>
     Public Function DownloadFiles(Files As List(Of PluginDownloadRequest), Optional Options As PluginDownloadOptions = Nothing) As PluginTaskHandle
         Info.EnsurePermission("net")
         Info.EnsurePermission("instance.write")
         If Files Is Nothing OrElse Files.Count = 0 Then Throw New ArgumentException("DownloadFiles：文件列表不能为空")
         Dim Opts = If(Options Is Nothing, New PluginDownloadOptions(), Options)
+        '3.10.3：宿主硬上限收紧。声明值超过 16 GiB 是调用级配置错误——整批在联网前失败，不静默夹住；
+        '声明 0（不设限）按 16 GiB 处理；其余按声明值调低。
+        Dim EffectiveLimit As Long = HostDownloadLimitBytes
+        Dim LimitError As String = Nothing
+        If Opts.TotalLimitBytes > HostDownloadLimitBytes Then
+            LimitError = $"插件声明的本次下载上限 {Opts.TotalLimitBytes} 字节超过宿主硬上限 {HostDownloadLimitBytes} 字节（16 GiB），整批未联网即终止"
+            EffectiveLimit = HostDownloadLimitBytes
+        ElseIf Opts.TotalLimitBytes > 0 Then
+            EffectiveLimit = Opts.TotalLimitBytes
+        End If
         Dim Results As New List(Of PluginDownloadItemResult)
-        Dim Accepted As New List(Of NetFile)
-        Dim Map As New Dictionary(Of String, PluginDownloadItemResult)(StringComparer.OrdinalIgnoreCase)
-        Dim ExpectMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Dim Plans = BuildDownloadPlans(Files, Opts, EffectiveLimit, LimitError, Results)
+        Dim Title As String = $"插件下载：{Plans.Count} 个文件"
+        If Plans.Count = 0 Then
+            Dim Rejected As Integer = Results.Where(Function(r) r.Status = "Denied" OrElse r.Status = "TooLarge").Count()
+            Return Tasks.Run($"插件下载：{Rejected} 个文件未通过校验",
+                Sub(Ctx)
+                    Ctx.Report(1, "没有可以下载的文件")
+                    EmitDownloadsFinished(Results)
+                End Sub)
+        End If
+        '只有调用里真的出现了可用备用源，才走 3.10.3 的逐源顺序下载；否则完全沿用 3.10.2 的宿主下载器，
+        '保证旧的单 URL 插件行为不变（唯一例外：超过 16 GiB 由宿主硬上限拦下 TooLarge）。
+        If Not Plans.Any(Function(p) p.Sources.Count > 1) Then
+            Dim Accepted As New List(Of NetFile)
+            Dim Map As New Dictionary(Of String, PluginDownloadItemResult)(StringComparer.OrdinalIgnoreCase)
+            Dim ExpectMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+            For Each Plan In Plans
+                Dim Checker As FileChecker = Nothing
+                If Not String.IsNullOrWhiteSpace(Plan.Sha1) Then Checker = New FileChecker With {.Hash = Plan.Sha1}
+                Plan.Result.Status = "Pending"
+                Accepted.Add(New NetFile({Plan.Sources(0)}, Plan.Target, Checker, False))
+                Map(Plan.Target) = Plan.Result
+                If Not String.IsNullOrWhiteSpace(Plan.Sha1) Then ExpectMap(Plan.Target) = Plan.Sha1
+            Next
+            Return Tasks.Run(Title,
+                Sub(Ctx)
+                    RunLegacyDownloads(Ctx, Title, Accepted, Results, Map, ExpectMap)
+                End Sub)
+        End If
+        Return Tasks.Run(Title,
+            Sub(Ctx)
+                RunSequentialDownloads(Ctx, Title, Plans, Results, EffectiveLimit)
+            End Sub)
+    End Function
+
+    ''' <summary>3.10.3：逐条校验并生成下载计划；不进入计划的结果已经写成 Denied / TooLarge / Skipped。</summary>
+    Private Function BuildDownloadPlans(Files As List(Of PluginDownloadRequest), Opts As PluginDownloadOptions, EffectiveLimit As Long, LimitError As String, Results As List(Of PluginDownloadItemResult)) As List(Of PluginDownloadPlan)
+        Dim Plans As New List(Of PluginDownloadPlan)
         Dim TotalBytes As Long = 0
         For Each Item In Files
             If Item Is Nothing Then Continue For
             Dim R As New PluginDownloadItemResult With {.Url = If(Item.Url, ""), .RelativePath = If(Item.RelativePath, ""), .Status = "Denied"}
             Results.Add(R)
+            If LimitError IsNot Nothing Then
+                R.Status = "TooLarge" : R.Message = LimitError : Continue For
+            End If
             If String.IsNullOrWhiteSpace(Item.Url) Then
                 R.Message = "下载地址为空" : Continue For
             End If
@@ -4869,6 +4962,8 @@ Public Class PluginHost
                 EnsureHostAllowed(Info, Item.Url)
             Catch ex As UnauthorizedAccessException
                 R.Message = "主机不在 net.hosts 白名单：" & ex.Message : Continue For
+            Catch ex As Exception
+                R.Message = "下载地址无效：" & ex.GetBaseException().Message : Continue For
             End Try
             Dim Target As String = Nothing
             Try
@@ -4877,156 +4972,427 @@ Public Class PluginHost
             Catch ex As Exception
                 R.Message = ex.Message : Continue For
             End Try
-            If Item.Size > 0 Then TotalBytes += Item.Size
-            If Opts.TotalLimitBytes > 0 AndAlso (Item.Size > Opts.TotalLimitBytes OrElse TotalBytes > Opts.TotalLimitBytes) Then
-                R.Status = "TooLarge" : R.Message = $"超过本次下载的总量上限（{Opts.TotalLimitBytes} 字节）" : Continue For
+            Dim Plan As New PluginDownloadPlan With {.Result = R, .Target = Target, .Sha1 = If(Item.Sha1, "").Trim(), .DeclaredSize = Math.Max(0L, Item.Size)}
+            Plan.Sources.Add(Item.Url.Trim())
+            'AltUrls 只在给了 SHA-1 时生效（没有校验就无法判断换源后的内容是否同一份文件）；顺序固定为 Url 之后。
+            If Item.AltUrls IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(Plan.Sha1) Then
+                For Each Alt In Item.AltUrls
+                    If String.IsNullOrWhiteSpace(Alt) Then Continue For
+                    Dim A = Alt.Trim()
+                    If Plan.Sources.Any(Function(S) String.Equals(S, A, StringComparison.OrdinalIgnoreCase)) Then Continue For
+                    Try
+                        EnsureHostAllowed(Info, A)
+                        Plan.Sources.Add(A)
+                    Catch ex As Exception
+                        Plan.Notes.Add($"忽略备用源 {A}：{ex.GetBaseException().Message}")
+                    End Try
+                Next
+            End If
+            If Plan.DeclaredSize > 0 Then TotalBytes += Plan.DeclaredSize
+            If Plan.DeclaredSize > EffectiveLimit OrElse TotalBytes > EffectiveLimit Then
+                R.Status = "TooLarge"
+                R.Message = If(EffectiveLimit = HostDownloadLimitBytes AndAlso Opts.TotalLimitBytes <= 0,
+                               $"超过本次下载的宿主硬上限（{HostDownloadLimitBytes} 字节，16 GiB）",
+                               $"超过本次下载的总量上限（{EffectiveLimit} 字节）")
+                Continue For
             End If
             If Not Opts.Overwrite AndAlso IO.File.Exists(Target) Then
                 R.Status = "Skipped" : R.Message = "目标已存在，按 Overwrite=False 跳过" : Continue For
             End If
-            'NetFile 的 Checker 负责"下载完就校验"，不给它会让任务卡在待检查状态；
-            '但它校验失败会删文件，所以结果里再按"文件是否存在 + SHA-1"复核一次，给出 HashMismatch 而不是笼统的失败。
-            Dim Checker As FileChecker = Nothing
-            If Not String.IsNullOrWhiteSpace(Item.Sha1) Then Checker = New FileChecker With {.Hash = Item.Sha1.Trim()}
-            Dim Nf As New NetFile({Item.Url}, Target, Checker, False)
-            R.Status = "Pending"
-            Map(Target) = R
-            If Not String.IsNullOrWhiteSpace(Item.Sha1) Then ExpectMap(Target) = Item.Sha1.Trim()
-            Accepted.Add(Nf)
+            Plan.Result.Status = "Pending"
+            Plans.Add(Plan)
         Next
-        Dim Title As String = $"插件下载：{Accepted.Count} 个文件"
-        If Accepted.Count = 0 Then
-            Dim Denied As Integer = Results.Where(Function(r) r.Status = "Denied" OrElse r.Status = "TooLarge").Count()
-            Return Tasks.Run($"插件下载：{Denied} 个文件未通过校验",
-                Sub(Ctx)
-                    Ctx.Report(1, "没有可以下载的文件")
-                    EmitDownloadsFinished(Results)
-                End Sub)
-        End If
-        Return Tasks.Run(Title,
-            Sub(Ctx)
-                Dim LoaderError As String = Nothing
-                Dim Loader As New LoaderDownload(Title, Accepted) With {.Block = False}
-                Try
-                    Ctx.Report(0.01, "开始下载")
-                    Loader.Start()
-                    Dim LastSig As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
-                    Do While Loader.State = LoadState.Loading OrElse Loader.State = LoadState.Waiting
-                        If Ctx.Cancelled Then
-                            Try
-                                Loader.Cancel()
-                            Catch
-                            End Try
-                            Ctx.ThrowIfCancelled()
-                        End If
-                        Ctx.Report(0.01 + 0.97 * Loader.Progress, $"下载中（{Loader.Progress:P0}）")
-                        ' API v10：逐文件进度（只在状态或字节数变化时回调，避免刷屏）
-                        For Each Nf In Accepted
-                            Dim R0 As PluginDownloadItemResult = Nothing
-                            If Nf Is Nothing OrElse Nf.LocalPath Is Nothing Then Continue For
-                            If Not Map.TryGetValue(Nf.LocalPath, R0) Then Continue For
-                            Dim St As String
-                            Select Case Nf.State
-                                Case NetState.Finished : St = "Finished"
-                                Case NetState.Canceled : St = "Canceled"
-                                Case NetState.WaitingToCheck, NetState.WaitingToDownload, NetState.Connecting : St = "Waiting"
-                                Case Else : St = "Downloading"
-                            End Select
-                            Dim DoneBytes As Long = Nf.DownloadDone
-                            Dim FileTotal As Long = Math.Max(0, Nf.FileSize)
-                            Dim Sig As String = St & "|" & DoneBytes & "|" & FileTotal
-                            If LastSig.ContainsKey(Nf.LocalPath) AndAlso LastSig(Nf.LocalPath) = Sig Then Continue For
-                            LastSig(Nf.LocalPath) = Sig
-                            Dim Ratio As Double = 0
-                            If FileTotal > 0 Then Ratio = Math.Min(1.0, DoneBytes / FileTotal)
-                            EmitDownloadProgress(New PluginDownloadFileProgress With {
-                                .Url = R0.Url, .RelativePath = R0.RelativePath, .State = St,
-                                .BytesReceived = DoneBytes, .TotalBytes = FileTotal, .Progress = Ratio})
-                        Next
-                        Thread.Sleep(200)
-                    Loop
-                    Loader.WaitForExit()
-                Catch ex As Exception
-                    'Loader 在任一文件失败时会抛异常（例如某个 URL 404）；此时不要把它们全判失败，
-                    '逐条结果仍按"文件是否真的落地 + 哈希是否符合"来定，异常只记日志。
-                    PluginDevLog.Warn("下载", "批量下载中断：" & ex.Message)
-                    LoaderError = ex.GetBaseException().Message
-                End Try
-                '汇总每个文件的结果：不依赖 Loader 的任务顺序（同一 URL 会被 Loader 合并），
-                '统一按"目标文件是否真的落地 + SHA-1 是否符合"判定，保证逐条结果与请求一一对应。
-                Dim OkCount As Integer = 0, BadCount As Integer = 0
-                For Each R In Results
-                    If R.Status <> "Pending" Then
-                        If R.Status = "Ok" Then OkCount += 1 Else BadCount += 1
-                        Continue For
-                    End If
-                    Dim Target As String = Nothing
+        Return Plans
+    End Function
+
+    ''' <summary>3.10.2 的批量下载路径：整批交给宿主下载器（并发、断点、镜像、重试都在里面）。</summary>
+    Private Sub RunLegacyDownloads(Ctx As PluginTaskContext, Title As String, Accepted As List(Of NetFile), Results As List(Of PluginDownloadItemResult), Map As Dictionary(Of String, PluginDownloadItemResult), ExpectMap As Dictionary(Of String, String))
+        Dim LoaderError As String = Nothing
+        Dim Loader As New LoaderDownload(Title, Accepted) With {.Block = False}
+        Dim HighWater As New Dictionary(Of String, Long)(StringComparer.OrdinalIgnoreCase)
+        Dim Exhausted As Boolean = False
+        Try
+            Ctx.Report(0.01, "开始下载")
+            Loader.Start()
+            Dim LastSig As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+            Do While Loader.State = LoadState.Loading OrElse Loader.State = LoadState.Waiting
+                If Ctx.Cancelled Then
                     Try
-                        Target = ResolveInstanceRelativePath(R.RelativePath, "DownloadFiles")
-                    Catch ex As Exception
-                        R.Status = "Denied" : R.Message = ex.Message : BadCount += 1 : Continue For
+                        Loader.Cancel()
+                    Catch
                     End Try
-                    If Not IO.File.Exists(Target) Then
-                        R.Status = If(Ctx.Cancelled, "Canceled", "Failed")
-                        R.Bytes = 0
-                        Dim Reason As String = Nothing
-                        If Map.ContainsKey(Target) Then
-                            Dim Nf = Accepted.FirstOrDefault(Function(n) String.Equals(n.LocalPath, Target, StringComparison.OrdinalIgnoreCase))
-                            If Nf IsNot Nothing Then
-                                Dim First As Exception = Nothing
-                                Try
-                                    First = Nf.Ex.FirstOrDefault()
-                                Catch
-                                End Try
-                                If First IsNot Nothing Then Reason = First.GetBaseException().Message
-                            End If
-                        End If
-                        If ExpectMap.ContainsKey(Target) Then
-                            R.Status = If(Ctx.Cancelled, "Canceled", "HashMismatch")
-                            R.Message = "下载内容与请求的 SHA-1 不符（文件已被丢弃）：" & If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "", LoaderError), Reason)
-                        Else
-                            R.Message = If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "文件没有下载完成", LoaderError), Reason)
-                        End If
-                        BadCount += 1 : Continue For
+                    Ctx.ThrowIfCancelled()
+                End If
+                Ctx.Report(0.01 + 0.97 * Loader.Progress, $"下载中（{Loader.Progress:P0}）")
+                'API v10：逐文件进度（只在状态或字节数变化时回调，避免刷屏）
+                For Each Nf In Accepted
+                    Dim R0 As PluginDownloadItemResult = Nothing
+                    If Nf Is Nothing OrElse Nf.LocalPath Is Nothing Then Continue For
+                    If Not Map.TryGetValue(Nf.LocalPath, R0) Then Continue For
+                    Dim St As String
+                    Select Case Nf.State
+                        Case NetState.Finished : St = "Finished"
+                        Case NetState.Canceled : St = "Canceled"
+                        Case NetState.WaitingToCheck, NetState.WaitingToDownload, NetState.Connecting : St = "Waiting"
+                        Case Else : St = "Downloading"
+                    End Select
+                    Dim DoneBytes As Long = Nf.DownloadDone
+                    Dim FileTotal As Long = Math.Max(0, Nf.FileSize)
+                    Dim Sig As String = St & "|" & DoneBytes & "|" & FileTotal
+                    If LastSig.ContainsKey(Nf.LocalPath) AndAlso LastSig(Nf.LocalPath) = Sig Then Continue For
+                    LastSig(Nf.LocalPath) = Sig
+                    Dim Ratio As Double = 0
+                    If FileTotal > 0 Then Ratio = Math.Min(1.0, DoneBytes / FileTotal)
+                    EmitDownloadProgress(New PluginDownloadFileProgress With {
+                        .Url = R0.Url, .RelativePath = R0.RelativePath, .State = St,
+                        .BytesReceived = DoneBytes, .TotalBytes = FileTotal, .Progress = Ratio})
+                Next
+                '3.10.3：宿主硬上限按实际接收字节核对（每文件取高水位，避免镜像重试把已收字节清零）。
+                '旧路径只拦超过 16 GiB 的情况，声明值以下的行为与 3.10.2 保持一致。
+                Dim LegacyActual As Long = 0
+                For Each Nf In Accepted
+                    If Nf Is Nothing OrElse Nf.LocalPath Is Nothing Then Continue For
+                    Dim DoneBytes As Long = Nf.DownloadDone
+                    Dim Prev As Long = 0
+                    HighWater.TryGetValue(Nf.LocalPath, Prev)
+                    If DoneBytes > Prev Then
+                        Prev = DoneBytes
+                        HighWater(Nf.LocalPath) = Prev
                     End If
-                    R.Bytes = New IO.FileInfo(Target).Length
-                    Dim Expect As String = Nothing
-                    If ExpectMap.ContainsKey(Target) Then Expect = ExpectMap(Target)
-                    If String.IsNullOrWhiteSpace(Expect) Then
+                    LegacyActual += Prev
+                Next
+                If LegacyActual > HostDownloadLimitBytes Then
+                    Dim Msg As String = $"实际接收字节已超过宿主硬上限 {HostDownloadLimitBytes} 字节（16 GiB），本次调用已终止"
+                    Exhausted = True
+                    LoaderError = Msg
+                    Try
+                        Loader.Cancel()
+                    Catch
+                    End Try
+                    For Each R In Results
+                        If R.Status = "Pending" Then R.Status = "TooLarge" : R.Message = Msg
+                    Next
+                    Exit Do
+                End If
+                Thread.Sleep(200)
+            Loop
+            '注意：不能调用 Loader.WaitForExit()——它会用 Input=Nothing 再次 Start()，把已经完成的下载重新拉一遍。
+            '这里循环退出即代表加载器已离开 Loading/Waiting（Finished/Failed/Canceled），结果按落地文件与 SHA-1 汇总。
+        Catch ex As Exception
+            'Loader 在任一文件失败时会抛异常（例如某个 URL 404）；此时不要把它们全判失败，
+            '逐条结果仍按"文件是否真的落地 + 哈希是否符合"来定，异常只记日志。
+            PluginDevLog.Warn("下载", "批量下载中断：" & ex.Message)
+            LoaderError = ex.GetBaseException().Message
+        End Try
+        '汇总每个文件的结果：不依赖 Loader 的任务顺序（同一 URL 会被 Loader 合并），
+        '统一按"目标文件是否真的落地 + SHA-1 是否符合"判定，保证逐条结果与请求一一对应。
+        Dim OkCount As Integer = 0, BadCount As Integer = 0
+        For Each R In Results
+            If R.Status <> "Pending" Then
+                If R.Status = "Ok" Then OkCount += 1 Else BadCount += 1
+                Continue For
+            End If
+            Dim Target As String = Nothing
+            Try
+                Target = ResolveInstanceRelativePath(R.RelativePath, "DownloadFiles")
+            Catch ex As Exception
+                R.Status = "Denied" : R.Message = ex.Message : BadCount += 1 : Continue For
+            End Try
+            If Not IO.File.Exists(Target) Then
+                R.Status = If(Ctx.Cancelled, "Canceled", "Failed")
+                R.Bytes = 0
+                Dim Reason As String = Nothing
+                If Map.ContainsKey(Target) Then
+                    Dim Nf = Accepted.FirstOrDefault(Function(n) String.Equals(n.LocalPath, Target, StringComparison.OrdinalIgnoreCase))
+                    If Nf IsNot Nothing Then
+                        Dim First As Exception = Nothing
+                        Try
+                            First = Nf.Ex.FirstOrDefault()
+                        Catch
+                        End Try
+                        If First IsNot Nothing Then Reason = First.GetBaseException().Message
+                    End If
+                End If
+                If ExpectMap.ContainsKey(Target) Then
+                    R.Status = If(Ctx.Cancelled, "Canceled", "HashMismatch")
+                    R.Message = "下载内容与请求的 SHA-1 不符（文件已被丢弃）：" & If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "", LoaderError), Reason)
+                Else
+                    R.Message = If(String.IsNullOrWhiteSpace(Reason), If(String.IsNullOrWhiteSpace(LoaderError), "文件没有下载完成", LoaderError), Reason)
+                End If
+                BadCount += 1 : Continue For
+            End If
+            R.Bytes = New IO.FileInfo(Target).Length
+            Dim Expect As String = Nothing
+            If ExpectMap.ContainsKey(Target) Then Expect = ExpectMap(Target)
+            If String.IsNullOrWhiteSpace(Expect) Then
+                R.Status = "Ok" : OkCount += 1
+            Else
+                Try
+                    Dim Actual = CryptographyUtils.ComputeFileHash(Target, CryptographyUtils.HashMethod.Sha1)
+                    If String.Equals(Actual, Expect, StringComparison.OrdinalIgnoreCase) Then
                         R.Status = "Ok" : OkCount += 1
                     Else
-                        Try
-                            Dim Actual = CryptographyUtils.ComputeFileHash(Target, CryptographyUtils.HashMethod.Sha1)
-                            If String.Equals(Actual, Expect, StringComparison.OrdinalIgnoreCase) Then
-                                R.Status = "Ok" : OkCount += 1
-                            Else
-                                R.Status = "HashMismatch" : R.Message = "SHA-1 与请求不一致：实际 " & Actual : BadCount += 1
-                            End If
-                        Catch ex As Exception
-                            R.Status = "Ok" : R.Message = "哈希复核失败，按完成处理：" & ex.Message : OkCount += 1
-                        End Try
+                        R.Status = "HashMismatch" : R.Message = "SHA-1 与请求不一致：实际 " & Actual : BadCount += 1
                     End If
-                Next
-                Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {BadCount} 个")
-                ' API v10：收尾时把每个文件的终态再广播一次（轮询期间可能没观察到 Finished / Canceled）
-                For Each R In Results
-                    If R Is Nothing OrElse String.IsNullOrWhiteSpace(R.RelativePath) Then Continue For
-                    ' 没进队列的（Denied / TooLarge / Skipped）已经在逐条结果里报过，不再发进度
-                    If R.Status = "Denied" OrElse R.Status = "TooLarge" OrElse R.Status = "Skipped" Then Continue For
-                    Dim FinalState As String
-                    Select Case R.Status
-                        Case "Ok" : FinalState = "Finished"
-                        Case "Canceled" : FinalState = "Canceled"
-                        Case Else : FinalState = "Failed"
-                    End Select
-                    EmitDownloadProgress(New PluginDownloadFileProgress With {
-                        .Url = R.Url, .RelativePath = R.RelativePath, .State = FinalState,
-                        .BytesReceived = R.Bytes, .TotalBytes = R.Bytes, .Progress = If(FinalState = "Finished", 1.0, 0.0)})
-                Next
+                Catch ex As Exception
+                    R.Status = "Ok" : R.Message = "哈希复核失败，按完成处理：" & ex.Message : OkCount += 1
+                End Try
+            End If
+        Next
+        Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {BadCount} 个")
+        BroadcastDownloadResults(Results)
+        EmitDownloadsFinished(Results)
+    End Sub
 
-                EmitDownloadsFinished(Results)
-            End Sub)
+    ''' <summary>3.10.3：按 Url → AltUrls 的顺序逐源下载；每文件最多 3 次尝试，失败只换源。</summary>
+    Private Sub RunSequentialDownloads(Ctx As PluginTaskContext, Title As String, Plans As List(Of PluginDownloadPlan), Results As List(Of PluginDownloadItemResult), EffectiveLimit As Long)
+        Dim ActualTotal As Long = 0
+        Dim StopReason As String = Nothing
+        Ctx.Report(0.01, "开始下载")
+        For Index As Integer = 0 To Plans.Count - 1
+            Ctx.ThrowIfCancelled()
+            Dim Plan = Plans(Index)
+            If StopReason IsNot Nothing Then
+                Plan.Result.Status = "TooLarge" : Plan.Result.Message = StopReason : Continue For
+            End If
+            If Plan.DeclaredSize > 0 Then
+                EmitPlanProgress(Plan, "Waiting", 0, 0, Plan.DeclaredSize, True)
+            Else
+                EmitPlanProgress(Plan, "Waiting", 0, 0, 0, True)
+            End If
+            RunOnePlan(Ctx, Plan, EffectiveLimit, ActualTotal, StopReason)
+            If Plan.Result.Status = "Ok" Then
+                EmitPlanProgress(Plan, "Finished", 1.0, Plan.Result.Bytes, Plan.Result.Bytes, True)
+            End If
+            Ctx.Report(0.01 + 0.97 * (Index + 1) / Plans.Count, $"下载中（{Index + 1}/{Plans.Count}）")
+        Next
+        Dim OkCount As Integer = Results.Where(Function(R) R.Status = "Ok").Count()
+        Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {Results.Count - OkCount} 个")
+        BroadcastDownloadResults(Results)
+        EmitDownloadsFinished(Results)
+    End Sub
+
+    ''' <summary>3.10.3：下载一个文件；尝试预算 3 次，可重试错误先换源，确定性失败（404/410/4xx/HashMismatch）永不重试同一源。</summary>
+    Private Sub RunOnePlan(Ctx As PluginTaskContext, Plan As PluginDownloadPlan, Limit As Long, ByRef ActualTotal As Long, ByRef StopReason As String)
+        Dim Diagnostics As New List(Of String)
+        Dim RetryQueue As New Queue(Of String)
+        Dim SourceIndex As Integer = 0
+        Dim Attempts As Integer = 0
+        Dim AllHashMismatch As Boolean = True
+        Dim SawAttempt As Boolean = False
+        If String.IsNullOrWhiteSpace(Plan.TempPath) Then Plan.TempPath = Plan.Target & ".pcltmp-" & Guid.NewGuid().ToString("N")
+        Try
+            While Attempts < 3
+                Dim Source As String = Nothing
+                If SourceIndex < Plan.Sources.Count Then
+                    Source = Plan.Sources(SourceIndex) : SourceIndex += 1
+                ElseIf RetryQueue.Count > 0 Then
+                    Source = RetryQueue.Dequeue()
+                Else
+                    Exit While
+                End If
+                Attempts += 1
+                Ctx.ThrowIfCancelled()
+                Dim Denom As Long = If(Plan.DeclaredSize > 0, Plan.DeclaredSize, Plan.TotalKnown)
+                Dim Ratio As Double = 0
+                If Denom > 0 Then Ratio = Math.Min(0.99, Plan.PeakReceived / Denom)
+                EmitPlanProgress(Plan, "Downloading", Ratio, Plan.PeakReceived, Denom, True)
+                Dim Attempt = TryDownloadSource(Plan, Source, Ctx, Limit, ActualTotal)
+                SawAttempt = True
+                Select Case Attempt.Outcome
+                    Case PluginSourceOutcome.Ok
+                        Plan.Result.Status = "Ok"
+                        Plan.Result.Message = ""
+                        Return
+                    Case PluginSourceOutcome.Denied
+                        Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
+                        Plan.Result.Status = "Denied"
+                        Plan.Result.Bytes = 0
+                        Plan.Result.Message = "主机被拒绝：" & String.Join("；", Diagnostics)
+                        Return
+                    Case PluginSourceOutcome.TooLarge
+                        Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
+                        Plan.Result.Status = "TooLarge"
+                        Plan.Result.Bytes = 0
+                        Plan.Result.Message = Attempt.Message & "；本次调用已终止"
+                        StopReason = Plan.Result.Message
+                        Return
+                    Case PluginSourceOutcome.Canceled
+                        Throw New OperationCanceledException()
+                    Case PluginSourceOutcome.HashMismatch
+                        Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
+                    Case PluginSourceOutcome.Retryable
+                        AllHashMismatch = False
+                        Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
+                        If Attempts < 3 Then RetryQueue.Enqueue(Source)
+                    Case Else
+                        AllHashMismatch = False
+                        Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
+                End Select
+            End While
+        Finally
+            Try
+                If IO.File.Exists(Plan.TempPath) Then IO.File.Delete(Plan.TempPath)
+            Catch
+            End Try
+        End Try
+        Plan.Result.Bytes = 0
+        For Each Note In Plan.Notes
+            Diagnostics.Add(Note)
+        Next
+        If SawAttempt AndAlso AllHashMismatch Then
+            Plan.Result.Status = "HashMismatch"
+            Plan.Result.Message = "全部下载源的内容都与请求的 SHA-1 不符（文件已丢弃）：" & String.Join("；", Diagnostics)
+        Else
+            Plan.Result.Status = "Failed"
+            Plan.Result.Message = "全部下载源均失败：" & String.Join("；", Diagnostics)
+        End If
+    End Sub
+
+    ''' <summary>3.10.3：从一个源下载到临时文件，SHA-1 校验通过后才提交到目标位置。</summary>
+    Private Function TryDownloadSource(Plan As PluginDownloadPlan, Source As String, Ctx As PluginTaskContext, Limit As Long, ByRef ActualTotal As Long) As PluginSourceAttempt
+        Dim Outcome As New PluginSourceAttempt
+        Dim Response As Net.HttpWebResponse = Nothing
+        Dim Output As IO.FileStream = Nothing
+        Try
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(IO.Path.GetFullPath(Plan.TempPath)))
+            Response = OpenHttp(Source)
+            If Response.ContentLength > 0 Then Plan.TotalKnown = Math.Max(Plan.TotalKnown, Response.ContentLength)
+            Output = New IO.FileStream(Plan.TempPath, IO.FileMode.Create, IO.FileAccess.Write, IO.FileShare.None)
+            Using Input = Response.GetResponseStream()
+                Dim Buffer(81919) As Byte
+                Dim ThisSource As Long = 0
+                While True
+                    If Ctx.Cancelled Then Throw New OperationCanceledException()
+                    Dim Read = Input.Read(Buffer, 0, Buffer.Length)
+                    If Read <= 0 Then Exit While
+                    '按实际接收字节计量（含之后被丢弃的字节）：恰好到上限允许，多 1 字节即 TooLarge
+                    ActualTotal += Read
+                    ThisSource += Read
+                    If ActualTotal > Limit Then Throw New IO.IOException(TooLargeMarker & $"实际接收字节超过本次下载上限（{Limit} 字节），已中止")
+                    If ThisSource > Plan.PeakReceived Then Plan.PeakReceived = ThisSource
+                    Output.Write(Buffer, 0, Read)
+                    Dim Denom As Long = If(Plan.DeclaredSize > 0, Plan.DeclaredSize, Plan.TotalKnown)
+                    Dim Ratio As Double = 0
+                    If Denom > 0 Then Ratio = Math.Min(0.99, Plan.PeakReceived / Denom)
+                    EmitPlanProgress(Plan, "Downloading", Ratio, Plan.PeakReceived, Denom)
+                End While
+            End Using
+            Output.Dispose() : Output = Nothing
+            Response.Dispose() : Response = Nothing
+            If Not String.IsNullOrWhiteSpace(Plan.Sha1) Then
+                Dim ActualHash = CryptographyUtils.ComputeFileHash(Plan.TempPath, CryptographyUtils.HashMethod.Sha1)
+                If Not String.Equals(ActualHash, Plan.Sha1, StringComparison.OrdinalIgnoreCase) Then
+                    Outcome.Outcome = PluginSourceOutcome.HashMismatch
+                    Outcome.Message = "SHA-1 与请求不符（实际 " & ActualHash & "）"
+                    Return Outcome
+                End If
+            End If
+            '校验通过才提交：先删旧文件再改名，避免目标位置上出现半个文件
+            If IO.File.Exists(Plan.Target) Then IO.File.Delete(Plan.Target)
+            IO.File.Move(Plan.TempPath, Plan.Target)
+            Plan.Result.Bytes = New IO.FileInfo(Plan.Target).Length
+            Outcome.Outcome = PluginSourceOutcome.Ok
+            Return Outcome
+        Catch ex As OperationCanceledException
+            Outcome.Outcome = PluginSourceOutcome.Canceled
+        Catch ex As UnauthorizedAccessException
+            Outcome.Outcome = PluginSourceOutcome.Denied
+            Outcome.Message = "重定向到了白名单外的主机：" & ex.GetBaseException().Message
+        Catch ex As Net.WebException
+            Dim Code As Integer = 0
+            Try
+                If ex.Response IsNot Nothing Then Code = CInt(CType(ex.Response, Net.HttpWebResponse).StatusCode)
+            Catch
+            End Try
+            Outcome.Message = If(Code > 0, $"HTTP {Code}", ex.GetBaseException().Message)
+            If Code = 404 OrElse Code = 410 OrElse (Code >= 400 AndAlso Code < 500 AndAlso Code <> 408 AndAlso Code <> 429) Then
+                Outcome.Outcome = PluginSourceOutcome.Deterministic
+            Else
+                Outcome.Outcome = PluginSourceOutcome.Retryable
+            End If
+        Catch ex As IO.IOException
+            If ex.Message.StartsWith(TooLargeMarker, StringComparison.Ordinal) Then
+                Outcome.Outcome = PluginSourceOutcome.TooLarge
+                Outcome.Message = ex.Message.Substring(TooLargeMarker.Length)
+            Else
+                Outcome.Outcome = PluginSourceOutcome.Retryable
+                Outcome.Message = ex.GetBaseException().Message
+            End If
+        Catch ex As Exception
+            Outcome.Outcome = PluginSourceOutcome.Retryable
+            Outcome.Message = ex.GetBaseException().Message
+        Finally
+            If Output IsNot Nothing Then
+                Try
+                    Output.Dispose()
+                Catch
+                End Try
+            End If
+            If Response IsNot Nothing Then
+                Try
+                    Response.Dispose()
+                Catch
+                End Try
+            End If
+            If Outcome.Outcome <> PluginSourceOutcome.Ok Then
+                Try
+                    If IO.File.Exists(Plan.TempPath) Then IO.File.Delete(Plan.TempPath)
+                Catch
+                End Try
+            End If
+        End Try
+        Return Outcome
     End Function
+
+    ''' <summary>3.10.3：进度只在状态或字节数变化时回调；下载中最多 200ms 一次，避免刷屏。</summary>
+    Private Sub EmitPlanProgress(Plan As PluginDownloadPlan, State As String, Ratio As Double, Bytes As Long, Total As Long, Optional Force As Boolean = False)
+        If Plan Is Nothing OrElse Plan.Result Is Nothing Then Return
+        Dim Signature As String = State & "|" & Bytes & "|" & Total
+        If Not Force Then
+            If Signature = Plan.LastProgressSignature Then Return
+            If State = "Downloading" Then
+                Dim Now As Integer = Environment.TickCount
+                If Now - Plan.LastProgressTick < 200 Then Return
+                Plan.LastProgressTick = Now
+            End If
+        End If
+        Plan.LastProgressSignature = Signature
+        EmitDownloadProgress(New PluginDownloadFileProgress With {
+            .Url = Plan.Result.Url, .RelativePath = Plan.Result.RelativePath, .State = State,
+            .BytesReceived = Bytes, .TotalBytes = Total, .Progress = Ratio})
+    End Sub
+
+    ''' <summary>3.10.3：诊断信息里的短地址（主机 + 截断后的路径）。</summary>
+    Private Function ShortenUrl(Url As String) As String
+        If String.IsNullOrWhiteSpace(Url) Then Return "（空）"
+        Try
+            Dim U As New Uri(Url)
+            Dim P = U.AbsolutePath
+            If P.Length > 60 Then P = P.Substring(0, 57) & "..."
+            Return U.Host & P
+        Catch
+            Return Url
+        End Try
+    End Function
+
+    ''' <summary>3.10.3：收尾时把每个文件的终态再广播一次（轮询/顺序下载都可能没观察到终态）。</summary>
+    Private Sub BroadcastDownloadResults(Results As List(Of PluginDownloadItemResult))
+        For Each R In Results
+            If R Is Nothing OrElse String.IsNullOrWhiteSpace(R.RelativePath) Then Continue For
+            '没进队列的（Denied / TooLarge / Skipped）已经在逐条结果里报过，不再发进度
+            If R.Status = "Denied" OrElse R.Status = "TooLarge" OrElse R.Status = "Skipped" Then Continue For
+            Dim FinalState As String
+            Select Case R.Status
+                Case "Ok" : FinalState = "Finished"
+                Case "Canceled" : FinalState = "Canceled"
+                Case Else : FinalState = "Failed"
+            End Select
+            EmitDownloadProgress(New PluginDownloadFileProgress With {
+                .Url = R.Url, .RelativePath = R.RelativePath, .State = FinalState,
+                .BytesReceived = R.Bytes, .TotalBytes = R.Bytes, .Progress = If(FinalState = "Finished", 1.0, 0.0)})
+        Next
+    End Sub
 
     ''' <summary>把批量下载结果广播给实现了 IPclPluginDownloads 的已加载插件（API v10）。</summary>
     Private Sub EmitDownloadsFinished(Results As List(Of PluginDownloadItemResult))

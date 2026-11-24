@@ -1031,7 +1031,7 @@ End Sub
 | `Ok` | 已下载并（若给了 SHA-1）校验通过 |
 | `HashMismatch` | 内容与请求的 SHA-1 不符，文件已被丢弃 |
 | `Denied` | 主机不在 `net.hosts`，或路径越出实例目录 |
-| `TooLarge` | 超过 `TotalLimitBytes` 或单文件上限 |
+| `TooLarge` | 超过 `TotalLimitBytes`、单次调用 16 GiB 宿主硬上限或单文件上限 |
 | `Skipped` | `Overwrite=False` 且目标已存在 |
 | `Failed` / `Canceled` | 网络或磁盘失败；用户取消 |
 
@@ -1085,6 +1085,27 @@ End Class
 - 两个同步钩子跑在独立任务上：`OnBeforeLaunch` 最多等 **15 秒**、`OnAfterLaunch` 最多等 **5 秒**；超时只记一条事件与日志，不阻塞启动。
 - 想改 JVM / 游戏参数仍然用 `IPclPluginEvents.OnGameLaunching` 的 `ExtraJvmArgs` / `ExtraGameArgs`；同步钩子只管文件与状态。
 - 没实现这两个接口的插件不受影响，`DownloadFiles` 的行为与 v10.0 完全一致。
+
+**多镜像回退与下载上限（v10.2）**
+
+```vb
+Dim Files = New List(Of PluginDownloadRequest) From {
+    New PluginDownloadRequest With {
+        .Url = "https://example.com/a.jar",
+        .AltUrls = New List(Of String) From {"https://mirror1.example.com/a.jar", "https://mirror2.example.com/a.jar"},
+        .RelativePath = "mods\a.jar", .Sha1 = "…40 位…", .Size = 123456}
+}
+```
+
+- `AltUrls` 是有序备用地址：按 `Url` → `AltUrls` 顺序逐源尝试，所有源共享同一个目标路径与期望 SHA-1。
+- 每个文件最多尝试 **3 次**（含第一次）。第一轮每个源各试一次；5xx / 408 / 429 / 连接失败这类可重试错误，若预算还有剩才在第二轮重试该源；源多于 3 个时按顺序只走到预算用完为止。
+- 404 / 410 / 其它确定性 4xx 与 SHA-1 不符**只换下一个源**，绝不对同一源重试；`TooLarge` / `Denied` / 用户取消立即终止。
+- `AltUrls` 只在 `Sha1` 非空时生效：没有 SHA-1 就无法判断换源后是不是同一份文件，此时备用源被忽略（只下 `Url`）。
+- 全源失败仍返回 `Failed`，`Message` 里按「源N（主机/路径）：原因」拼接逐源诊断；所有源都 SHA-1 不符时返回 `HashMismatch`。没有新增状态枚举。
+- **宿主硬上限 16 GiB**（17,179,869,184 字节）：`TotalLimitBytes` 超过它就整批在联网前报 `TooLarge`，不会静默夹到上限；`0` 表示不额外设限，有效上限仍是 16 GiB。按**实际接收字节**计量（含换源与校验后丢弃的字节），恰好等于上限允许，多 1 字节即 `TooLarge`。
+- 启用 `AltUrls` 时进度用候选文件的字节高水位（换源不清零、不回退），只有 SHA-1 校验通过且文件提交到目标位置后才报 `Finished` / 100%；`Size` 未知或失真时不伪造百分比。
+- 不设 `AltUrls` 的单 URL 调用与 3.10.2 行为完全一致，唯一例外是超过 16 GiB 会得到 `TooLarge`。
+
 
 **规则**
 
