@@ -27,6 +27,14 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 477 Then 'PCL Harness 3.10.0
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件 API v10——可以把一批下载交给启动器（经过镜像与校验）、可以往当前实例写文本文件、可以把实例导出成 Modrinth 整合包。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: 插件能查询当前下载源，并把官方地址换算成镜像地址，不必自己维护镜像表。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "安全: 没有 files 权限的插件不再能往实例目录写文件；需要写入的插件要声明 instance.write，导出整合包要声明 modpack.export。"))
+            End If
             If LastVersion < 475 Then 'PCL Harness 3.9.11
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 下载页里 Forge / NeoForge 版本列表不再先等官方源 5 秒——官方只试 1 秒，连不上就直接走镜像，列表从 5.3 秒缩到约 1.2 秒。"))
