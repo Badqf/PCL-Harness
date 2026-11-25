@@ -20,6 +20,7 @@
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -Notes @("优化: ……","修复: ……")
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun     # 只做预检与网络探测
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun -ForceResolve   # 强制演练降级通道
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -NoPin      # 推荐：不碰 hosts，直连本地中继
         # 本机只有 Windows PowerShell 5.1（没有 pwsh 7），所以统一用 powershell.exe 执行
 
 .NOTES
@@ -45,6 +46,7 @@ param(
     [switch]$NoRelease,
     [switch]$DryRun,
     [switch]$ForceResolve,     # 调试用：跳过写 hosts，强制走 resolve 通道
+    [switch]$NoPin,             # 推荐：完全不碰 hosts / DoH，直连本地 S302 中继（127.0.0.1:443）
     [switch]$SkipPreflight     # 调试用：跳过 tools\preflight.ps1
 )
 
@@ -327,6 +329,8 @@ function Invoke-HostsPinnedChannel {
 }
 
 function Invoke-WithGitHubPin([scriptblock]$Body) {
+    # -NoPin：本机 S302 中继已把 github 域名指到 127.0.0.1，直接请求即可，别再猜 IP。
+    if ($NoPin) { & $Body; return }
     $null = Get-NetIps
 
     if (-not $ForceResolve) {
