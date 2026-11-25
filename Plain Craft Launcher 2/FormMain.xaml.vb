@@ -27,6 +27,12 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 483 Then 'PCL Harness 3.10.6
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 插件改为按依赖层并行加载（每层最多 4 个同时进行），依赖顺序与 OnLoad 10 秒超时都不变，启动等待时间从所有插件耗时之和降到依赖链上最长的一环。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "说明: 同层并行时日志里不同插件的 OnLoad 顺序不固定，插件不要假设别的插件已经加载完；需要顺序请用 plugin.json 的 dependencies 声明。"))
+            End If
             If LastVersion < 482 Then 'PCL Harness 3.10.5
                 FeatureCount += 2
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 插件全部加载完成（或超时跳过）后才触发启动就绪事件，慢插件不会再让 OnLauncherReady 永远收不到。"))

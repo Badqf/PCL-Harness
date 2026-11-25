@@ -768,6 +768,9 @@ Public Module ModPlugin
     ''' <summary>v10.3：插件 OnLoad 的最长等待时间（毫秒）。超过后本次不启用该插件，界面不再被拖住。</summary>
     Public Const PluginOnLoadTimeoutMs As Integer = 10000
 
+    ''' <summary>v10.4：插件并行加载的最大并发数（同一依赖层内）。依赖关系仍然先加载被依赖者。</summary>
+    Public Const PluginLoadParallelism As Integer = 4
+
     Private _RefreshBusy As Integer
 
     'v10.3：后台加载进行中又被要求启用插件时，记下来等这一轮结束后再补一轮加载
@@ -876,15 +879,16 @@ Public Module ModPlugin
         End Try
     End Sub
 
-    ''' <summary>按依赖顺序加载已启用的插件（会执行插件 OnLoad，耗时不可控，允许在后台线程调用）。</summary>
+    ''' <summary>按依赖顺序加载已启用的插件；同一依赖层内并行（最多 PluginLoadParallelism 个）。
+    ''' 会执行插件 OnLoad，耗时不可控，允许在后台线程调用。</summary>
     Private Sub LoadPendingPlugins()
         Try
-            '按依赖顺序加载：依赖先加载，缺依赖的插件标记失败
             Dim Pending = Plugins.Where(Function(P) P.Enabled AndAlso String.IsNullOrEmpty(P.[Error])).ToList()
             Dim Guard As Integer = 0
             Do While Pending.Count > 0 AndAlso Guard < 50
                 Guard += 1
                 Dim Progress As Boolean = False
+                Dim Eligible As New List(Of PluginInfo)
                 For Each Info In Pending.ToList()
                     Dim Missing As String = Nothing
                     Dim Blocked As Boolean = False
@@ -917,17 +921,52 @@ Public Module ModPlugin
                         Pending.Remove(Info)
                         Progress = True
                     ElseIf Not Blocked Then
-                        LoadOne(Info)
-                        Pending.Remove(Info)
-                        Progress = True
+                        Eligible.Add(Info)
                     End If
                 Next
-                If Not Progress Then
+                If Eligible.Count = 0 Then
+                    If Progress Then Continue Do
                     For Each Info In Pending
                         Info.[Error] = "插件依赖存在循环或无法满足：" & String.Join("、", Info.Dependencies)
                     Next
                     Exit Do
                 End If
+                'v10.4：同一层内用最多 PluginLoadParallelism 个工作线程并行加载；
+                '下一层等这一层全部结束（Loaded / 失败 / 超时）后再开始
+                Dim Queue As New Queue(Of PluginInfo)(Eligible)
+                If Eligible.Count > 1 Then Logger.Info($"plugins：并行加载 {Eligible.Count} 个插件（第 {Guard} 层，最多 {PluginLoadParallelism} 个并发）")
+                Dim Workers As New List(Of System.Threading.Thread)
+                For I As Integer = 1 To Math.Min(PluginLoadParallelism, Eligible.Count)
+                    Dim Worker As New System.Threading.Thread(
+                        Sub()
+                            Do While True
+                                Dim Target As PluginInfo = Nothing
+                                SyncLock Queue
+                                    If Queue.Count = 0 Then Exit Do
+                                    Target = Queue.Dequeue()
+                                End SyncLock
+                                Try
+                                    LoadOne(Target)
+                                Catch ex As Exception
+                                    Target.[Error] = ex.GetBaseException().Message
+                                    Target.AddEvent("加载失败：" & ex.GetBaseException().Message)
+                                    Logger.Error(ex, "并行加载插件失败：" & Target.DisplayName, LogBehavior.None)
+                                End Try
+                            Loop
+                        End Sub, 2 * 1024 * 1024) With {.IsBackground = True, .Name = "PluginLoadWorker " & I}
+                    Worker.SetApartmentState(System.Threading.ApartmentState.STA)
+                    Workers.Add(Worker)
+                Next
+                For Each Worker In Workers
+                    Worker.Start()
+                Next
+                For Each Worker In Workers
+                    Worker.Join()
+                Next
+                For Each Info In Eligible
+                    Pending.Remove(Info)
+                Next
+                Progress = True
             Loop
         Catch ex As Exception
             ScanError = ex.Message
