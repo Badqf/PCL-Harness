@@ -50,7 +50,7 @@ New-Item -ItemType Directory -Path $root -Force | Out-Null
 # 指南与许可
 Copy-Item (Join-Path $repo "PLUGIN-DEV.md") $root
 Copy-Item (Join-Path $repo "LICENSE") $root
-Copy-Item (Join-Path $repo "docs\API-REQUESTS-market.md") $root -ErrorAction SilentlyContinue
+# docs\API-REQUESTS-market.md 已删除（历史市场开发合同，见 PLUGIN-DEV.md）
 
 # SDK 自带素材
 Copy-Item (Join-Path $sdkSrc "build.ps1") $root

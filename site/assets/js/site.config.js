@@ -2,8 +2,8 @@
  * site.config.js —— PCL Harness 站点内容
  * ----------------------------------------------------------------------------
  * 结构遵循模板约定：改这一个文件就能换文案，不需要动 index.html 和 style.css。
- * 所有数字来自 3.9.5 的源码与发布包：18 项权限（8 低 / 9 中 / 1 高）、9 个接口、
- * 6,156,288 字节安装包、市场三条条目、TUN 网段 10.114.114.0/24。
+ * 所有数字来自 3.10.6 的源码与发布包：21 项权限、13 个接口、
+ * 6.2 MB 安装包、市场三条条目、TUN 网段 10.114.114.0/24。
  * ==========================================================================*/
 
 window.SITE = {
@@ -15,7 +15,6 @@ window.SITE = {
   },
 
   meta: {
-    version: 'v3.9.5',
     badge: '基于 PCL2 开源版',
     license: '非官方 · 保留署名',
     year: null
@@ -42,8 +41,8 @@ window.SITE = {
 
     heroTitleLead: '能装插件的',
     heroTitleAccent: 'Minecraft 启动器',
-    heroDesc: '基于 PCL2 开源版。装一个插件，启动器就多一块界面；API v8 和 SDK 都在，你自己也能写。PCL2 原有的版本、下载、Mod、账号，一个不少。',
-    heroPrimary: '下载 3.9.5',
+    heroDesc: '基于 PCL2 开源版。装一个插件，启动器就多一块界面；API v10 和 SDK 都在，你自己也能写。PCL2 原有的版本、下载、Mod、账号，一个不少。',
+    heroPrimary: '下载最新版',
     heroSecondary: '看它怎么装',
 
     overviewEyebrow: '产品概览',
@@ -61,7 +60,7 @@ window.SITE = {
     featuresDesc: '插件、权限、联机、主题、目录、开发接口。',
 
     showcaseEyebrow: '界面',
-    showcaseTitle: '四个页面，都是 3.9.5 的实机截图',
+    showcaseTitle: '四个页面，都是 3.10.6 的实机截图',
     showcaseDesc: '点标签切换，截图直接用启动器窗口，没有重画。',
 
     stepsEyebrow: '怎么开始',
@@ -82,10 +81,9 @@ window.SITE = {
 
   /* ---------- 4. Hero 数据条 ---------- */
   stats: [
-    { value: '3.9.5', label: '版本' },
-    { value: '18', label: '项权限' },
-    { value: '9', label: '个接口' },
-    { value: '5.9MB', label: '安装包' }
+    { value: '21', label: '项权限' },
+    { value: '13', label: '个接口' },
+    { value: '6.2MB', label: '安装包' }
   ],
 
   /* ---------- 5. 功能卡片（icon: bolt / layers / puzzle / palette / shield / code / globe / spark） ---------- */
@@ -124,7 +122,7 @@ window.SITE = {
       icon: 'code',
       tag: '开发',
       title: '三样东西写插件',
-      desc: 'plugin.json、一个 DLL、一个目录。API v8 提供 9 个接口，VB 和 C# 都能写。'
+      desc: 'plugin.json、一个 DLL、一个目录。API v10 提供 13 个接口，VB 和 C# 都能写。'
     }
   ],
 

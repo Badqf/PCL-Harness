@@ -702,7 +702,6 @@ if (-not $DryRun -and -not $NoRelease) {
             (Join-Path $RepoRoot 'samples'),
             (Join-Path $RepoRoot 'PLUGIN-DEV.md'),
             (Join-Path $RepoRoot 'LICENSE'),
-            (Join-Path $RepoRoot 'docs\API-REQUESTS-market.md'),
             (Join-Path $PSScriptRoot 'pack-plugin.ps1'),
             (Join-Path $PSScriptRoot 'pack-plugin-sdk.ps1'))
         if ($sdkItem.LastWriteTime -lt $sdkInputNewest) {
