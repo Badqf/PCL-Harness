@@ -121,6 +121,7 @@ End Class
 | `IPclPluginDownload` | 下载开始/结束（v4） |
 | `IPclPluginClosing` | 拦截启动器关闭（v4，返回 True 取消关闭） |
 | `IPclPluginUi2` | 主页卡片、设置页卡片、状态栏组件（v4） |
+| `IPclPluginInstanceMenu` | 实例右键菜单项（v6.2） |
 | `IPclPluginModpack` | 整合包安装结束事件（v9） |
 | `IPclPluginDownloads` | `DownloadFiles` 结束后的批量结果事件（v10） |
 | `IPclPluginDownloadProgress` | 逐文件下载进度（v10.1） |
@@ -350,6 +351,7 @@ End Select
 ```
 
 `Host.HttpDownload(url, localPath)` 保留为布尔包装（等价于 `R = Ok`），旧代码不用改。失败时宿主会先删掉半截文件再返回，不会留下「看起来下载成功」的残缺文件。
+
 ## 6. 依赖与加载顺序
 
 ```json
@@ -850,30 +852,7 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 > - 当前实例目录：**写**必须显式声明 `instance.write`（或 `files` 里给出可写路径），否则抛 `UnauthorizedAccessException`。
 >
 > 只读实例、不写文件的插件不受影响；需要在实例里写 `config` / `options.txt` 的插件，请把 `"instance.write"` 加进 `permissions`。
-**权限表**
-
-| 权限 | 风险 | 说明 |
-| --- | --- | --- |
-| `ui` | 低 | 添加页面、标题栏入口、设置项与卡片 |
-| `events` | 低 | 订阅启动器事件（含事件总线） |
-| `files` | 低 | 按 `files.read` / `files.write` 白名单读写文件 |
-| `net` | 低 | 访问 `net.hosts` 里声明的主机 |
-| `args` | **中** | 追加 JVM / 游戏参数（可注入 `-javaagent`，v7.4 起归中风险） |
-| `process` | **高** | 启动外部进程（每次启动都会弹出高风险确认） |
-| `instance.read` | 低 | 读实例名称、加载器、版本、目录、模组数量 |
-| `logs.read` | 低 | 读游戏日志与崩溃报告 |
-| `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
-| `instance.install` | **中** | 往 mods / resourcepacks / shaderpacks / datapacks 写入 |
-| `modpack.export` | 中 | 把当前实例导出成整合包文件（读取 mods、config 等目录并打包） |
-| `instance.write` | **中** | 往当前实例目录写任意文件（config、options.txt、versions\<id>\<id>.json 等） |
-| `modpack.install` | **中** | 安装整合包（会新建一个游戏实例并写入大量文件） |
-| `launch` | **中** | 主动启动游戏 |
-| `account` | **中** | 读用户名、UUID、登录方式 |
-| `settings.global` | **中** | 读启动器全局设置（只读） |
-| `plugins` | 中 | 管理其他插件（见 6.11） |
-| `net.dynamic` | 中 | 运行时申请 `net.hosts` 之外的主机 |
-
-> 这张表只列 v7 当轮落地的权限；v7.3 新增的 `instance.select`、`mods.read`、`mods.write` 见 6.13，v8–v10 没有新增权限。
+> 完整权限清单与风险分级见 [§2 权限模型](#2-权限模型)；6.13 单独列出 v7.3 新增的三个权限。
 
 **风险窗分级：高风险红、中风险黄（v3.7.7 起，v3.7.8 起不再重复确认）**
 
@@ -1047,15 +1026,8 @@ v7 的能力没有单独成章，散在 v6 的后续小节里：
 
 v8 继续兼容这些接口，v7 及更早的插件无需改代码即可加载。
 
-### 整合包安装的三条注意事项
-
-- **静默模式会跳过可选内容。** `InstallModpack` 在后台完成安装，期间不弹任何提问：CurseForge 的可选文件、Modrinth 里 `env.client = "optional"` 的文件都会被跳过，只装必需项。`InspectModpack` 的 `OptionalCount` 就是被跳过的数量，可以先读它再决定要不要提示用户改用启动器界面手动安装。
-- **两种包必须在界面里装。** 内含启动器的整合包（包里有 `modpack.zip` / `modpack.mrpack`）和纯压缩包没有现成的实例名和目录，`CanInstallSilently` 会是 `False`，此时调用 `InstallModpack` 会立刻抛异常，请提示用户去「下载 → 安装整合包」。
-- **失败会清理本次新建的实例目录。** 安装失败或取消时，本次新出现的 `versions\<名字>` 会被删掉；安装前就存在的实例不会被碰。所以插件不需要自己做回滚，但也不要在安装期间往那个目录里写自己的文件。
-
-已实测的格式：CurseForge、Modrinth、MultiMC（`mmc-pack.json` + `instance.cfg`）、HMCL（`modpack.json`）、MCBBS（`mcbbs.packmeta`，缺失字段会回读同包 `manifest.json`）。
-
 > 示例代码只放在本仓库 `samples\DemoPlugin\`，不进插件 SDK：SDK 只带接口与文档，避免示例被当成模板复制进生产插件。
+
 ## API v10（当前版本）
 
 v10 把「往实例里写文件」和「批量下载到实例」做成宿主能力：插件只要给一份清单（地址 + 相对路径 + 期望 SHA-1），并发、重试、进度、取消、校验都由启动器负责，进度会出现在「任务管理」里。
@@ -1237,6 +1209,8 @@ End Sub
 - `InstallModpack` 会新建实例、写入文件并刷新下载页；它**不会**自动启动游戏，要启动请另外调用 `LaunchGame()`（需要 `launch`）。
 - 重名会自动加 `(2)`、`(3)`；也可以自己传 `InstanceName`，非法字符会被替换成 `_`。
 - 安装期间启动器自己的界面不受影响，进度同时出现在「任务管理」里；`Task.Cancel()` 会中止并清理未完成的步骤。
+- **静默安装会跳过可选内容**：CurseForge 的可选文件、Modrinth 里 `env.client = "optional"` 的文件都不会装，跳过数量见 `InspectModpack` 的 `OptionalCount`；需要用户选择时请提示改用「下载 → 安装整合包」。
+- **失败会清理本次新建的实例**：安装失败或取消时，本次新出现的 `versions\<名字>` 会被删掉；安装前就存在的实例不受影响。插件不要在安装期间往那个目录写自己的文件。
 
 ## API v8（历史版本）
 
