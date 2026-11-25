@@ -1,6 +1,6 @@
 # PCL Harness 插件开发指南（API v10）
 
-> 适用版本：PCL Harness 3.10.6 及以上（插件 API v10，含 v10.4 并行加载；上游 2.14.0.0 合并后的自编版）
+> 适用版本：PCL Harness 3.10.7 及以上（插件 API v10，含 v10.5 续传与逐文件取消；上游 2.14.0.0 合并后的自编版）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
@@ -955,6 +955,21 @@ Host.SetResourcePackEnabled("Faithful.zip", False)
 Host.SetShaderPackEnabled("BSL.zip", True)
 ```
 
+**断点续传与逐文件取消（v10.5）**
+
+```vb
+Dim Opts = New PluginDownloadOptions With {.[Resume] = True}
+Dim Handle = Host.DownloadFiles(Files, Opts)
+' 之后可以只取消其中一个文件
+Handle.CancelFile("mods\a.jar")
+```
+
+- `Resume` 默认 `False`。设为 `True` 后，没下完的文件保留在 `<目标路径>.pcldownload`；下次对同一目标再调用 `DownloadFiles`（仍开 `Resume`）时，按已有字节发 `Range` 从断点继续。
+- 只接受 `206` 且 `Content-Range` 起点等于已有字节数、总长等于 `Size` 的响应；服务器返回 `200`（忽略范围）、`416`、或 `Content-Range` 对不上时，自动丢弃半截文件、在同一次尝试内从头重下。
+- 预算按「已有临时字节 + 本次实际接收字节」计算，超过上限仍报 `TooLarge`；`Size` 未知（0）或临时文件已达到/超过 `Size` 时不续传，直接丢弃重下。
+- 续传完成后仍以 SHA-1 终裁；取消、断线、5xx 等可恢复失败会保留 `.pcldownload`，确定性 4xx 与 SHA-1 不符会删除临时文件。
+- `PluginTaskHandle.CancelFile(RelativePath)` 只取消一个文件：排队中的直接跳过、不联网也不消耗尝试预算；正在下载的立即中断并返回 `Canceled`（消息「已按请求取消该文件」），同批其它文件继续。路径不在本批或文件已结束返回 `False`。
+- 逐文件取消只在多源/续传的顺序下载路径可用（`AltUrls` 非空或 `Resume=True`）；旧的单 URL 下载路径不支持，`CancelFile` 返回 `False`。
 **规则**
 
 - 底层是 `ListContents(Kind, InstanceName)` / `SetContentEnabled(FileName, Enabled, Kind, InstanceName)`，`ListMods` 之类只是包装；`mods` 只认 `.jar`，`resourcepacks` / `shaderpacks` 只认 `.zip`。
@@ -1156,6 +1171,21 @@ Dim Files = New List(Of PluginDownloadRequest) From {
 - 同层并行时日志里各插件 `OnLoad` 的开始/结束顺序不固定——不要假设「别的插件已经加载完」；确实有先后要求就用 `dependencies` 声明，而不是靠加载顺序碰运气。
 - 并行加载期间界面照常可用；`PluginsLoaded` 与 `OnLauncherReady` 仍然在所有层结束后才触发。
 
+**断点续传与逐文件取消（v10.5）**
+
+```vb
+Dim Opts = New PluginDownloadOptions With {.[Resume] = True}
+Dim Handle = Host.DownloadFiles(Files, Opts)
+' 之后可以只取消其中一个文件
+Handle.CancelFile("mods\a.jar")
+```
+
+- `Resume` 默认 `False`。设为 `True` 后，没下完的文件保留在 `<目标路径>.pcldownload`；下次对同一目标再调用 `DownloadFiles`（仍开 `Resume`）时，按已有字节发 `Range` 从断点继续。
+- 只接受 `206` 且 `Content-Range` 起点等于已有字节数、总长等于 `Size` 的响应；服务器返回 `200`（忽略范围）、`416`、或 `Content-Range` 对不上时，自动丢弃半截文件、在同一次尝试内从头重下。
+- 预算按「已有临时字节 + 本次实际接收字节」计算，超过上限仍报 `TooLarge`；`Size` 未知（0）或临时文件已达到/超过 `Size` 时不续传，直接丢弃重下。
+- 续传完成后仍以 SHA-1 终裁；取消、断线、5xx 等可恢复失败会保留 `.pcldownload`，确定性 4xx 与 SHA-1 不符会删除临时文件。
+- `PluginTaskHandle.CancelFile(RelativePath)` 只取消一个文件：排队中的直接跳过、不联网也不消耗尝试预算；正在下载的立即中断并返回 `Canceled`（消息「已按请求取消该文件」），同批其它文件继续。路径不在本批或文件已结束返回 `False`。
+- 逐文件取消只在多源/续传的顺序下载路径可用（`AltUrls` 非空或 `Resume=True`）；旧的单 URL 下载路径不支持，`CancelFile` 返回 `False`。
 **规则**
 
 - `RelativePath` 一律相对实例根目录，`..`、`\`/`/` 开头、盘符都会被拒绝（抛 `UnauthorizedAccessException`）。
@@ -1201,6 +1231,21 @@ Public Sub OnModpackInstalled(Result As PluginModpackResult) Implements IPclPlug
 End Sub
 ```
 
+**断点续传与逐文件取消（v10.5）**
+
+```vb
+Dim Opts = New PluginDownloadOptions With {.[Resume] = True}
+Dim Handle = Host.DownloadFiles(Files, Opts)
+' 之后可以只取消其中一个文件
+Handle.CancelFile("mods\a.jar")
+```
+
+- `Resume` 默认 `False`。设为 `True` 后，没下完的文件保留在 `<目标路径>.pcldownload`；下次对同一目标再调用 `DownloadFiles`（仍开 `Resume`）时，按已有字节发 `Range` 从断点继续。
+- 只接受 `206` 且 `Content-Range` 起点等于已有字节数、总长等于 `Size` 的响应；服务器返回 `200`（忽略范围）、`416`、或 `Content-Range` 对不上时，自动丢弃半截文件、在同一次尝试内从头重下。
+- 预算按「已有临时字节 + 本次实际接收字节」计算，超过上限仍报 `TooLarge`；`Size` 未知（0）或临时文件已达到/超过 `Size` 时不续传，直接丢弃重下。
+- 续传完成后仍以 SHA-1 终裁；取消、断线、5xx 等可恢复失败会保留 `.pcldownload`，确定性 4xx 与 SHA-1 不符会删除临时文件。
+- `PluginTaskHandle.CancelFile(RelativePath)` 只取消一个文件：排队中的直接跳过、不联网也不消耗尝试预算；正在下载的立即中断并返回 `Canceled`（消息「已按请求取消该文件」），同批其它文件继续。路径不在本批或文件已结束返回 `False`。
+- 逐文件取消只在多源/续传的顺序下载路径可用（`AltUrls` 非空或 `Resume=True`）；旧的单 URL 下载路径不支持，`CancelFile` 返回 `False`。
 **规则**
 
 - 支持的格式：CurseForge（`manifest.json`）、Modrinth（`modrinth.index.json`）、MultiMC（`mmc-pack.json`）、HMCL（`modpack.json`）、MCBBS（`mcbbs.packmeta`），以及普通压缩包。

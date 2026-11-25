@@ -3160,6 +3160,19 @@ Public Module ModPlugin
             End Try
         End Sub
 
+        ''' <summary>3.10.7：逐文件取消的登记表；旧下载路径（未启用 Resume 且没有备用源）没有它。</summary>
+        Friend DownloadBatch As PluginHost.PluginDownloadBatch
+
+        ''' <summary>
+        ''' 取消批量下载里的单个文件（3.10.7）：路径按实例相对路径归一化后匹配（与请求里的写法一致即可）。
+        ''' 正在下载的文件会中止当前请求并记为 Canceled，其余文件继续；整批 Cancel() 语义不变。
+        ''' 返回 False：路径不在本批次、该条已经结束、参数非法，或任务没有逐文件取消能力（旧下载路径）。
+        ''' </summary>
+        Public Function CancelFile(RelativePath As String) As Boolean
+            Dim Batch = DownloadBatch
+            If Batch Is Nothing Then Return False
+            Return Batch.RequestCancel(RelativePath)
+        End Function
         ''' <summary>等待任务结束（会抛出让任务失败时记录过的异常）。</summary>
         Public Sub Wait()
             Loader.WaitForExit()
@@ -4287,6 +4300,11 @@ Public Class PluginDownloadOptions
     Public Property Overwrite As Boolean = True
     ''' <summary>本次下载的总字节上限，默认 2 GiB；最多可调到 16 GiB（宿主硬上限，声明更大时整批在联网前记为 TooLarge）。</summary>
     Public Property TotalLimitBytes As Long = 2048L * 1024 * 1024
+    ''' <summary>
+    ''' 是否对单个文件启用断点续传（3.10.7，默认 False）。启用后未下完的文件保留在
+    ''' &lt;目标&gt;.pcldownload，下次调用会先核对 Range/206 再续传；临时文件里已有的字节也计入本次上限。
+    ''' </summary>
+    Public Property [Resume] As Boolean = False
 End Class
 
 ''' <summary>
@@ -5101,6 +5119,108 @@ Public Class PluginHost
         Public TempPath As String = ""
         Public LastProgressSignature As String = ""
         Public LastProgressTick As Integer
+        ''' <summary>3.10.7：本次是否启用断点续传（临时文件固定为 &lt;目标&gt;.pcldownload）。</summary>
+        Public UseResume As Boolean
+        ''' <summary>3.10.7：续传时临时文件里已有的字节数（已计入本次调用预算）。</summary>
+        Public ResumeBytes As Long
+    End Class
+
+
+    ''' <summary>
+    ''' 3.10.7：一次批量下载里的逐文件取消登记（内部，线程安全）。键是解析后的目标路径。
+    ''' 只登记本批次的文件；旧下载路径（未启用 Resume 且没有备用源）不建这张表。
+    ''' </summary>
+    Friend Class PluginDownloadBatch
+        Friend Enum FileState
+            NotStarted
+            Running
+            Finished
+        End Enum
+
+        Private ReadOnly _Lock As New Object
+        Private ReadOnly _States As New Dictionary(Of String, FileState)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _Canceled As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _Resolve As Func(Of String, String)
+        Private _Abort As Action
+        Private _AbortTarget As String = ""
+
+        Friend Sub New(Resolve As Func(Of String, String))
+            _Resolve = Resolve
+        End Sub
+
+        Friend Sub Register(Target As String)
+            If String.IsNullOrEmpty(Target) Then Return
+            SyncLock _Lock
+                If Not _States.ContainsKey(Target) Then _States(Target) = FileState.NotStarted
+            End SyncLock
+        End Sub
+
+        Friend Sub MarkRunning(Target As String)
+            SyncLock _Lock
+                If _States.ContainsKey(Target) Then _States(Target) = FileState.Running
+            End SyncLock
+        End Sub
+
+        Friend Sub MarkFinished(Target As String)
+            SyncLock _Lock
+                If _States.ContainsKey(Target) Then _States(Target) = FileState.Finished
+                If String.Equals(_AbortTarget, Target, StringComparison.OrdinalIgnoreCase) Then
+                    _Abort = Nothing
+                    _AbortTarget = ""
+                End If
+            End SyncLock
+        End Sub
+
+        Friend Function IsCanceled(Target As String) As Boolean
+            SyncLock _Lock
+                Return _Canceled.Contains(Target)
+            End SyncLock
+        End Function
+
+        ''' <summary>登记当前 HTTP 请求的中止动作；该文件在请求建立前已被取消时立即执行。</summary>
+        Friend Sub SetAbort(Target As String, Abort As Action)
+            If Abort Is Nothing Then Return
+            Dim Fire As Action = Nothing
+            SyncLock _Lock
+                If String.IsNullOrEmpty(Target) Then Return
+                _AbortTarget = Target
+                _Abort = Abort
+                If _Canceled.Contains(Target) Then Fire = Abort
+            End SyncLock
+            If Fire IsNot Nothing Then
+                Try
+                    Fire()
+                Catch
+                End Try
+            End If
+        End Sub
+
+        ''' <summary>登记取消请求；返回 False 表示路径不在本批次或该条已经结束。</summary>
+        Friend Function RequestCancel(RelativePath As String) As Boolean
+            If String.IsNullOrWhiteSpace(RelativePath) OrElse _Resolve Is Nothing Then Return False
+            Dim Target As String
+            Try
+                Target = _Resolve(RelativePath)
+            Catch
+                Return False
+            End Try
+            If String.IsNullOrEmpty(Target) Then Return False
+            Dim Fire As Action = Nothing
+            SyncLock _Lock
+                Dim St As FileState
+                If Not _States.TryGetValue(Target, St) Then Return False
+                If St = FileState.Finished Then Return False
+                If Not _Canceled.Add(Target) Then Return True
+                If St = FileState.Running AndAlso String.Equals(_AbortTarget, Target, StringComparison.OrdinalIgnoreCase) Then Fire = _Abort
+            End SyncLock
+            If Fire IsNot Nothing Then
+                Try
+                    Fire()
+                Catch
+                End Try
+            End If
+            Return True
+        End Function
     End Class
 
     ''' <summary>
@@ -5136,9 +5256,10 @@ Public Class PluginHost
                     EmitDownloadsFinished(Results)
                 End Sub)
         End If
-        '只有调用里真的出现了可用备用源，才走 3.10.3 的逐源顺序下载；否则完全沿用 3.10.2 的宿主下载器，
-        '保证旧的单 URL 插件行为不变（唯一例外：超过 16 GiB 由宿主硬上限拦下 TooLarge）。
-        If Not Plans.Any(Function(p) p.Sources.Count > 1) Then
+        '3.10.7：启用 Resume 时必须走顺序下载器（要掌握临时文件、Range 与逐文件取消）；否则沿用 3.10.3 的判定——
+        '只有真的出现可用备用源才走逐源顺序下载，单 URL 仍然完全沿用 3.10.2 的宿主下载器。
+        Dim UseSequential As Boolean = Opts.[Resume] OrElse Plans.Any(Function(p) p.Sources.Count > 1)
+        If Not UseSequential Then
             Dim Accepted As New List(Of NetFile)
             Dim Map As New Dictionary(Of String, PluginDownloadItemResult)(StringComparer.OrdinalIgnoreCase)
             Dim ExpectMap As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
@@ -5155,10 +5276,19 @@ Public Class PluginHost
                     RunLegacyDownloads(Ctx, Title, Accepted, Results, Map, ExpectMap)
                 End Sub)
         End If
-        Return Tasks.Run(Title,
+        For Each Plan In Plans
+            Plan.UseResume = Opts.[Resume]
+        Next
+        Dim Batch As New PluginDownloadBatch(Function(Rel) ResolveInstanceRelativePath(Rel, "CancelFile"))
+        For Each Plan In Plans
+            Batch.Register(Plan.Target)
+        Next
+        Dim Handle = Tasks.Run(Title,
             Sub(Ctx)
-                RunSequentialDownloads(Ctx, Title, Plans, Results, EffectiveLimit)
+                RunSequentialDownloads(Ctx, Title, Plans, Results, EffectiveLimit, Opts.[Resume], Batch)
             End Sub)
+        Handle.DownloadBatch = Batch
+        Return Handle
     End Function
 
     ''' <summary>3.10.3：逐条校验并生成下载计划；不进入计划的结果已经写成 Denied / TooLarge / Skipped。</summary>
@@ -5361,8 +5491,9 @@ Public Class PluginHost
         EmitDownloadsFinished(Results)
     End Sub
 
-    ''' <summary>3.10.3：按 Url → AltUrls 的顺序逐源下载；每文件最多 3 次尝试，失败只换源。</summary>
-    Private Sub RunSequentialDownloads(Ctx As PluginTaskContext, Title As String, Plans As List(Of PluginDownloadPlan), Results As List(Of PluginDownloadItemResult), EffectiveLimit As Long)
+    ''' <summary>3.10.3：按 Url → AltUrls 的顺序逐源下载；每文件最多 3 次尝试，失败只换源。
+    ''' 3.10.7：支持 Resume（稳定临时文件 + Range 续传）与逐文件取消（Batch）。</summary>
+    Private Sub RunSequentialDownloads(Ctx As PluginTaskContext, Title As String, Plans As List(Of PluginDownloadPlan), Results As List(Of PluginDownloadItemResult), EffectiveLimit As Long, UseResume As Boolean, Batch As PluginDownloadBatch)
         Dim ActualTotal As Long = 0
         Dim StopReason As String = Nothing
         Ctx.Report(0.01, "开始下载")
@@ -5372,14 +5503,26 @@ Public Class PluginHost
             If StopReason IsNot Nothing Then
                 Plan.Result.Status = "TooLarge" : Plan.Result.Message = StopReason : Continue For
             End If
-            If Plan.DeclaredSize > 0 Then
-                EmitPlanProgress(Plan, "Waiting", 0, 0, Plan.DeclaredSize, True)
-            Else
-                EmitPlanProgress(Plan, "Waiting", 0, 0, 0, True)
+            '3.10.7：还没开始就被逐文件取消的条目不联网、不消耗尝试预算
+            If Batch IsNot Nothing AndAlso Batch.IsCanceled(Plan.Target) Then
+                Plan.Result.Status = "Canceled"
+                Plan.Result.Message = "已按请求取消该文件"
+                Plan.Result.Bytes = 0
+                EmitPlanProgress(Plan, "Canceled", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
+                Batch.MarkFinished(Plan.Target)
+                Continue For
             End If
-            RunOnePlan(Ctx, Plan, EffectiveLimit, ActualTotal, StopReason)
+            EmitPlanProgress(Plan, "Waiting", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
+            If Batch IsNot Nothing Then Batch.MarkRunning(Plan.Target)
+            Try
+                RunOnePlan(Ctx, Plan, EffectiveLimit, ActualTotal, StopReason, UseResume, Batch)
+            Finally
+                If Batch IsNot Nothing Then Batch.MarkFinished(Plan.Target)
+            End Try
             If Plan.Result.Status = "Ok" Then
                 EmitPlanProgress(Plan, "Finished", 1.0, Plan.Result.Bytes, Plan.Result.Bytes, True)
+            ElseIf Plan.Result.Status = "Canceled" Then
+                EmitPlanProgress(Plan, "Canceled", 0, Plan.PeakReceived, Plan.DeclaredSize, True)
             End If
             Ctx.Report(0.01 + 0.97 * (Index + 1) / Plans.Count, $"下载中（{Index + 1}/{Plans.Count}）")
         Next
@@ -5389,17 +5532,53 @@ Public Class PluginHost
         EmitDownloadsFinished(Results)
     End Sub
 
-    ''' <summary>3.10.3：下载一个文件；尝试预算 3 次，可重试错误先换源，确定性失败（404/410/4xx/HashMismatch）永不重试同一源。</summary>
-    Private Sub RunOnePlan(Ctx As PluginTaskContext, Plan As PluginDownloadPlan, Limit As Long, ByRef ActualTotal As Long, ByRef StopReason As String)
+    ''' <summary>3.10.3：下载一个文件；尝试预算 3 次，可重试错误先换源，确定性失败（404/410/4xx/HashMismatch）永不重试同一源。
+    ''' 3.10.7：Resume 时临时文件固定为 &lt;目标&gt;.pcldownload，已有字节计入预算；Batch 取消只终止本条。</summary>
+    Private Sub RunOnePlan(Ctx As PluginTaskContext, Plan As PluginDownloadPlan, Limit As Long, ByRef ActualTotal As Long, ByRef StopReason As String, UseResume As Boolean, Batch As PluginDownloadBatch)
         Dim Diagnostics As New List(Of String)
         Dim RetryQueue As New Queue(Of String)
         Dim SourceIndex As Integer = 0
         Dim Attempts As Integer = 0
         Dim AllHashMismatch As Boolean = True
         Dim SawAttempt As Boolean = False
-        If String.IsNullOrWhiteSpace(Plan.TempPath) Then Plan.TempPath = Plan.Target & ".pcltmp-" & Guid.NewGuid().ToString("N")
+        If String.IsNullOrWhiteSpace(Plan.TempPath) Then
+            Plan.TempPath = If(UseResume, Plan.Target & ".pcldownload", Plan.Target & ".pcltmp-" & Guid.NewGuid().ToString("N"))
+        End If
+        '3.10.7：续传临时文件里已有的字节计入本次调用预算（只计一次）；声明长度不明或已经够长时直接丢弃
+        If UseResume AndAlso IO.File.Exists(Plan.TempPath) Then
+            Dim Existing As Long = 0
+            Try
+                Existing = New IO.FileInfo(Plan.TempPath).Length
+            Catch
+            End Try
+            If Plan.DeclaredSize <= 0 OrElse Existing >= Plan.DeclaredSize Then
+                Try
+                    IO.File.Delete(Plan.TempPath)
+                Catch
+                End Try
+                Existing = 0
+            End If
+            If Existing > 0 Then
+                Plan.ResumeBytes = Existing
+                If Existing > Plan.PeakReceived Then Plan.PeakReceived = Existing
+                ActualTotal += Existing
+                If ActualTotal > Limit Then
+                    Plan.Result.Status = "TooLarge"
+                    Plan.Result.Bytes = 0
+                    Plan.Result.Message = $"续传临时文件已有 {Existing} 字节，加上本次调用已接收的字节后超过下载上限（{Limit} 字节），本次调用已终止"
+                    StopReason = Plan.Result.Message
+                    Return
+                End If
+            End If
+        End If
         Try
             While Attempts < 3
+                If Batch IsNot Nothing AndAlso Batch.IsCanceled(Plan.Target) Then
+                    Plan.Result.Status = "Canceled"
+                    Plan.Result.Message = "已按请求取消该文件"
+                    Plan.Result.Bytes = 0
+                    Return
+                End If
                 Dim Source As String = Nothing
                 If SourceIndex < Plan.Sources.Count Then
                     Source = Plan.Sources(SourceIndex) : SourceIndex += 1
@@ -5414,7 +5593,7 @@ Public Class PluginHost
                 Dim Ratio As Double = 0
                 If Denom > 0 Then Ratio = Math.Min(0.99, Plan.PeakReceived / Denom)
                 EmitPlanProgress(Plan, "Downloading", Ratio, Plan.PeakReceived, Denom, True)
-                Dim Attempt = TryDownloadSource(Plan, Source, Ctx, Limit, ActualTotal)
+                Dim Attempt = TryDownloadSource(Plan, Source, Ctx, Limit, ActualTotal, UseResume, Batch)
                 SawAttempt = True
                 Select Case Attempt.Outcome
                     Case PluginSourceOutcome.Ok
@@ -5435,6 +5614,13 @@ Public Class PluginHost
                         StopReason = Plan.Result.Message
                         Return
                     Case PluginSourceOutcome.Canceled
+                        '3.10.7：逐文件取消只终止本条；整批取消仍然向上抛
+                        If Batch IsNot Nothing AndAlso Batch.IsCanceled(Plan.Target) Then
+                            Plan.Result.Status = "Canceled"
+                            Plan.Result.Message = "已按请求取消该文件"
+                            Plan.Result.Bytes = 0
+                            Return
+                        End If
                         Throw New OperationCanceledException()
                     Case PluginSourceOutcome.HashMismatch
                         Diagnostics.Add($"源{Attempts}（{ShortenUrl(Source)}）：{Attempt.Message}")
@@ -5448,11 +5634,15 @@ Public Class PluginHost
                 End Select
             End While
         Finally
-            Try
-                If IO.File.Exists(Plan.TempPath) Then IO.File.Delete(Plan.TempPath)
-            Catch
-            End Try
+            '3.10.7：Resume 时保留半截临时文件供下次续传（校验失败/长度不符时 TryDownloadSource 已删除）
+            If Not UseResume Then
+                Try
+                    If IO.File.Exists(Plan.TempPath) Then IO.File.Delete(Plan.TempPath)
+                Catch
+                End Try
+            End If
         End Try
+        If Plan.Result.Status = "Canceled" Then Return
         Plan.Result.Bytes = 0
         For Each Note In Plan.Notes
             Diagnostics.Add(Note)
@@ -5466,21 +5656,115 @@ Public Class PluginHost
         End If
     End Sub
 
-    ''' <summary>3.10.3：从一个源下载到临时文件，SHA-1 校验通过后才提交到目标位置。</summary>
-    Private Function TryDownloadSource(Plan As PluginDownloadPlan, Source As String, Ctx As PluginTaskContext, Limit As Long, ByRef ActualTotal As Long) As PluginSourceAttempt
+    ''' <summary>3.10.3：从一个源下载到临时文件，SHA-1 校验通过后才提交到目标位置。
+    ''' 3.10.7：Resume 时按已有临时文件发 Range，只接受 206 且 Content-Range 与期望一致；200/416/对不上都退回整份重下。</summary>
+    Private Function TryDownloadSource(Plan As PluginDownloadPlan, Source As String, Ctx As PluginTaskContext, Limit As Long, ByRef ActualTotal As Long, UseResume As Boolean, Batch As PluginDownloadBatch) As PluginSourceAttempt
         Dim Outcome As New PluginSourceAttempt
         Dim Response As Net.HttpWebResponse = Nothing
         Dim Output As IO.FileStream = Nothing
+        Dim KeepTemp As Boolean = False
+        Dim Target As String = Plan.Target
         Try
             IO.Directory.CreateDirectory(IO.Path.GetDirectoryName(IO.Path.GetFullPath(Plan.TempPath)))
-            Response = OpenHttp(Source)
-            If Response.ContentLength > 0 Then Plan.TotalKnown = Math.Max(Plan.TotalKnown, Response.ContentLength)
-            Output = New IO.FileStream(Plan.TempPath, IO.FileMode.Create, IO.FileAccess.Write, IO.FileShare.None)
+            Dim Existing As Long = 0
+            If UseResume AndAlso IO.File.Exists(Plan.TempPath) Then
+                Try
+                    Existing = New IO.FileInfo(Plan.TempPath).Length
+                Catch
+                End Try
+            End If
+            If Existing > 0 AndAlso (Plan.DeclaredSize <= 0 OrElse Existing >= Plan.DeclaredSize) Then
+                Try
+                    IO.File.Delete(Plan.TempPath)
+                Catch
+                End Try
+                Existing = 0
+            End If
+            Dim WantsRange As Boolean = UseResume AndAlso Existing > 0 AndAlso Plan.DeclaredSize > 0 AndAlso Existing < Plan.DeclaredSize
+            '最多两次请求：第一次可能带 Range；200/416/Content-Range 对不上时退回不带 Range 的整份请求
+            For TransportTry As Integer = 1 To 2
+                Try
+                    Response = OpenHttp(Source,
+                        Sub(Request)
+                            If WantsRange Then
+                                Try
+                                    Request.AddRange(Existing)
+                                Catch
+                                End Try
+                            End If
+                            If Batch IsNot Nothing Then Batch.SetAbort(Target, Sub() Request.Abort())
+                        End Sub)
+                Catch ex As Net.WebException
+                    Dim RequestCode As Integer = 0
+                    Try
+                        If ex.Response IsNot Nothing Then RequestCode = CInt(CType(ex.Response, Net.HttpWebResponse).StatusCode)
+                    Catch
+                    End Try
+                    If RequestCode = 416 AndAlso WantsRange Then
+                        Try
+                            IO.File.Delete(Plan.TempPath)
+                        Catch
+                        End Try
+                        Existing = 0
+                        WantsRange = False
+                        Continue For
+                    End If
+                    Throw
+                End Try
+                Dim Code As Integer = CInt(Response.StatusCode)
+                If Code = 206 AndAlso WantsRange Then
+                    Dim RangeStart As Long = -1
+                    Dim RangeTotal As Long = -1
+                    If TryParseContentRange(Response.Headers("Content-Range"), RangeStart, RangeTotal) AndAlso RangeStart = Existing AndAlso RangeTotal = Plan.DeclaredSize Then
+                        Plan.TotalKnown = Math.Max(Plan.TotalKnown, RangeTotal)
+                        Exit For
+                    End If
+                    '206 但起点/总长对不上：丢掉半截文件，同一次尝试内从头重下
+                    Response.Dispose() : Response = Nothing
+                    Try
+                        IO.File.Delete(Plan.TempPath)
+                    Catch
+                    End Try
+                    Existing = 0
+                    WantsRange = False
+                    Continue For
+                End If
+                If Code = 200 Then
+                    '服务器忽略 Range（或本来就没发）：整份响应从头写
+                    If Existing > 0 Then
+                        Try
+                            IO.File.Delete(Plan.TempPath)
+                        Catch
+                        End Try
+                    End If
+                    Existing = 0
+                    WantsRange = False
+                    If Response.ContentLength > 0 Then Plan.TotalKnown = Math.Max(Plan.TotalKnown, Response.ContentLength)
+                    Exit For
+                End If
+                If Code <> 206 Then Throw New IO.IOException("HTTP " & Code)
+                Exit For
+            Next
+            If Response Is Nothing Then Throw New IO.IOException("下载请求未能建立")
+            If Batch IsNot Nothing AndAlso Batch.IsCanceled(Target) Then
+                Outcome.Outcome = PluginSourceOutcome.Canceled
+                KeepTemp = UseResume
+                Return Outcome
+            End If
+            If Plan.DeclaredSize <= 0 AndAlso Response.ContentLength > 0 Then
+                Plan.TotalKnown = Math.Max(Plan.TotalKnown, Existing + Response.ContentLength)
+            End If
+            Output = New IO.FileStream(Plan.TempPath, If(Existing > 0, IO.FileMode.Append, IO.FileMode.Create), IO.FileAccess.Write, IO.FileShare.None)
+            Dim ThisSource As Long = Existing
             Using Input = Response.GetResponseStream()
                 Dim Buffer(81919) As Byte
-                Dim ThisSource As Long = 0
                 While True
                     If Ctx.Cancelled Then Throw New OperationCanceledException()
+                    If Batch IsNot Nothing AndAlso Batch.IsCanceled(Target) Then
+                        Outcome.Outcome = PluginSourceOutcome.Canceled
+                        KeepTemp = UseResume
+                        Return Outcome
+                    End If
                     Dim Read = Input.Read(Buffer, 0, Buffer.Length)
                     If Read <= 0 Then Exit While
                     '按实际接收字节计量（含之后被丢弃的字节）：恰好到上限允许，多 1 字节即 TooLarge
@@ -5497,9 +5781,24 @@ Public Class PluginHost
             End Using
             Output.Dispose() : Output = Nothing
             Response.Dispose() : Response = Nothing
+            Dim FinalLength As Long = New IO.FileInfo(Plan.TempPath).Length
+            If Plan.DeclaredSize > 0 AndAlso FinalLength <> Plan.DeclaredSize Then
+                If FinalLength < Plan.DeclaredSize Then
+                    '没下完：Resume 时保留临时文件供下次续传
+                    KeepTemp = UseResume
+                    Outcome.Outcome = PluginSourceOutcome.Retryable
+                    Outcome.Message = $"只收到 {FinalLength}/{Plan.DeclaredSize} 字节"
+                    Return Outcome
+                End If
+                KeepTemp = False
+                Outcome.Outcome = PluginSourceOutcome.Retryable
+                Outcome.Message = $"实际长度 {FinalLength} 字节与声明的 {Plan.DeclaredSize} 字节不符"
+                Return Outcome
+            End If
             If Not String.IsNullOrWhiteSpace(Plan.Sha1) Then
                 Dim ActualHash = CryptographyUtils.ComputeFileHash(Plan.TempPath, CryptographyUtils.HashMethod.Sha1)
                 If Not String.Equals(ActualHash, Plan.Sha1, StringComparison.OrdinalIgnoreCase) Then
+                    KeepTemp = False
                     Outcome.Outcome = PluginSourceOutcome.HashMismatch
                     Outcome.Message = "SHA-1 与请求不符（实际 " & ActualHash & "）"
                     Return Outcome
@@ -5512,11 +5811,14 @@ Public Class PluginHost
             Outcome.Outcome = PluginSourceOutcome.Ok
             Return Outcome
         Catch ex As OperationCanceledException
+            KeepTemp = UseResume
             Outcome.Outcome = PluginSourceOutcome.Canceled
         Catch ex As UnauthorizedAccessException
+            KeepTemp = False
             Outcome.Outcome = PluginSourceOutcome.Denied
             Outcome.Message = "重定向到了白名单外的主机：" & ex.GetBaseException().Message
         Catch ex As Net.WebException
+            KeepTemp = UseResume
             Dim Code As Integer = 0
             Try
                 If ex.Response IsNot Nothing Then Code = CInt(CType(ex.Response, Net.HttpWebResponse).StatusCode)
@@ -5525,10 +5827,12 @@ Public Class PluginHost
             Outcome.Message = If(Code > 0, $"HTTP {Code}", ex.GetBaseException().Message)
             If Code = 404 OrElse Code = 410 OrElse (Code >= 400 AndAlso Code < 500 AndAlso Code <> 408 AndAlso Code <> 429) Then
                 Outcome.Outcome = PluginSourceOutcome.Deterministic
+                KeepTemp = False
             Else
                 Outcome.Outcome = PluginSourceOutcome.Retryable
             End If
         Catch ex As IO.IOException
+            KeepTemp = UseResume
             If ex.Message.StartsWith(TooLargeMarker, StringComparison.Ordinal) Then
                 Outcome.Outcome = PluginSourceOutcome.TooLarge
                 Outcome.Message = ex.Message.Substring(TooLargeMarker.Length)
@@ -5537,6 +5841,7 @@ Public Class PluginHost
                 Outcome.Message = ex.GetBaseException().Message
             End If
         Catch ex As Exception
+            KeepTemp = UseResume
             Outcome.Outcome = PluginSourceOutcome.Retryable
             Outcome.Message = ex.GetBaseException().Message
         Finally
@@ -5552,7 +5857,7 @@ Public Class PluginHost
                 Catch
                 End Try
             End If
-            If Outcome.Outcome <> PluginSourceOutcome.Ok Then
+            If Outcome.Outcome <> PluginSourceOutcome.Ok AndAlso Not KeepTemp Then
                 Try
                     If IO.File.Exists(Plan.TempPath) Then IO.File.Delete(Plan.TempPath)
                 Catch
@@ -5560,6 +5865,26 @@ Public Class PluginHost
             End If
         End Try
         Return Outcome
+    End Function
+
+    ''' <summary>3.10.7：解析 Content-Range（bytes 起点-终点/总长）；格式不对或总长为 * 返回 False。</summary>
+    Private Function TryParseContentRange(Value As String, ByRef Start As Long, ByRef Total As Long) As Boolean
+        Start = -1
+        Total = -1
+        If String.IsNullOrWhiteSpace(Value) Then Return False
+        Dim V = Value.Trim()
+        If Not V.StartsWith("bytes ", StringComparison.OrdinalIgnoreCase) Then Return False
+        Dim Spec = V.Substring(6).Trim()
+        Dim Slash As Integer = Spec.IndexOf("/"c)
+        If Slash <= 0 Then Return False
+        Dim RangePart = Spec.Substring(0, Slash).Trim()
+        Dim TotalPart = Spec.Substring(Slash + 1).Trim()
+        If TotalPart = "*" Then Return False
+        Dim Dash As Integer = RangePart.IndexOf("-"c)
+        If Dash <= 0 Then Return False
+        If Not Long.TryParse(RangePart.Substring(0, Dash).Trim(), Start) Then Return False
+        If Not Long.TryParse(TotalPart, Total) Then Return False
+        Return Start >= 0 AndAlso Total > 0
     End Function
 
     ''' <summary>3.10.3：进度只在状态或字节数变化时回调；下载中最多 200ms 一次，避免刷屏。</summary>
@@ -5886,7 +6211,7 @@ Public Class PluginHost
     ''' <summary>
     ''' 按允许列表逐跳校验重定向（v7.4，安全审计 V4）。最多 5 跳，每一跳都重新校验主机。
     ''' </summary>
-    Private Function OpenHttp(Url As String) As Net.HttpWebResponse
+    Private Function OpenHttp(Url As String, Optional OnRequest As Action(Of Net.HttpWebRequest) = Nothing) As Net.HttpWebResponse
         Dim Current = Url
         For Hop As Integer = 1 To 5
             EnsureHostAllowed(Info, Current)
@@ -5895,6 +6220,12 @@ Public Class PluginHost
             Request.Timeout = 15000
             Request.ReadWriteTimeout = 15000
             Request.UserAgent = "PCLHarness-Plugin/" & ApiVersionUi
+            If OnRequest IsNot Nothing Then
+                Try
+                    OnRequest(Request)
+                Catch
+                End Try
+            End If
             Dim Response = CType(Request.GetResponse(), Net.HttpWebResponse)
             Dim Code = CInt(Response.StatusCode)
             If Code = 301 OrElse Code = 302 OrElse Code = 303 OrElse Code = 307 OrElse Code = 308 Then

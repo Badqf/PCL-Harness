@@ -27,6 +27,12 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 484 Then 'PCL Harness 3.10.7
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件批量下载支持断点续传——设置 PluginDownloadOptions.Resume 后，下载中断会在目标位置留下 .pcldownload 半截文件，下次从断点继续；服务器忽略范围请求或内容长度变化时自动退回整份重下。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "新增: PluginTaskHandle.CancelFile 可以只取消一个文件——排队中的直接跳过，正在下载的立即中断，同批其它文件照常完成；旧的单 URL 下载路径不支持逐文件取消。"))
+            End If
             If LastVersion < 483 Then 'PCL Harness 3.10.6
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "优化: 插件改为按依赖层并行加载（每层最多 4 个同时进行），依赖顺序与 OnLoad 10 秒超时都不变，启动等待时间从所有插件耗时之和降到依赖链上最长的一环。"))

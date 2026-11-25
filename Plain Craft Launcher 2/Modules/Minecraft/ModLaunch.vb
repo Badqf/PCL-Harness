@@ -875,7 +875,7 @@ LoginFinish:
             $"$尚未配置微软登录的客户端 ID（Client ID），正版登录无法进行。{vbCrLf}" &
             $"把 Azure 应用的客户端 ID 填进 {vbLQ}PCL\Secrets.json{vbRQ} 的 {vbLQ}MsClientId{vbRQ} 字段，" &
             $"或设置环境变量 PCL_MS_CLIENT_ID，重启启动器后生效。{vbCrLf}" &
-            $"注册步骤见 MODS-ROUND2.md 第 16 节。")
+            $"注册步骤见 README 的「微软登录」说明。")
     End Sub
 
     Private Function MsLoginStep1New(Data As LoaderTask(Of McLoginMs, McLoginResult)) As (OAuthAccessToken As String, OAuthRefreshToken As String)
