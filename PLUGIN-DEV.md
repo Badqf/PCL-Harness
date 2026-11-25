@@ -73,15 +73,37 @@ End Class
 
 ## 2. 权限模型
 
-`plugin.json` 的 `permissions` 决定插件能做什么。**没写 `permissions` = 没有任何权限**（v7.4 起，旧插件同样需要声明；调用受保护的接口会抛 `UnauthorizedAccessException`）；写了之后按声明限制：
+`plugin.json` 的 `permissions` 决定插件能做什么。**没写 `permissions`（或写成空数组）= 没有任何权限**（v7.4 起；`minApiVersion` 为 5、6 的老插件同样如此）：界面扩展（`ui`）、事件订阅（`events`）也不会生效，调用受保护的接口会抛 `UnauthorizedAccessException`。
 
-| 权限 | 允许的 API |
-| --- | --- |
-| `net` | `Host.HttpGetString` / `Host.HttpDownload`；v5 可再用 `net.hosts` 收缩到域名白名单 |
-| `files` | 读写文件；v5 可再用 `files.read` / `files.write` 收缩到路径白名单。没有该权限时只能访问 `Host.DataFolder` 与当前版本目录 |
-| `args` | `Host.AppendJvmArgs` / `Host.AppendGameArgs` |
+下面这张表是宿主**实际校验**的全部权限名（大小写不敏感）：
 
-> 权限名以宿主实际校验的字符串为准：**`files`（复数）、`net`、`args`**。`file`（单数）、`ui`、`process`、`events` 都不会被校验——写了既不报错也不产生任何限制；事件订阅、内嵌卡片、状态栏组件本身不需要权限。
+| 权限 | 风险 | 允许的 API |
+| --- | --- | --- |
+| `ui` | 低 | 添加页面、标题栏入口、设置项与卡片（`IPclPluginUi` / `IPclPluginUi2`） |
+| `events` | 低 | 订阅事件总线与 `IPclPluginEvents` 回调；不声明时宿主不会调用你的事件方法 |
+| `files` | 低 | 按 `files.read` / `files.write` 白名单读写文件；不声明时只能读写 `Host.DataFolder` 与只读当前实例目录 |
+| `net` | 低 | `Host.HttpGetString` / `Host.HttpDownload` / `Host.HttpDownloadResult`；可用 `net.hosts` 收缩到域名白名单 |
+| `args` | 中 | `Host.AppendJvmArgs` / `Host.AppendGameArgs` |
+| `plugins` | 中 | `Host.Plugins`：查看、安装、启用、禁用、卸载其他插件 |
+| `net.dynamic` | 中 | 运行时申请 `net.hosts` 之外的主机（弹窗询问，可撤销） |
+| `skin` | 中 | `Host.SetBuiltInSkin` / `Host.SetLocalSkin` |
+| `instance.install` | 中 | `Host.InstallContent`：往 mods / resourcepacks / shaderpacks / datapacks 写入 |
+| `instance.select` | 中 | `Host.SelectInstance`：切换当前实例 |
+| `mods.read` | 低 | `Host.ListContents` / `ListMods` / `ListResourcePacks` / `ListShaderPacks` |
+| `mods.write` | 中 | `Host.SetContentEnabled` / `SetModEnabled` / `SetResourcePackEnabled` / `SetShaderPackEnabled` |
+| `instance.read` | 低 | `Host.InstanceInfo` / `ListInstances` / `SelectedInstance` / `InspectModpack` |
+| `instance.write` | 中 | `Host.WriteInstanceFile`；以及往当前实例目录写文件（v9.1 起必需） |
+| `logs.read` | 低 | `Host.ListLogs` / `Host.ReadLog` |
+| `launch` | 中 | `Host.LaunchGame` |
+| `account` | 中 | `Host.AccountInfo` |
+| `settings.global` | 中 | `Host.GetGlobalSetting`（只读） |
+| `modpack.install` | 中 | `Host.InstallModpack` |
+| `modpack.export` | 中 | `Host.ExportModpack` |
+| `process` | **高** | 启动外部进程（每次启动都会弹出高风险确认） |
+
+> - 子域写法：`files` 可写成对象 `{"read": [...], "write": [...]}`，`net` 可写成 `{"hosts": [...]}`；空列表表示「该方向一律拒绝」，键名拼错同样得到空列表（失败而不是放行）。
+> - 没列在上面的名字（例如 `file` 单数、`models`、`mods`、`models.read`）**不会被识别**：写了既不报错，也不产生任何权限，等同于没写。
+> - 事件订阅、内嵌卡片、状态栏组件需要的是 `ui` / `events` 权限本身，不存在单独的「界面权限」。
 
 插件页「已发现的插件」会直接显示 `权限：…` 与 `依赖：…`，方便排查。
 
@@ -99,6 +121,12 @@ End Class
 | `IPclPluginDownload` | 下载开始/结束（v4） |
 | `IPclPluginClosing` | 拦截启动器关闭（v4，返回 True 取消关闭） |
 | `IPclPluginUi2` | 主页卡片、设置页卡片、状态栏组件（v4） |
+| `IPclPluginModpack` | 整合包安装结束事件（v9） |
+| `IPclPluginDownloads` | `DownloadFiles` 结束后的批量结果事件（v10） |
+| `IPclPluginDownloadProgress` | 逐文件下载进度（v10.1） |
+| `IPclPluginServerSync` | 开服前 15 秒 / 开服后 5 秒的同步钩子（v10.1） |
+
+> `IPclPluginDownload`（单数）是 v4 的「下载开始/结束」旧钩子；`IPclPluginDownloads`（复数）是 v10 批量下载的完成事件，两者不是一回事。
 
 所有可选接口的方法都必须实现，**不关心的方法留空体**即可。
 
@@ -387,6 +415,35 @@ DemoPlugin/
 
 **插件目录放好了，插件页却看不到 / 日志里没有插件行？**
 确认 `plugin.json` 和 DLL 都在 `PCLHarness\Plugins\<id>\` 这一层（不能多套一层）；新插件默认停用，要在插件页点启用才会加载。若目录里没有 `plugin.json` 或清单解析失败，启动器日志现在也会明确写出来。
+
+## API v1–v4（历史版本）
+
+v1–v4 的接口至今仍然有效，只是早期没有单独成章。按时间顺序：
+
+**v1（3.0.0 首轮，无独立文档）**
+
+- 最小框架：`plugin.json`（`id` / `name` / `version` / `author` / `description` / `entry` / `dll`）、`IPclPlugin.OnLoad(Host)` / `OnUnload()`、基础宿主（日志、左下角提示、`DataFolder`）。
+- 插件只在 `OnLoad` 拿到一次控制权，没有界面与事件接口。
+
+**v2（文档 §7）**
+
+- `IPclPluginUi`：`GetPages`（自定义页面）、`GetNavItems`（标题栏入口）、`GetSettings`（设置项）；类型 `PluginPageInfo` / `PluginNavItem` / `PluginSetting`（`Boolean` / `Text`）。
+- 设置持久化到 `PCLHarness\Plugins\plugins.settings.json`。
+- 插件页面由 `PagePluginHost` 包一层再交给页面切换动画；标题栏入口用 tag 100–199 路由。
+
+**v3（文档 §17）**
+
+- `IPclPluginEvents`：`OnLauncherReady` / `OnPageChanged` / `OnGameLaunching`（可向 `Info.ExtraJvmArgs` / `ExtraGameArgs` 追加参数）/ `OnGameLaunched`（`Info.ProcessId` 可用）。
+- 设置类型增加 `Number`（`MinValue` / `MaxValue`）与 `Choice`（`Options`）。
+- Host：`InstanceName` / `InstanceFolder` / `PlayerName` / `Navigate(Page)` / `RunInUi` / `RunLater`。
+
+**v4（3.1.x）**
+
+- 清单：`permissions`、`deps`；依赖拓扑排序、缺失/循环报错、`plugin.json` 与 DLL 变化后约 1 秒热重载。
+- 新接口：`IPclPluginLifecycle`（游戏退出 / 实例切换 / 主题切换）、`IPclPluginLink`（联机建房/加入/断开）、`IPclPluginDownload`（下载开始/结束）、`IPclPluginClosing`（拦截关闭）、`IPclPluginUi2`（主页卡片 / 设置页卡片 / 状态栏组件）。
+- Host：`ThemeIsDark` / `ThemeHue` / `ShowNotification` / `HasPermission` / `ReadTextFile` / `WriteTextFile` / `FileExists` / `HttpGetString` / `HttpDownload` / `AppendJvmArgs` / `AppendGameArgs`。
+
+> v4 的 `permissions` 只是字符串声明，v7 起才真正拦截；v7.4 起「不声明 = 零权限」。
 
 ## API v5（历史版本）
 
@@ -801,8 +858,8 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 | `events` | 低 | 订阅启动器事件（含事件总线） |
 | `files` | 低 | 按 `files.read` / `files.write` 白名单读写文件 |
 | `net` | 低 | 访问 `net.hosts` 里声明的主机 |
-| `args` | 低 | 追加 JVM / 游戏参数 |
-| `models` 等原有权限 | 低 | 见 6.7 |
+| `args` | **中** | 追加 JVM / 游戏参数（可注入 `-javaagent`，v7.4 起归中风险） |
+| `process` | **高** | 启动外部进程（每次启动都会弹出高风险确认） |
 | `instance.read` | 低 | 读实例名称、加载器、版本、目录、模组数量 |
 | `logs.read` | 低 | 读游戏日志与崩溃报告 |
 | `skin` | **中** | 改离线皮肤（会改变游戏内外观） |
@@ -815,6 +872,8 @@ Host.Events.On("插件安装", Sub(PluginId As String, Version As String)
 | `settings.global` | **中** | 读启动器全局设置（只读） |
 | `plugins` | 中 | 管理其他插件（见 6.11） |
 | `net.dynamic` | 中 | 运行时申请 `net.hosts` 之外的主机 |
+
+> 这张表只列 v7 当轮落地的权限；v7.3 新增的 `instance.select`、`mods.read`、`mods.write` 见 6.13，v8–v10 没有新增权限。
 
 **风险窗分级：高风险红、中风险黄（v3.7.7 起，v3.7.8 起不再重复确认）**
 
