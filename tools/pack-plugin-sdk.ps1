@@ -16,7 +16,7 @@
     zip 输出目录，默认仓库根目录的上一级。
 
 .EXAMPLE
-    powershell -ExecutionPolicy Bypass -File tools\pack-plugin-sdk.ps1
+    pwsh -ExecutionPolicy Bypass -File tools\pack-plugin-sdk.ps1   # 没有 pwsh 时用 powershell.exe
 #>
 [CmdletBinding()]
 param(

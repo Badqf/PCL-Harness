@@ -13,7 +13,7 @@
     输出文件路径，默认为插件文件夹同级目录下的 <id>-<version>.pclplugin。
 
 .EXAMPLE
-    powershell -NoProfile -File tools\pack-plugin.ps1 -Project samples\InstanceMenu
+    pwsh -NoProfile -File tools\pack-plugin.ps1 -Project samples\InstanceMenu   # 没有 pwsh 时用 powershell.exe
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Project,

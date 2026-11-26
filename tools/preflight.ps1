@@ -31,7 +31,8 @@
     so a forgotten bump is caught in the first second instead of after the network probe.
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools\preflight.ps1
+    pwsh -NoProfile -ExecutionPolicy Bypass -File tools\preflight.ps1
+    # 没有 pwsh 的机器把 pwsh 换成 powershell.exe；两种解释器都会解析一遍全部脚本
 #>
 [CmdletBinding()]
 param(
@@ -43,6 +44,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+
+# 执行器双模：有 pwsh 7 就用它跑 build.ps1 和交叉语法检查，没有则回退 5.1
+$pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($pwshCommand) { $script:PowerShellExe = $pwshCommand.Source; $pwshVersion = $pwshCommand.Version
+    if ($pwshVersion -and $pwshVersion.Major -ge 7) { $script:PowerShellLabel = 'pwsh ' + $pwshVersion } else { $script:PowerShellLabel = 'pwsh 7' } }
+else { $script:PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'; $script:PowerShellLabel = 'Windows PowerShell 5.1' }
+
 $fail = 0
 $warn = 0
 
@@ -123,7 +131,8 @@ else { Fail 'site text files' ('CRLF or BOM in: ' + ($bad -join ', ')) }
 # ---------------------------------------------------------------- 3 parse
 Section 'powershell parse'
 $parseBad = 0
-foreach ($ps in (Get-ChildItem (Join-Path $root 'tools') -Filter *.ps1) + (Get-Item (Join-Path $root 'build.ps1') -ErrorAction SilentlyContinue)) {
+$parseFiles = @(Get-ChildItem (Join-Path $root 'tools') -Filter *.ps1) + @(Get-Item (Join-Path $root 'build.ps1') -ErrorAction SilentlyContinue)
+foreach ($ps in $parseFiles) {
     if (-not $ps -or -not (Test-Path $ps.FullName)) { continue }
     $errors = $null
     [void][System.Management.Automation.Language.Parser]::ParseFile($ps.FullName, [ref]$null, [ref]$errors)
@@ -132,7 +141,34 @@ foreach ($ps in (Get-ChildItem (Join-Path $root 'tools') -Filter *.ps1) + (Get-I
         $parseBad++
     }
 }
-if ($parseBad -eq 0) { Pass 'all scripts' 'parse clean' }
+if ($parseBad -eq 0) { Pass 'all scripts' ("parse clean (host: PowerShell {0})" -f $PSVersionTable.PSVersion) }
+
+# 双模交叉检查：5.1 与 7 的语法集不同（??、三元、-Parallel），只在一个版本上干净不算干净。
+$otherExe = $null; $otherLabel = $null
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $legacy = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (Test-Path $legacy) { $otherExe = $legacy; $otherLabel = 'Windows PowerShell 5.1' }
+} elseif ($pwshCommand) {
+    $otherExe = $pwshCommand.Source; $otherLabel = $script:PowerShellLabel
+}
+if ($otherExe) {
+    $probe = Join-Path $env:TEMP 'pcl-parse-probe.ps1'
+    $probeLines = @(
+        '$bad = 0'
+        'foreach ($p in $args) {'
+        '    $errors = $null'
+        '    [void][System.Management.Automation.Language.Parser]::ParseFile($p, [ref]$null, [ref]$errors)'
+        '    if ($errors -and $errors.Count -gt 0) { Write-Output ($p + '': '' + $errors[0].Message); $bad++ }'
+        '}'
+        'if ($bad -eq 0) { Write-Output ''CLEAN'' }'
+    )
+    [IO.File]::WriteAllText($probe, ($probeLines -join "`n"), (New-Object Text.UTF8Encoding($false)))
+    $paths = @($parseFiles | Where-Object { $_ -and (Test-Path $_.FullName) } | ForEach-Object { $_.FullName })
+    $lines = @(& $otherExe -NoProfile -ExecutionPolicy Bypass -File $probe @paths 2>&1 | ForEach-Object { "$_" })
+    Remove-Item $probe -ErrorAction SilentlyContinue
+    if ($lines.Count -eq 1 -and $lines[0] -eq 'CLEAN') { Pass 'all scripts' ("parse clean ({0})" -f $otherLabel) }
+    else { Fail 'all scripts' (("{0}: " -f $otherLabel) + (($lines | Where-Object { $_ -ne 'CLEAN' }) -join '; ')) }
+}
 
 # ---------------------------------------------------------------- 4 versions
 Section 'version consistency'
@@ -205,7 +241,7 @@ else { Fail 'tracked files' ('token-like string in: ' + ($hits -join ', ')) }
 if ($Build) {
     Section 'build'
     $log = Join-Path $env:TEMP 'preflight-build.log'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build.ps1') *> $log
+    & $script:PowerShellExe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build.ps1') *> $log
     $code = $LASTEXITCODE
     $errs = @(Select-String -Path $log -Pattern ': error ')
     if ($code -eq 0 -and $errs.Count -eq 0) { Pass 'build.ps1' ("exit 0, log " + $log) }

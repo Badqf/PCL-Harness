@@ -17,11 +17,11 @@
     `git ls-remote` 把候选 IPv4 逐个探测，取第一个真能拉通仓库的再用。
 
     用法：
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -Notes @("优化: ……","修复: ……")
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun     # 只做预检与网络探测
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun -ForceResolve   # 强制演练降级通道
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -NoPin      # 推荐：不碰 hosts，直连本地中继
-        # 本机只有 Windows PowerShell 5.1（没有 pwsh 7），所以统一用 powershell.exe 执行
+        pwsh -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -Notes @("优化: ……","修复: ……")
+        pwsh -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun     # 只做预检与网络探测
+        pwsh -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -DryRun -ForceResolve   # 强制演练降级通道
+        pwsh -NoProfile -ExecutionPolicy Bypass -File tools\release.ps1 -Version 3.9.4 -NoPin      # 推荐：不碰 hosts，直连本地中继
+        # 执行器双模：有 pwsh 7 就用 pwsh，没有则回退 Windows PowerShell 5.1；调用 preflight/build 时沿用同一个解释器
 
 .NOTES
     前置（脚本会自己检查并报错）：
@@ -33,8 +33,8 @@
       * 资产名用字面文件名（?name=PCL-Harness.exe），先复制到 %TEMP% 保住空格
       * Release 正文用 UTF-8 字节 + charset=utf-8，否则中文变问号
       * 只把二进制挂在最新一版
-    编码：本文件必须 UTF-8 **带 BOM** + CRLF（本机只有 Windows PowerShell 5.1，
-          按 ANSI 读无 BOM 脚本会把中文和引号读坏）。
+    编码：本文件保持 UTF-8 **带 BOM** + CRLF。pwsh 7 能读无 BOM，但回退到 5.1 时
+          按 ANSI 读无 BOM 脚本会把中文和引号读坏，所以 BOM 不能去掉。
 #>
 [CmdletBinding()]
 param(
@@ -51,6 +51,17 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 执行器双模：优先 pwsh 7，没有则回退 Windows PowerShell 5.1（调用 preflight 时沿用）
+$pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
+if ($pwshCommand) {
+    $script:PowerShellExe = $pwshCommand.Source
+    $pwshVersion = $pwshCommand.Version
+    if ($pwshVersion -and $pwshVersion.Major -ge 7) { $script:PowerShellLabel = 'pwsh ' + $pwshVersion } else { $script:PowerShellLabel = 'pwsh 7' }
+} else {
+    $script:PowerShellExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $script:PowerShellLabel = 'Windows PowerShell 5.1'
+}
 
 # ---------------------------------------------------------------- 常量
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -502,7 +513,7 @@ if (-not $SkipPreflight) {
     $preflightPath = Join-Path $PSScriptRoot 'preflight.ps1'
     if (-not (Test-Path $preflightPath)) { throw "找不到 $preflightPath；确认 tools 目录完整，或用 -SkipPreflight 跳过" }
     Write-Host '[0/8] 本地预检（编码 / 版本 / 属性 / 密钥）' -ForegroundColor Cyan
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $preflightPath -AllowDirty -SkipArtifacts -ExpectVersion $Version
+    & $script:PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $preflightPath -AllowDirty -SkipArtifacts -ExpectVersion $Version
     if ($LASTEXITCODE -ne 0) { throw 'preflight 未通过：先修掉上面列出的问题再发版（-SkipPreflight 可绕过，但要写清理由）' }
     Ok '本地预检通过'
 }
