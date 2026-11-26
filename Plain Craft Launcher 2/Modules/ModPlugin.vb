@@ -1591,10 +1591,21 @@ Public Module ModPlugin
             CopyFolder(D, IO.Path.Combine(TargetDir, IO.Path.GetFileName(D)))
         Next
     End Sub
+    ''' <summary>内置默认发布者公钥（与仓库 tools\publishers.json 同步）；首次运行没有 Plugins\publishers.json 时自动写入，换机后签名不会全部退化成未知发布者。</summary>
+    Private Const DefaultPublishersJson As String = "{""Badqf"":""MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE29YZGZhIulMOa0yIXjz7ZQg/BAAS85oSBwCYts8h+wumv/vAQsT3Q5usZqzQZDf+Dw/gLm+bcPzsDkb8aJ0S4g==""}"
     ''' <summary>读取本地发布者公钥表（Plugins\publishers.json：{"发布者名":"base64(SPKI DER)"}）。</summary>
     Private Sub LoadTrustedPublishers()
         TrustedPublishers.Clear()
         Try
+            If Not IO.File.Exists(PathPublishersFile) Then
+                'v10.6（3.10.8）：首次运行落盘内置公钥，避免换机后已签名插件全部变成未知发布者
+                Try
+                    IO.Directory.CreateDirectory(PathPluginRoot)
+                    IO.File.WriteAllText(PathPublishersFile, DefaultPublishersJson, New Text.UTF8Encoding(False))
+                Catch ex As Exception
+                    Logger.Warn("写入默认插件发布者公钥失败：" & ex.GetBaseException().Message)
+                End Try
+            End If
             If Not IO.File.Exists(PathPublishersFile) Then Return
             Dim Json = JObject.Parse(IO.File.ReadAllText(PathPublishersFile, Encoding.UTF8))
             For Each Prop In Json.Properties()

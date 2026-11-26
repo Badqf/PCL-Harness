@@ -27,6 +27,12 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 485 Then 'PCL Harness 3.10.8
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 启用未签名或发布者未知的插件时一定会给出说明——零权限插件改为确认框，已确认过权限的插件在提示条里标注未签名/发布者未受信任，不会再悄悄启用。"))
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "优化: 首次运行自动生成 Plugins\publishers.json（内置官方发布者公钥），换机或重装后已签名插件不会全部变成未知发布者。"))
+            End If
             If LastVersion < 484 Then 'PCL Harness 3.10.7
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件批量下载支持断点续传——设置 PluginDownloadOptions.Resume 后，下载中断会在目标位置留下 .pcldownload 半截文件，下次从断点继续；服务器忽略范围请求或内容长度变化时自动退回整份重下。"))

@@ -514,45 +514,57 @@ Public Class PagePlugin
                                        'v7.2.1：风险窗已经把权限逐条列清楚了，这里直接记为已确认，不再弹一次权限确认框
                                        ModPlugin.TrustPlugin(Info)
                                    End If
-                                   If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
-                                       'v7.5（安全审计 3.8 R5）：零权限插件什么都做不了，改为一条提示，不弹模态框打扰
-                                       If Info.Permissions.Count = 0 Then
-                                           Hint($"{Info.DisplayName} 未声明任何权限：它无法读写文件、联网或启动游戏", HintType.Blue)
-                                       Else
-                                           Dim Lines As New List(Of String)
-                                           Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
-                                           Lines.Add("")
-                                           For Each Perm In Info.Permissions.OrderBy(Function(P) P)
-                                               Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
-                                           Next
-                                           Lines.Add("")
-                                           Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
-                                           'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
-                                           Select Case Info.SignatureStatus
-                                               Case ModPlugin.PluginSignatureStatus.Signed
-                                                   Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
-                                                   Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
-                                               Case ModPlugin.PluginSignatureStatus.UnknownPublisher
-                                                   Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
-                                               Case ModPlugin.PluginSignatureStatus.Invalid
-                                                   Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
-                                               Case Else
-                                                   Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
-                                           End Select
-                                           Lines.Add("")
-                                           Lines.Add("确认后会记住这个插件当前的权限；权限或作用域有变化时会再次询问。")
-                                           Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
-                                           If Choice <> 1 Then
-                                               Chk.Checked = False
-                                               Return
-                                           End If
-                                           'v7.5（安全审计 3.8 R5）：点一次「仍然启用」就记住；想撤销请点卡片上的「重新确认权限」
-                                           ModPlugin.TrustPlugin(Info)
-                                       End If
-                                   End If
-                                   Try
+                                    If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
+                                        'v10.6（3.10.8）：零权限插件也弹确认框；未签名/未知发布者在这里把来源讲清楚，不再只闪一条提示
+                                        Dim Lines As New List(Of String)
+                                        If Info.Permissions.Count = 0 Then
+                                            Lines.Add($"插件「{Info.DisplayName}」没有声明任何权限：它无法读写文件、联网或启动游戏。")
+                                        Else
+                                            Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
+                                            Lines.Add("")
+                                            For Each Perm In Info.Permissions.OrderBy(Function(P) P)
+                                                Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
+                                            Next
+                                        End If
+                                        Lines.Add("")
+                                        Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
+                                        'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
+                                        Select Case Info.SignatureStatus
+                                            Case ModPlugin.PluginSignatureStatus.Signed
+                                                Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
+                                                Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
+                                            Case ModPlugin.PluginSignatureStatus.UnknownPublisher
+                                                Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
+                                            Case ModPlugin.PluginSignatureStatus.Invalid
+                                                Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
+                                            Case Else
+                                                Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
+                                        End Select
+                                        Lines.Add("")
+                                        Lines.Add("确认后会记住这个插件当前的权限；权限或作用域有变化时会再次询问。")
+                                        Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
+                                        If Choice <> 1 Then
+                                            Chk.Checked = False
+                                            Return
+                                        End If
+                                        'v7.5（安全审计 3.8 R5）：点一次「仍然启用」就记住；想撤销请点卡片上的「重新确认权限」
+                                        ModPlugin.TrustPlugin(Info)
+                                    End If
+                                    Try
                                        ModPlugin.SetEnabled(Info, Value)
-                                       Hint(Info.DisplayName & If(Value, " 已启用", " 已禁用"), If(Value, HintType.Green, HintType.Blue))
+                                        Dim SigLabel As String = ""
+                                        If Value Then
+                                            If Info.SignatureStatus = ModPlugin.PluginSignatureStatus.Unsigned Then
+                                                SigLabel = "未签名"
+                                            ElseIf Info.SignatureStatus = ModPlugin.PluginSignatureStatus.UnknownPublisher Then
+                                                SigLabel = "发布者未受信任"
+                                            End If
+                                        End If
+                                        If SigLabel <> "" Then
+                                            Hint($"{Info.DisplayName} 已启用 · {SigLabel}，请确认来源可信", HintType.Blue)
+                                        Else
+                                            Hint(Info.DisplayName & If(Value, " 已启用", " 已禁用"), If(Value, HintType.Green, HintType.Blue))
+                                        End If
                                    Catch ex As Exception
                                        Logger.Error(ex, "切换插件状态失败", LogBehavior.Toast)
                                    End Try

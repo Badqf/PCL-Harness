@@ -87,3 +87,6 @@ site-src/**/*.js     text eol=lf
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# tools/publishers.json mirrors the seeded publisher key; keep it LF like the docs.
+tools/publishers.json text eol=lf
