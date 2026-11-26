@@ -2,9 +2,18 @@
  * site.config.js —— PCL Harness 站点内容
  * ----------------------------------------------------------------------------
  * 结构遵循模板约定：改这一个文件就能换文案，不需要动 index.html 和 style.css。
- * 所有数字来自 3.10.6 的源码与发布包：21 项权限、13 个接口、
- * 6.2 MB 安装包、市场三条条目、TUN 网段 10.114.114.0/24。
+ * 版本号 / 体积 / 权限数 / 接口数来自 site-data.js（部署时自动生成）；
+ * 其余文案写死在这里。市场三条条目、TUN 网段 10.114.114.0/24。
  * ==========================================================================*/
+
+/* 运行期数据：部署时由 .github/scripts/site-data.mjs 重新生成 site-data.js，
+ * 这里只做兜底，页面永远以最新一次发布为准。 */
+var D = window.SITE_DATA || {};
+if (!window.SITE_DATA) console.warn('[site.config] site-data.js 未加载，版本与统计显示为 —');
+var V = D.version || '—';
+var SIZE = D.sizeLabel || '—';
+var PERMS = D.perms || '—';
+var IFACES = D.ifaces || '—';
 
 window.SITE = {
   /* ---------- 1. 品牌 ---------- */
@@ -16,6 +25,7 @@ window.SITE = {
 
   meta: {
     badge: '基于 PCL2 开源版',
+    version: 'v' + V,
     license: '非官方 · 保留署名',
     year: null
   },
@@ -44,6 +54,8 @@ window.SITE = {
     heroDesc: '基于 PCL2 开源版。装一个插件，启动器就多一块界面；API v10 和 SDK 都在，你自己也能写。PCL2 原有的版本、下载、Mod、账号，一个不少。',
     heroPrimary: '下载最新版',
     heroSecondary: '看它怎么装',
+    chipPerms: PERMS + ' 项权限 · 三级',
+    chipApi: 'API v10 · ' + IFACES + ' 个接口',
 
     overviewEyebrow: '产品概览',
     overviewTitle: '启动器该做的事没变，能加的东西变多了',
@@ -60,7 +72,7 @@ window.SITE = {
     featuresDesc: '插件、权限、联机、主题、目录、开发接口。',
 
     showcaseEyebrow: '界面',
-    showcaseTitle: '四个页面，都是 3.10.6 的实机截图',
+    showcaseTitle: '四个页面，都是实机截图',
     showcaseDesc: '点标签切换，截图直接用启动器窗口，没有重画。',
 
     stepsEyebrow: '怎么开始',
@@ -68,7 +80,7 @@ window.SITE = {
 
     reviewsEyebrow: '市场',
     reviewsTitle: '插件市场',
-    reviewsDesc: '条目来自社区维护的索引；版本、体积、权限都写在卡片上，装包会校验 SHA-256。',
+    reviewsDesc: '条目来自社区维护的索引；名称、版本、更新时间都写在卡片上，装包会校验 SHA-256。',
 
     contactEyebrow: '联系我们',
     contactTitle: '有问题，或想一起把它做得更好？',
@@ -81,9 +93,10 @@ window.SITE = {
 
   /* ---------- 4. Hero 数据条 ---------- */
   stats: [
-    { value: '21', label: '项权限' },
-    { value: '13', label: '个接口' },
-    { value: '6.2MB', label: '安装包' }
+    { value: V, label: '版本' },
+    { value: String(PERMS), label: '项权限' },
+    { value: String(IFACES), label: '个接口' },
+    { value: SIZE, label: '安装包' }
   ],
 
   /* ---------- 5. 功能卡片（icon: bolt / layers / puzzle / palette / shield / code / globe / spark） ---------- */
@@ -98,7 +111,7 @@ window.SITE = {
       icon: 'shield',
       tag: '权限',
       title: '权限先摊开',
-      desc: '18 项权限分三级，插件卡片上直接写清要什么。process 等同于在你的电脑上执行代码。'
+      desc: PERMS + ' 项权限分三级，插件卡片上直接写清要什么。process 等同于在你的电脑上执行代码。'
     },
     {
       icon: 'globe',
@@ -122,7 +135,7 @@ window.SITE = {
       icon: 'code',
       tag: '开发',
       title: '三样东西写插件',
-      desc: 'plugin.json、一个 DLL、一个目录。API v10 提供 13 个接口，VB 和 C# 都能写。'
+      desc: 'plugin.json、一个 DLL、一个目录。API v10 提供 ' + IFACES + ' 个接口，VB 和 C# 都能写。'
     }
   ],
 
@@ -141,7 +154,7 @@ window.SITE = {
         label: '插件管理',
         title: '每个插件，权限写在脸上',
         desc: '已发现的插件排成一行：版本、作者、权限串、最低 API、签名来源。禁用之后入口立刻消失，已下载的内容不删。',
-        bullets: ['18 项权限，低 / 中 / 高三级', '未签名会标注来源需自行确认', '导入、重新扫描、下载市场']
+        bullets: [PERMS + ' 项权限，低 / 中 / 高三级', '未签名会标注来源需自行确认', '导入、重新扫描、下载市场']
       },
       {
         id: 'market',
@@ -162,30 +175,29 @@ window.SITE = {
 
   /* ---------- 7. 使用步骤 ---------- */
   steps: [
-    { no: '01', title: '下载并解压', desc: 'Windows 10 / 11 x64，需要 .NET Framework 4.8。6,156,288 字节，免安装；首次启动会问要不要迁移旧 PCL 的设置。' },
+    { no: '01', title: '下载并解压', desc: 'Windows 10 / 11 x64，需要 .NET Framework 4.8。免安装；首次启动会问要不要迁移旧 PCL 的设置。' },
     { no: '02', title: '安装插件', desc: '打开插件市场，挑需要的装上。装完顶栏会多出对应页签，禁用不会删掉已经下载的内容。' },
     { no: '03', title: '写你自己的', desc: '建一个目录，放 plugin.json 和一个 DLL，实现 OnLoad / OnUnload；回到插件页点「重新扫描」，它就出现在列表里。' }
   ],
 
-  /* ---------- 8. 市场条目（复用评价卡版式） ---------- */
-  testimonials: [
-    {
-      quote: '提供启动器「下载」页面：安装游戏、Mod、整合包、资源包、光影包与数据包。仅申请 ui 权限。',
-      name: '下载页面',
-      role: '官方 · v1.0.1 · 3.8 KB · 2026-11-08',
-      initials: '下'
-    },
-    {
-      quote: '提供启动器「联机」页面：房间码 P2P 直连，支持虚拟局域网（TUN）模式。仅申请 ui 权限。',
-      name: '联机页面',
-      role: '官方 · v1.0.1 · 3.8 KB · 2026-11-08',
-      initials: '联'
-    },
-    {
-      quote: '在「启动」页右侧卡片里和 AI 对话：流式输出、代码块、用量显示、本地保存历史；可调用工具管理实例与模组。',
-      name: 'AI 助手',
-      role: '第三方 · v0.1.0 · 34 KB · API v7 · 15 项权限',
-      initials: 'AI'
-    }
-  ]
+  /* ---------- 8. 市场条目（复用评价卡版式） ----------
+   * 有实时索引（site-data.js 的 market）就用它，没有就退回下面这三条静态条目。
+   * 角色行里的发布者性质、版本、体积、日期，都由 CI 从市场 index.json 算出来。 */
+  testimonials: (function () {
+    var fallback = [
+      { quote: '提供启动器「下载」页面：安装游戏、Mod、整合包、资源包、光影包与数据包。仅申请 ui 权限。', name: '下载页面', role: '官方 · v1.0.1 · 3.8 KB · 2026-11-08', initials: '下' },
+      { quote: '提供启动器「联机」页面：房间码 P2P 直连，支持虚拟局域网（TUN）模式。仅申请 ui 权限。', name: '联机页面', role: '官方 · v1.0.1 · 3.8 KB · 2026-11-08', initials: '联' },
+      { quote: '在「启动」页右侧卡片里和 AI 对话：流式输出、代码块、用量显示、本地保存历史；可调用工具管理实例与模组。', name: 'AI 助手', role: '第三方 · v0.1.0 · 34 KB · API v7 · 15 项权限', initials: 'AI' }
+    ];
+    if (!D.market || !D.market.length) return fallback;
+    return D.market.map(function (m) {
+      var n = String(m.name || '').replace(/\s+/g, '');
+      return {
+        quote: m.summary || '',
+        name: m.name || '',
+        role: m.meta || '',
+        initials: n.slice(0, 2)
+      };
+    });
+  })()
 };

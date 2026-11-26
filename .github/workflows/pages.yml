@@ -5,7 +5,15 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - '.github/scripts/site-data.mjs'
       - '.github/workflows/pages.yml'
+      - 'Plain Craft Launcher 2/Modules/ModPlugin.vb'
+  # 发版后自动刷新站点上的版本号 / 体积
+  release:
+    types: [published]
+  # 兜底：市场条目或权限数变了但没动 site/ 时，每天对一次
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,13 +32,27 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # release 触发时默认会检出 tag，tag 里可能还没有 site/，所以固定用 main
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 读最新 Release 的 tag 与 .exe 体积，数 ModPlugin.vb 里的权限与接口，重写 site-data.js
+      - name: Refresh site data
+        run: node .github/scripts/site-data.mjs --repo "${{ github.repository }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      # 纯静态：site/ 就是产物，不需要 npm / 打包
+      # 纯静态：site/ 就是产物，不需要打包
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

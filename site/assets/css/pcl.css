@@ -54,3 +54,13 @@ html[data-theme="light"] {
 /* 模板里写死的青绿底，跟着新的 accent 走 */
 .check-list li::before { background: rgba(69, 182, 224, .14); }
 .pill-dot { box-shadow: 0 0 0 4px rgba(69, 182, 224, .16); }
+
+/* 6. hero 胶囊里的版本号：由 site-data.js 提供，部署时自动更新 */
+.pill-sep { opacity: .45; margin: 0 2px; }
+.pill-ver { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 7. 市场条目数量会随索引变化（3 个、4 个都常见），卡片列数跟着自适应 */
+.review-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+/* 8. 市场卡片第二行不许在日期中间断行 */
+.review-role { white-space: nowrap; overflow: hidden; }
