@@ -1,6 +1,6 @@
 # PCL Harness 插件开发指南（API v10）
 
-> 适用版本：PCL Harness 3.10.9 及以上（插件 API v10，含 v10.5 续传与逐文件取消；上游 2.14.0.0 合并后的自编版）
+> 适用版本：PCL Harness 3.10.10 及以上（插件 API v10，含 v10.5 续传与逐文件取消、v10.6 签名 v2 与依赖作用域；上游 2.14.0.0 合并后的自编版）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
@@ -626,6 +626,7 @@ End Class
   ```
 
 - DLL 哈希优先取清单 `sha256.dll`（或字符串形式的 `sha256`）；清单没写时启动器按 `dll` 字段实测补算，所以改 DLL 而不改清单同样会验签失败。
+- v10.6 起支持 **v2 签名**：清单里的 `signature2` 用 `files` 列表覆盖整包 DLL（见 v10.6 节）；`tools\sign-plugin.ps1` 默认同时写 v1 与 v2，旧版本启动器仍按 v1 校验。
 - 公钥表：插件根目录下的 `Plugins\publishers.json`，格式 `{"发布者名":"Base64(SPKI DER)"}`，一个文件可放多个发布者；没有这个文件、文件为空或没有匹配的公钥时，带签名的插件显示「签名来自未知发布者」。宿主首次运行发现文件不存在会自动写入内置的官方公钥，仓库里的 `tools\publishers.json` 是同一份内容，可直接复制回插件目录。
 - 加载策略：**只有「签名无效」会拒绝加载**（说明文件或清单在签名之后被改过）。「未签名」与「签名来自未知发布者」都只是提示，是否启用由用户自己确认；签名也不替代权限确认，权限变化照旧重新询问。
 - 启用提示：未确认过权限的插件首次启用一定弹确认框（零权限插件也会列出作者与来源）；已确认过权限的插件在启用提示条里标注「未签名」或「发布者未受信任」，不会悄悄启用。
@@ -649,7 +650,7 @@ tools\sign-plugin.ps1 -PluginsRoot 'F:\PCL2-Release\PCLHarness\Plugins' -VerifyA
 
 - 私钥位置可用 `-KeyFile` 指定；`-Publishers` 可指定别的公钥表（默认取插件目录的上一级）。
 - 脚本只改 `plugin.json` 的 `signature` 字段（已有则替换），保留原有缩进与行尾，并在写回后重新解析一次 JSON。
-- 签名绑定了 `id`、`version`、DLL 字节、权限与作用域：**发布新版本、改权限、改 hosts/路径后必须重签**，否则宿主判为「签名无效」并拒绝加载。
+- 签名绑定了 `id`、`version`、DLL 字节、权限与作用域（v2 还绑定 `files` 清单里每个 DLL 的哈希）：**发布新版本、改权限、改 hosts/路径、改任何一个被清单覆盖的 DLL 之后都必须重签**，否则宿主判为「签名无效」并拒绝加载。
 - 手工签名时注意：载荷四行必须用 LF 连接、末尾不能多换行；签名要 64 字节 r‖s 的 Base64。OpenSSL `dgst -sign` 默认输出 DER（约 70–72 字节），要先转成 P1363 才能用。
 
 `publishers.json` 示例：
@@ -990,6 +991,22 @@ Handle.CancelFile("mods\a.jar")
 - 续传完成后仍以 SHA-1 终裁；取消、断线、5xx 等可恢复失败会保留 `.pcldownload`，确定性 4xx 与 SHA-1 不符会删除临时文件。
 - `PluginTaskHandle.CancelFile(RelativePath)` 只取消一个文件：排队中的直接跳过、不联网也不消耗尝试预算；正在下载的立即中断并返回 `Canceled`（消息「已按请求取消该文件」），同批其它文件继续。路径不在本批或文件已结束返回 `False`。
 - 逐文件取消只在多源/续传的顺序下载路径可用（`AltUrls` 非空或 `Resume=True`）；旧的单 URL 下载路径不支持，`CancelFile` 返回 `False`。
+
+**签名 v2 与依赖作用域（v10.6）**
+
+```json
+"signature2": {
+  "files": ["helper.dll", "main.dll"],
+  "sig": "Base64…"
+}
+```
+
+- 载荷四段（LF 连接）：`PCLPLUGIN-SIG-V2`、`id`、`version`、`权限指纹`、`filesDigest`；`filesDigest = sha256(逐行「小写相对路径 + LF + 文件 sha256 + LF」按路径排序)`。
+- 签名覆盖 `files` 里的全部 DLL（排除 `data\`、`bin\`、`obj\`、`.backup\`）。清单里列出但文件缺失或哈希不符 → 签名无效，拒绝加载。
+- 未被 `files` 覆盖的 DLL 可以留在目录里；只有插件真正加载它时才会被拒绝，插件进入「已降级」，卡片提示「签名有效，但部分依赖未被覆盖（已降级）」，其余功能可用。请用新版 `tools\sign-plugin.ps1` 重新签名（它会扫描所有 DLL 并同时写 v1/v2）。
+- 依赖解析只在该插件自己的目录里查找，插件之间不会互相借 DLL。
+- `tools\sign-plugin.ps1` 默认双签：保留 `signature`（v1，旧宿主可验）并新增 `signature2`（v2）。只面向 3.10.10+ 的插件可以只留 `signature2`。
+
 **规则**
 
 - 底层是 `ListContents(Kind, InstanceName)` / `SetContentEnabled(FileName, Enabled, Kind, InstanceName)`，`ListMods` 之类只是包装；`mods` 只认 `.jar`，`resourcepacks` / `shaderpacks` 只认 `.zip`。

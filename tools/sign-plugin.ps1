@@ -321,22 +321,46 @@ function Set-ManifestSignature([string]$ManifestPath, [string]$Signature) {
 }
 
 function Get-PluginStatus($Manifest, [string]$PublishersPath) {
+    $Sig2 = ''
+    if ($null -ne $Manifest.Json.signature2 -and $null -ne $Manifest.Json.signature2.sig) {
+        $Sig2 = ([string]$Manifest.Json.signature2.sig).Trim()
+    }
     $Signature = ''
     if ($null -ne $Manifest.Json.signature) { $Signature = ([string]$Manifest.Json.signature).Trim() }
-    if ([string]::IsNullOrWhiteSpace($Signature)) { return 'Unsigned' }
+    if ([string]::IsNullOrWhiteSpace($Sig2) -and [string]::IsNullOrWhiteSpace($Signature)) { return 'Unsigned' }
     $PublishersObject = Read-Publishers $PublishersPath
     if ($null -eq $PublishersObject) { return 'UnknownPublisher' }
     $Entries = @($PublishersObject.PSObject.Properties)
     if ($Entries.Count -eq 0) { return 'UnknownPublisher' }
-    $Payload = (Get-SignPayload $Manifest).Payload
+
+    $Payload = ''
+    $SigText = ''
+    if (-not [string]::IsNullOrWhiteSpace($Sig2)) {
+        $Listed = @()
+        if ($null -ne $Manifest.Json.signature2.files) { $Listed = @($Manifest.Json.signature2.files) }
+        if ($Listed.Count -eq 0) { return 'Invalid' }
+        $Normalized = @($Listed | ForEach-Object { ([string]$_).Replace('\', '/').ToLowerInvariant().TrimStart('/') })
+        $EntryDll = ([string]$Manifest.Json.dll).Replace('\', '/').ToLowerInvariant().TrimStart('/')
+        if ([string]::IsNullOrWhiteSpace($EntryDll)) { return 'Invalid' }
+        if ($Normalized -notcontains $EntryDll) { return 'Invalid' }
+        $Digest = Get-ListedFilesDigest $Manifest $Normalized
+        if ($null -eq $Digest) { return 'Invalid' }
+        $Fingerprint = Get-PermissionFingerprint $Manifest.Json
+        $Payload = ('PCLPLUGIN-SIG-V2' + "`n" + [string]$Manifest.Json.id + "`n" + [string]$Manifest.Json.version + "`n" + $Fingerprint + "`n" + $Digest)
+        $SigText = $Sig2
+    } else {
+        $Payload = (Get-SignPayload $Manifest).Payload
+        $SigText = $Signature
+    }
+
     $Hash = [System.Security.Cryptography.SHA256]::Create()
     try {
-        $Digest = $Hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Payload))
+        $DigestBytes = $Hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Payload))
     } finally {
         $Hash.Dispose()
     }
     try {
-        $SignatureBytes = [Convert]::FromBase64String($Signature)
+        $SignatureBytes = [Convert]::FromBase64String($SigText)
     } catch {
         return 'Invalid'
     }
@@ -344,7 +368,7 @@ function Get-PluginStatus($Manifest, [string]$PublishersPath) {
         try {
             $Ecdsa = Import-PublicKey ([string]$Entry.Value)
             try {
-                if ($Ecdsa.VerifyHash($Digest, $SignatureBytes)) { return 'Signed' }
+                if ($Ecdsa.VerifyHash($DigestBytes, $SignatureBytes)) { return 'Signed' }
             } finally {
                 $Ecdsa.Dispose()
             }
@@ -354,7 +378,83 @@ function Get-PluginStatus($Manifest, [string]$PublishersPath) {
     }
     return 'Invalid'
 }
+function Get-PluginDllFiles($Manifest) {
+    $Root = Split-Path -Parent $Manifest.Path
+    $Files = New-Object System.Collections.Generic.List[string]
+    foreach ($F in Get-ChildItem -LiteralPath $Root -Recurse -Filter *.dll -File -ErrorAction SilentlyContinue) {
+        $Rel = $F.FullName.Substring($Root.Length).TrimStart('\', '/').Replace('\', '/').ToLowerInvariant()
+        if ($Rel -match '(^|/)(bin|obj|\.backup)/') { continue }
+        if ($Rel -match '^data/') { continue }
+        $Files.Add($Rel)
+    }
+    $Files.Sort([System.StringComparer]::Ordinal)
+    return ,$Files
+}
 
+function Get-SignedFilesInfo($Manifest) {
+    $Root = Split-Path -Parent $Manifest.Path
+    $Files = Get-PluginDllFiles $Manifest
+    if ($Files.Count -eq 0) { Stop-With '插件目录里没有 DLL，无法生成 v2 签名。' }
+    $Builder = New-Object System.Text.StringBuilder
+    foreach ($Rel in $Files) {
+        $Full = Join-Path $Root ($Rel.Replace('/', '\'))
+        $Sha = Get-Sha256Hex ([System.IO.File]::ReadAllBytes($Full))
+        [void]$Builder.Append($Rel + "`n" + $Sha + "`n")
+    }
+    $Digest = Get-TextSha256Hex $Builder.ToString()
+    return [pscustomobject]@{ Files = $Files; Digest = $Digest }
+}
+
+function Get-ListedFilesDigest($Manifest, [string[]]$Listed) {
+    $Root = Split-Path -Parent $Manifest.Path
+    $Sorted = @($Listed | Sort-Object -CaseSensitive)
+    $Builder = New-Object System.Text.StringBuilder
+    foreach ($Rel in $Sorted) {
+        if ([string]::IsNullOrWhiteSpace($Rel) -or $Rel.Contains('..') -or $Rel.StartsWith('/')) { return $null }
+        $Full = Join-Path $Root ($Rel.Replace('/', '\'))
+        if (-not (Test-Path -LiteralPath $Full -PathType Leaf)) { return $null }
+        $Sha = Get-Sha256Hex ([System.IO.File]::ReadAllBytes($Full))
+        [void]$Builder.Append($Rel + "`n" + $Sha + "`n")
+    }
+    return (Get-TextSha256Hex $Builder.ToString())
+}
+
+function Get-V2Payload($Manifest, [string]$FilesDigest) {
+    $Json = $Manifest.Json
+    $Fingerprint = Get-PermissionFingerprint $Json
+    return ('PCLPLUGIN-SIG-V2' + "`n" + [string]$Json.id + "`n" + [string]$Json.version + "`n" + $Fingerprint + "`n" + $FilesDigest)
+}
+
+function New-V2Signature($Key, $Manifest) {
+    $Info = Get-SignedFilesInfo $Manifest
+    $Payload = Get-V2Payload $Manifest $Info.Digest
+    $Hash = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $Digest = $Hash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($Payload))
+    } finally {
+        $Hash.Dispose()
+    }
+    $Signature = [Convert]::ToBase64String($Key.Ecdsa.SignHash($Digest))
+    return [pscustomobject]@{ Files = $Info.Files; Digest = $Info.Digest; Signature = $Signature }
+}
+
+function Set-ManifestSignature2([string]$ManifestPath, [string[]]$Files, [string]$Signature) {
+    $Text = [System.IO.File]::ReadAllText($ManifestPath, [System.Text.Encoding]::UTF8)
+    $Eol = if ($Text.Contains("`r`n")) { "`r`n" } else { "`n" }
+    $FileJson = (@($Files) | ForEach-Object { '"' + $_ + '"' }) -join ', '
+    $Object = '{"files": [' + $FileJson + '], "sig": "' + $Signature + '"}'
+    if ($Text -match '"signature2"\s*:') {
+        $Text = [regex]::Replace($Text, '"signature2"\s*:\s*\{[^}]*\}', ('"signature2": ' + $Object))
+    } else {
+        $Index = $Text.LastIndexOf('}')
+        if ($Index -lt 0) { Stop-With '清单没有结尾的 }，无法写入 v2 签名。' }
+        $Head = $Text.Substring(0, $Index).TrimEnd()
+        $Tail = $Text.Substring($Index)
+        $Text = $Head + ',' + $Eol + '    "signature2": ' + $Object + $Eol + $Tail
+    }
+    [System.IO.File]::WriteAllText($ManifestPath, $Text, (New-Object System.Text.UTF8Encoding($false)))
+    [void]([System.IO.File]::ReadAllText($ManifestPath, [System.Text.Encoding]::UTF8) | ConvertFrom-Json)
+}
 # ---------------- 入口 ----------------
 
 if ($NewKey) {
@@ -426,6 +526,10 @@ try {
     }
     $Signature = [Convert]::ToBase64String($Key.Ecdsa.SignHash($Digest))
     Set-ManifestSignature $ManifestPath $Signature
+    #v10.6：同时写 v2 签名（覆盖整包 DLL 清单），旧宿主仍验 v1
+    $V2 = New-V2Signature $Key (Read-Manifest $ManifestPath)
+    Set-ManifestSignature2 $ManifestPath $V2.Files $V2.Signature
+    Write-Ok ('已写入 v2 签名（' + $V2.Files.Count.ToString() + ' 个 DLL，清单摘要 ' + $V2.Digest.Substring(0, 12) + '…）')
 
     Write-Host ('插件：' + (Read-Manifest $ManifestPath).Json.id)
     Write-Host ('DLL SHA-256：' + $PayloadInfo.DllSha)

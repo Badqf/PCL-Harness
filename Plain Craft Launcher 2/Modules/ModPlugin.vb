@@ -540,6 +540,14 @@ Public Module ModPlugin
         Public UpdateUrl As String = ""
         ''' <summary>签名校验结果（未签名 / 有效 / 无效 / 未知发布者）。</summary>
         Public SignatureStatus As PluginSignatureStatus = PluginSignatureStatus.Unsigned
+        ''' <summary>v10.6：v2 签名的文件清单（相对路径，正斜杠、小写）。空表示只有 v1 签名。</summary>
+        Public ReadOnly SignedFiles As New List(Of String)
+        ''' <summary>v10.6：v2 签名原文（plugin.json 的 signature2.sig）。</summary>
+        Public Signature2 As String = ""
+        ''' <summary>v10.6：加载期因依赖未被签名覆盖而降级（只拒绝该依赖，不拦整个插件）。</summary>
+        Public Degraded As Boolean
+        ''' <summary>v10.6：降级原因，供插件页显示。</summary>
+        Public DegradedReason As String = ""
         ''' <summary>最近的事件/错误记录（最多 40 条，插件页可见）。</summary>
         Public ReadOnly Events As New List(Of String)
         ''' <summary>记录一条事件日志。</summary>
@@ -1292,6 +1300,10 @@ Public Module ModPlugin
             Dim Asm As Reflection.Assembly
             Try
                 Asm = Reflection.Assembly.Load(IO.File.ReadAllBytes(DllPath))
+                'v10.6：记住入口程序集属于哪个插件目录，供依赖解析做作用域与签名覆盖检查
+                SyncLock PluginAssemblyFolders
+                    PluginAssemblyFolders(Asm) = IO.Path.GetFullPath(Info.Folder)
+                End SyncLock
             Catch ex As Exception
                 Info.[Error] = "加载失败：" & ex.GetBaseException().Message
                 Info.AddEvent("加载失败：" & ex.GetBaseException().Message)
@@ -1391,6 +1403,8 @@ Public Module ModPlugin
         Signed = 1
         Invalid = 2
         UnknownPublisher = 3
+        ''' <summary>v10.6：入口签名有效，但某个依赖 DLL 不在签名清单里，已拒绝加载该依赖（插件本身仍可运行）。</summary>
+        Degraded = 4
     End Enum
 
     Private PendingApplied As Boolean
@@ -1631,22 +1645,33 @@ Public Module ModPlugin
     End Function
 
     Public Function VerifySignature(Info As PluginInfo) As PluginSignatureStatus
-        If Info Is Nothing OrElse String.IsNullOrWhiteSpace(Info.Signature) Then Return PluginSignatureStatus.Unsigned
+        If Info Is Nothing Then Return PluginSignatureStatus.Unsigned
+        If String.IsNullOrWhiteSpace(Info.Signature) AndAlso String.IsNullOrWhiteSpace(Info.Signature2) Then Return PluginSignatureStatus.Unsigned
         If TrustedPublishers.Count = 0 Then LoadTrustedPublishers()
         If TrustedPublishers.Count = 0 Then Return PluginSignatureStatus.UnknownPublisher
-        'v7.4（安全审计 V8）：载荷必须覆盖清单（权限 + hosts + 可读写路径），
-        '否则别人可以保留合法签名、只替换 plugin.json 里的权限，把签名当摆设。
-        Dim Payload = $"{Info.Id}{vbLf}{Info.Version}{vbLf}{If(Info.DllSha256, "").ToLowerInvariant()}{vbLf}{Sha256OfText(PermissionFingerprint(Info))}"
+        Dim Payload As String
+        Dim SigText As String
+        If Not String.IsNullOrWhiteSpace(Info.Signature2) Then
+            'v10.6：v2 签名覆盖整包 DLL 清单，不再只保护入口 DLL
+            Dim FilesDigest = SignedFilesDigest(Info)
+            If FilesDigest = "" Then Return PluginSignatureStatus.Invalid
+            Payload = $"PCLPLUGIN-SIG-V2{vbLf}{Info.Id}{vbLf}{Info.Version}{vbLf}{PermissionFingerprint(Info)}{vbLf}{FilesDigest}"
+            SigText = Info.Signature2
+        Else
+            'v7.4（安全审计 V8）：载荷必须覆盖清单（权限 + hosts + 可读写路径），
+            '否则别人可以保留合法签名、只替换 plugin.json 里的权限，把签名当摆设。
+            Payload = $"{Info.Id}{vbLf}{Info.Version}{vbLf}{If(Info.DllSha256, "").ToLowerInvariant()}{vbLf}{Sha256OfText(PermissionFingerprint(Info))}"
+            SigText = Info.Signature
+        End If
         Dim Sig As Byte()
         Try
-            Sig = Convert.FromBase64String(Info.Signature.Trim())
+            Sig = Convert.FromBase64String(SigText.Trim())
         Catch
             Return PluginSignatureStatus.Invalid
         End Try
         For Each Pair In TrustedPublishers
             Try
                 Using Ecdsa = ImportP256PublicKey(Convert.FromBase64String(Pair.Value))
-
                     If Ecdsa.VerifyData(Encoding.UTF8.GetBytes(Payload), Sig, Security.Cryptography.HashAlgorithmName.SHA256) Then
                         Return PluginSignatureStatus.Signed
                     End If
@@ -1657,10 +1682,51 @@ Public Module ModPlugin
         Return PluginSignatureStatus.Invalid
     End Function
 
+    ''' <summary>v10.6：v2 签名清单里的相对路径统一成「小写、正斜杠、无前导 ./」；非法路径返回空。</summary>
+    Private Function NormalizeSignedPath(Value As String) As String
+        Dim Rel = If(Value, "").Trim().Replace("\"c, "/"c)
+        While Rel.StartsWith("./", StringComparison.Ordinal)
+            Rel = Rel.Substring(2)
+        End While
+        Rel = Rel.TrimStart("/"c)
+        If Rel = "" OrElse Rel.Contains("..") OrElse Rel.Contains(":") Then Return ""
+        Return Rel.ToLowerInvariant()
+    End Function
+
+    ''' <summary>v10.6：按 v2 规则计算清单摘要（排序后逐行「相对路径 + LF + 文件 sha256 + LF」再整体 sha256）；任一文件缺失返回空。</summary>
+    Private Function SignedFilesDigest(Info As PluginInfo) As String
+        Try
+            If Info Is Nothing OrElse Info.SignedFiles.Count = 0 Then Return ""
+            Dim Lines As New List(Of String)
+            For Each Rel In Info.SignedFiles
+                Dim Full = IO.Path.Combine(Info.Folder, Rel.Replace("/"c, IO.Path.DirectorySeparatorChar))
+                If Not IO.File.Exists(Full) Then Return ""
+                Dim H = Sha256OfFile(Full)
+                If H = "" Then Return ""
+                Lines.Add(Rel & vbLf & H & vbLf)
+            Next
+            Lines.Sort(StringComparer.Ordinal)
+            Return Sha256OfText(String.Join("", Lines))
+        Catch
+            Return ""
+        End Try
+    End Function
+
+    ''' <summary>v10.6：判断插件里某个 DLL 是否被签名覆盖（v1 只覆盖清单入口 DLL；v2 以 files 清单为准）。</summary>
+    Public Function IsDllCoveredBySignature(Info As PluginInfo, RelativePath As String) As Boolean
+        If Info Is Nothing Then Return False
+        Dim Rel = NormalizeSignedPath(RelativePath)
+        If Rel = "" Then Return False
+        If Info.SignedFiles.Count > 0 Then Return Info.SignedFiles.Contains(Rel)
+        Return String.Equals(Rel, NormalizeSignedPath(Info.DllName), StringComparison.Ordinal)
+    End Function
+
     ' ================= v7.5（安全审计 3.8 R10）：插件按字节流隔离加载 =================
 
     Private ReadOnly PluginResolverLock As New Object
     Private PluginResolverReady As Boolean
+    'v10.6：记录每个插件程序集来自哪个插件目录——依赖解析只在发起方自己的目录里找，禁止跨插件目录借 DLL
+    Private ReadOnly PluginAssemblyFolders As New Dictionary(Of Reflection.Assembly, String)()
 
     ''' <summary>注册一次依赖解析器：插件自带的其他 DLL 也从字节流加载，避免按路径复用同一份程序集。</summary>
     Private Sub EnsurePluginResolver()
@@ -1677,12 +1743,42 @@ Public Module ModPlugin
             Dim Requested = If(Args Is Nothing, "", If(Args.Name, ""))
             Dim SimpleName = Requested.Split(","c)(0).Trim()
             If SimpleName = "" Then Return Nothing
+            'v10.6：只允许从「发起方自己所在的插件目录」解析，禁止跨插件目录找同名 DLL
+            Dim OwnerFolder As String = ""
+            Dim Origin = If(Args Is Nothing, Nothing, Args.RequestingAssembly)
+            If Origin IsNot Nothing Then
+                SyncLock PluginAssemblyFolders
+                    PluginAssemblyFolders.TryGetValue(Origin, OwnerFolder)
+                End SyncLock
+            End If
+            If String.IsNullOrWhiteSpace(OwnerFolder) Then
+                Logger.Warn("拒绝跨插件解析依赖：" & Requested, LogBehavior.None)
+                Return Nothing
+            End If
+            Dim Candidate = IO.Path.Combine(OwnerFolder, SimpleName & ".dll")
+            If Not IO.File.Exists(Candidate) Then Return Nothing
+            'v10.6：签名有效的插件，依赖 DLL 必须被签名清单覆盖；没覆盖就只拒绝这个依赖并降级，不拦整个插件
+            Dim Owner As PluginInfo = Nothing
             For Each Item In Plugins.ToList()
-                If Item Is Nothing OrElse String.IsNullOrWhiteSpace(Item.Folder) Then Continue For
-                Dim Candidate = IO.Path.Combine(Item.Folder, SimpleName & ".dll")
-                If Not IO.File.Exists(Candidate) Then Continue For
-                Return Reflection.Assembly.Load(IO.File.ReadAllBytes(Candidate))
+                If Item IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(Item.Folder) AndAlso
+                   String.Equals(IO.Path.GetFullPath(Item.Folder), OwnerFolder, StringComparison.OrdinalIgnoreCase) Then
+                    Owner = Item
+                    Exit For
+                End If
             Next
+            If Owner IsNot Nothing AndAlso Owner.SignatureStatus <> PluginSignatureStatus.Unsigned AndAlso
+               Owner.SignatureStatus <> PluginSignatureStatus.Invalid AndAlso Not IsDllCoveredBySignature(Owner, SimpleName & ".dll") Then
+                Owner.Degraded = True
+                Owner.DegradedReason = "依赖 " & SimpleName & ".dll 未被签名清单覆盖，已拒绝加载；请用带 files 清单的 v2 签名重新签名。"
+                Owner.AddEvent("降级：" & Owner.DegradedReason)
+                Logger.Warn("插件「" & Owner.DisplayName & "」" & Owner.DegradedReason)
+                Return Nothing
+            End If
+            Dim DepAsm = Reflection.Assembly.Load(IO.File.ReadAllBytes(Candidate))
+            SyncLock PluginAssemblyFolders
+                PluginAssemblyFolders(DepAsm) = OwnerFolder
+            End SyncLock
+            Return DepAsm
         Catch ex As Exception
             Logger.Warn(ex, "解析插件依赖失败：" & If(Args Is Nothing, "", Args.Name))
         End Try
@@ -1920,8 +2016,19 @@ Public Module ModPlugin
             Info.Homepage = If(Json.Value(Of String)("homepage"), "").Trim()
             Info.License = If(Json.Value(Of String)("license"), "").Trim()
             Info.Signature = If(Json.Value(Of String)("signature"), "").Trim()
-            Info.UpdateUrl = If(Json.Value(Of String)("update"), "").Trim()
-            Info.SignatureStatus = VerifySignature(Info)
+            'v10.6：v2 签名（signature2）覆盖整包 DLL 清单；旧宿主会忽略它，仍按 signature 验 v1
+            Dim Sig2Token = Json("signature2")
+            If Sig2Token IsNot Nothing AndAlso Sig2Token.Type = JTokenType.Object Then
+                Info.Signature2 = If(Sig2Token.Value(Of String)("sig"), "").Trim()
+                Dim FilesToken = Sig2Token("files")
+                If FilesToken IsNot Nothing AndAlso FilesToken.Type = JTokenType.Array Then
+                    For Each F In FilesToken
+                        Dim Rel = NormalizeSignedPath(F.ToString())
+                        If Rel <> "" AndAlso Not Info.SignedFiles.Contains(Rel) Then Info.SignedFiles.Add(Rel)
+                    Next
+                    Info.SignedFiles.Sort(StringComparer.Ordinal)
+                End If
+            End If
             Dim Deps = Json.Value(Of JArray)("dependencies")
             If Deps IsNot Nothing Then
                 For Each D In Deps
@@ -1932,6 +2039,7 @@ Public Module ModPlugin
             End If
             If String.IsNullOrEmpty(Info.Id) Then Info.Id = Path.GetFileName(Folder)
             Info.HasDll = Directory.GetFiles(Folder, "*.dll").Length > 0
+            Info.SignatureStatus = VerifySignature(Info)
             Return Info
         Catch ex As Exception
             Info.[Error] = "plugin.json 解析失败：" & ex.GetBaseException().Message

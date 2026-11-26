@@ -1,4 +1,4 @@
-Imports System.ComponentModel
+﻿Imports System.ComponentModel
 Imports System.Windows.Interop
 
 Public Class FormMain
@@ -26,6 +26,10 @@ Public Class FormMain
             If LastVersion < 476 Then 'PCL Harness 3.9.12
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
+            End If
+            If LastVersion < 487 Then 'PCL Harness 3.10.10
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 插件签名支持覆盖整包 DLL 清单（v2 签名）；目录插件里未被清单覆盖的依赖会被拒绝加载，插件卡片标注「部分依赖未被覆盖（已降级）」，不再用一个入口 DLL 代表整包。"))
             End If
             If LastVersion < 486 Then 'PCL Harness 3.10.9
                 FeatureCount += 1

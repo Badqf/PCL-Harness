@@ -458,6 +458,11 @@ Public Class PagePlugin
             Case Else
                 SigText = If(String.IsNullOrWhiteSpace(Info.Signature), "未签名（来源需自行确认）", "签名无法确认发布者")
         End Select
+        'v10.6：入口签名有效、但某个依赖 DLL 未被签名清单覆盖时，宿主会降级（拒绝该依赖）而不是整插件拒绝
+        If Info.Degraded Then
+            SigText = "签名有效，但部分依赖未被覆盖（已降级）"
+            SigColor = "ColorBrushRedLight"
+        End If
         MetaExtra.Add(SigText)
         If Not String.IsNullOrWhiteSpace(Info.UpdateUrl) Then MetaExtra.Add("已声明更新地址")
         If MetaExtra.Count > 0 Then
