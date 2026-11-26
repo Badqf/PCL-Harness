@@ -4346,7 +4346,7 @@ End Class
 ''' 一个整合包的识别结果（API v9，只读）。
 ''' </summary>
 Public Class PluginModpackInfo
-    ''' <summary>格式名：CurseForge / Modrinth / MultiMC / HMCL / MCBBS / LauncherPack / Compress。</summary>
+    ''' <summary>格式名（小写枚举值）：curseforge / modrinth / hmcl / mmc / mcbbs / launcher / archive，直接按小写比较。</summary>
     Public Property Format As String = ""
     ''' <summary>整合包名称（读取自包内描述文件，没有则为空）。</summary>
     Public Property Name As String = ""
@@ -4354,7 +4354,7 @@ Public Class PluginModpackInfo
     Public Property Version As String = ""
     ''' <summary>需要的 Minecraft 版本。</summary>
     Public Property MinecraftVersion As String = ""
-    ''' <summary>加载器名：Forge / NeoForge / Fabric / Quilt / 空。</summary>
+    ''' <summary>加载器名（小写）：forge / fabric / quilt / 空；NeoForge 与 Forge 都归入 forge。</summary>
     Public Property Loader As String = ""
     ''' <summary>加载器版本。</summary>
     Public Property LoaderVersion As String = ""
@@ -4424,6 +4424,23 @@ Public Class PluginDownloadOptions
     ''' &lt;目标&gt;.pcldownload，下次调用会先核对 Range/206 再续传；临时文件里已有的字节也计入本次上限。
     ''' </summary>
     Public Property [Resume] As Boolean = False
+    ''' <summary>
+    ''' 建立连接的超时时间（毫秒，3.10.11；默认 15000，可用范围 1000–600000）。
+    ''' 与默认值不同的调用会改用逐源顺序下载器，旧的单 URL 快速路径仍然固定 15 秒。
+    ''' </summary>
+    Public Property ConnectTimeoutMs As Integer = 15000
+    ''' <summary>
+    ''' 读取响应的超时时间（毫秒，3.10.11；默认 15000，可用范围 1000–600000）。
+    ''' </summary>
+    Public Property ReadTimeoutMs As Integer = 15000
+    ''' <summary>
+    ''' 整批下载的速度上限（字节/秒，3.10.11；0 表示不限速）。多文件同时下载时共享同一额度。
+    ''' </summary>
+    Public Property MaxBytesPerSecond As Long = 0
+    ''' <summary>
+    ''' 同时下载的文件数（3.10.11；默认 1，可用范围 1–8）。大于 1 时一批文件并行下载，速度上限由整批共享。
+    ''' </summary>
+    Public Property MaxParallelDownloads As Integer = 1
 End Class
 
 ''' <summary>
@@ -5225,6 +5242,63 @@ Public Class PluginHost
         Public Message As String = ""
     End Class
 
+    ''' <summary>3.10.11：一次 DownloadFiles 调用共享的实收字节预算（并发安全）。</summary>
+    Private Class PluginDownloadBudget
+        Private ReadOnly _Lock As New Object()
+        Private _Total As Long
+        Public StopReason As String = Nothing
+        ''' <summary>累加实收字节并返回累加后的总量；超过上限返回 False。</summary>
+        Public Function Add(Bytes As Long, Limit As Long, ByRef Total As Long) As Boolean
+            SyncLock _Lock
+                _Total += Bytes
+                Total = _Total
+                Return _Total <= Limit
+            End SyncLock
+        End Function
+        Public ReadOnly Property Total As Long
+            Get
+                SyncLock _Lock
+                    Return _Total
+                End SyncLock
+            End Get
+        End Property
+    End Class
+
+    ''' <summary>3.10.11：整批下载共享的令牌桶限速器；Rate 为 0 时 Wait 直接返回。</summary>
+    Private Class PluginRateLimiter
+        Private ReadOnly _Lock As New Object()
+        Private ReadOnly _Rate As Long
+        Private _Start As Long = -1
+        Private _Bytes As Long
+        Public Sub New(Rate As Long)
+            _Rate = Rate
+        End Sub
+        Public Sub Wait(Bytes As Long)
+            If _Rate <= 0 OrElse Bytes <= 0 Then Return
+            SyncLock _Lock
+                If _Start < 0 Then _Start = Environment.TickCount
+                _Bytes += Bytes
+            End SyncLock
+            Do
+                Dim TargetMs As Double
+                Dim ElapsedMs As Double
+                SyncLock _Lock
+                    TargetMs = _Bytes * 1000.0 / _Rate
+                    ElapsedMs = Environment.TickCount - _Start
+                End SyncLock
+                Dim Remain As Double = TargetMs - ElapsedMs
+                If Remain <= 0 Then Exit Do
+                System.Threading.Thread.Sleep(CInt(Math.Min(100, Math.Ceiling(Remain))))
+            Loop
+        End Sub
+    End Class
+
+    ''' <summary>3.10.11：把超时参数收进 1–600 秒，0 或负数按默认 15 秒处理。</summary>
+    Private Function NormalizeTimeoutMs(Value As Integer) As Integer
+        If Value <= 0 Then Return 15000
+        Return Math.Min(600000, Math.Max(1000, Value))
+    End Function
+
     ''' <summary>3.10.3 新下载路径里一个待下载文件的计划（内部）。</summary>
     Private Class PluginDownloadPlan
         Public Result As PluginDownloadItemResult
@@ -5377,7 +5451,8 @@ Public Class PluginHost
         End If
         '3.10.7：启用 Resume 时必须走顺序下载器（要掌握临时文件、Range 与逐文件取消）；否则沿用 3.10.3 的判定——
         '只有真的出现可用备用源才走逐源顺序下载，单 URL 仍然完全沿用 3.10.2 的宿主下载器。
-        Dim UseSequential As Boolean = Opts.[Resume] OrElse Plans.Any(Function(p) p.Sources.Count > 1)
+        Dim UseSequential As Boolean = Opts.[Resume] OrElse Plans.Any(Function(p) p.Sources.Count > 1) OrElse
+            Opts.ConnectTimeoutMs <> 15000 OrElse Opts.ReadTimeoutMs <> 15000 OrElse Opts.MaxBytesPerSecond > 0 OrElse Opts.MaxParallelDownloads > 1
         If Not UseSequential Then
             Dim Accepted As New List(Of NetFile)
             Dim Map As New Dictionary(Of String, PluginDownloadItemResult)(StringComparer.OrdinalIgnoreCase)
@@ -5404,7 +5479,9 @@ Public Class PluginHost
         Next
         Dim Handle = Tasks.Run(Title,
             Sub(Ctx)
-                RunSequentialDownloads(Ctx, Title, Plans, Results, EffectiveLimit, Opts.[Resume], Batch)
+                Dim Limiter As PluginRateLimiter = Nothing
+                If Opts.MaxBytesPerSecond > 0 Then Limiter = New PluginRateLimiter(Opts.MaxBytesPerSecond)
+                RunSequentialDownloads(Ctx, Title, Plans, Results, EffectiveLimit, Opts.[Resume], Batch, Opts, Limiter)
             End Sub)
         Handle.DownloadBatch = Batch
         Return Handle
@@ -5612,48 +5689,91 @@ Public Class PluginHost
 
     ''' <summary>3.10.3：按 Url → AltUrls 的顺序逐源下载；每文件最多 3 次尝试，失败只换源。
     ''' 3.10.7：支持 Resume（稳定临时文件 + Range 续传）与逐文件取消（Batch）。</summary>
-    Private Sub RunSequentialDownloads(Ctx As PluginTaskContext, Title As String, Plans As List(Of PluginDownloadPlan), Results As List(Of PluginDownloadItemResult), EffectiveLimit As Long, UseResume As Boolean, Batch As PluginDownloadBatch)
-        Dim ActualTotal As Long = 0
-        Dim StopReason As String = Nothing
+    Private Sub RunSequentialDownloads(Ctx As PluginTaskContext, Title As String, Plans As List(Of PluginDownloadPlan), Results As List(Of PluginDownloadItemResult), EffectiveLimit As Long, UseResume As Boolean, Batch As PluginDownloadBatch, Opts As PluginDownloadOptions, Limiter As PluginRateLimiter)
+        Dim Budget As New PluginDownloadBudget()
+        Dim Parallel As Integer = Math.Min(8, Math.Max(1, Opts.MaxParallelDownloads))
+        Dim NextIndex As Integer = -1
+        Dim DoneCount As Integer = 0
+        Dim Sync As New Object()
         Ctx.Report(0.01, "开始下载")
-        For Index As Integer = 0 To Plans.Count - 1
-            Ctx.ThrowIfCancelled()
-            Dim Plan = Plans(Index)
-            If StopReason IsNot Nothing Then
-                Plan.Result.Status = "TooLarge" : Plan.Result.Message = StopReason : Continue For
-            End If
-            '3.10.7：还没开始就被逐文件取消的条目不联网、不消耗尝试预算
-            If Batch IsNot Nothing AndAlso Batch.IsCanceled(Plan.Target) Then
-                Plan.Result.Status = "Canceled"
-                Plan.Result.Message = "已按请求取消该文件"
-                Plan.Result.Bytes = 0
-                EmitPlanProgress(Plan, "Canceled", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
-                Batch.MarkFinished(Plan.Target)
-                Continue For
-            End If
-            EmitPlanProgress(Plan, "Waiting", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
-            If Batch IsNot Nothing Then Batch.MarkRunning(Plan.Target)
-            Try
-                RunOnePlan(Ctx, Plan, EffectiveLimit, ActualTotal, StopReason, UseResume, Batch)
-            Finally
-                If Batch IsNot Nothing Then Batch.MarkFinished(Plan.Target)
-            End Try
-            If Plan.Result.Status = "Ok" Then
-                EmitPlanProgress(Plan, "Finished", 1.0, Plan.Result.Bytes, Plan.Result.Bytes, True)
-            ElseIf Plan.Result.Status = "Canceled" Then
-                EmitPlanProgress(Plan, "Canceled", 0, Plan.PeakReceived, Plan.DeclaredSize, True)
-            End If
-            Ctx.Report(0.01 + 0.97 * (Index + 1) / Plans.Count, $"下载中（{Index + 1}/{Plans.Count}）")
-        Next
+
+        Dim Worker As Action =
+            Sub()
+                Do
+                    Dim Index As Integer
+                    SyncLock Sync
+                        Index = NextIndex + 1
+                        NextIndex = Index
+                    End SyncLock
+                    If Index >= Plans.Count OrElse Ctx.Cancelled Then Exit Do
+                    Dim Plan = Plans(Index)
+                    Dim ReportNow As Boolean = False
+                    If Budget.StopReason IsNot Nothing Then
+                        Plan.Result.Status = "TooLarge"
+                        Plan.Result.Message = Budget.StopReason
+                        Plan.Result.Bytes = 0
+                        SyncLock Sync
+                            EmitPlanProgress(Plan, "TooLarge", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
+                        End SyncLock
+                    ElseIf Batch IsNot Nothing AndAlso Batch.IsCanceled(Plan.Target) Then
+                        Plan.Result.Status = "Canceled"
+                        Plan.Result.Message = "已按请求取消该文件"
+                        Plan.Result.Bytes = 0
+                        SyncLock Sync
+                            EmitPlanProgress(Plan, "Canceled", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
+                        End SyncLock
+                        Batch.MarkFinished(Plan.Target)
+                    Else
+                        SyncLock Sync
+                            EmitPlanProgress(Plan, "Waiting", 0, Plan.ResumeBytes, Plan.DeclaredSize, True)
+                        End SyncLock
+                        If Batch IsNot Nothing Then Batch.MarkRunning(Plan.Target)
+                        Try
+                            RunOnePlan(Ctx, Plan, EffectiveLimit, Budget, UseResume, Batch, Opts, Limiter)
+                        Finally
+                            If Batch IsNot Nothing Then Batch.MarkFinished(Plan.Target)
+                        End Try
+                        SyncLock Sync
+                            If Plan.Result.Status = "Ok" Then
+                                EmitPlanProgress(Plan, "Finished", 1.0, Plan.Result.Bytes, Plan.Result.Bytes, True)
+                            ElseIf Plan.Result.Status = "Canceled" Then
+                                EmitPlanProgress(Plan, "Canceled", 0, Plan.PeakReceived, Plan.DeclaredSize, True)
+                            End If
+                        End SyncLock
+                        ReportNow = True
+                    End If
+                    Dim Finished As Integer = System.Threading.Interlocked.Increment(DoneCount)
+                    If ReportNow AndAlso Finished <= Plans.Count Then
+                        SyncLock Sync
+                            Ctx.Report(0.01 + 0.97 * Finished / Plans.Count, $"下载中（{Finished}/{Plans.Count}）")
+                        End SyncLock
+                    End If
+                Loop
+            End Sub
+
+        If Parallel <= 1 Then
+            Worker()
+        Else
+            Dim Workers As New List(Of System.Threading.Thread)
+            For I As Integer = 1 To Parallel
+                Dim Th As New System.Threading.Thread(New System.Threading.ThreadStart(Sub() Worker()))
+                Th.IsBackground = True
+                Th.Start()
+                Workers.Add(Th)
+            Next
+            For Each Th In Workers
+                Th.Join()
+            Next
+        End If
+
         Dim OkCount As Integer = Results.Where(Function(R) R.Status = "Ok").Count()
         Ctx.Report(1, $"下载完成：成功 {OkCount} 个，失败 {Results.Count - OkCount} 个")
         BroadcastDownloadResults(Results, Plans)
         EmitDownloadsFinished(Results)
     End Sub
-
     ''' <summary>3.10.3：下载一个文件；尝试预算 3 次，可重试错误先换源，确定性失败（404/410/4xx/HashMismatch）永不重试同一源。
     ''' 3.10.7：Resume 时临时文件固定为 &lt;目标&gt;.pcldownload，已有字节计入预算；Batch 取消只终止本条。</summary>
-    Private Sub RunOnePlan(Ctx As PluginTaskContext, Plan As PluginDownloadPlan, Limit As Long, ByRef ActualTotal As Long, ByRef StopReason As String, UseResume As Boolean, Batch As PluginDownloadBatch)
+    Private Sub RunOnePlan(Ctx As PluginTaskContext, Plan As PluginDownloadPlan, Limit As Long, Budget As PluginDownloadBudget, UseResume As Boolean, Batch As PluginDownloadBatch, Opts As PluginDownloadOptions, Limiter As PluginRateLimiter)
         Dim Diagnostics As New List(Of String)
         Dim RetryQueue As New Queue(Of String)
         Dim SourceIndex As Integer = 0
@@ -5680,12 +5800,12 @@ Public Class PluginHost
             If Existing > 0 Then
                 Plan.ResumeBytes = Existing
                 If Existing > Plan.PeakReceived Then Plan.PeakReceived = Existing
-                ActualTotal += Existing
-                If ActualTotal > Limit Then
+                Dim RunningTotal As Long = 0
+                If Not Budget.Add(Existing, Limit, RunningTotal) Then
                     Plan.Result.Status = "TooLarge"
                     Plan.Result.Bytes = 0
                     Plan.Result.Message = $"续传临时文件已有 {Existing} 字节，加上本次调用已接收的字节后超过下载上限（{Limit} 字节），本次调用已终止"
-                    StopReason = Plan.Result.Message
+                    Budget.StopReason = Plan.Result.Message
                     Return
                 End If
             End If
@@ -5712,7 +5832,7 @@ Public Class PluginHost
                 Dim Ratio As Double = 0
                 If Denom > 0 Then Ratio = Math.Min(0.99, Plan.PeakReceived / Denom)
                 EmitPlanProgress(Plan, "Downloading", Ratio, Plan.PeakReceived, Denom, True)
-                Dim Attempt = TryDownloadSource(Plan, Source, Ctx, Limit, ActualTotal, UseResume, Batch)
+                Dim Attempt = TryDownloadSource(Plan, Source, Ctx, Limit, Budget, UseResume, Batch, Opts, Limiter)
                 SawAttempt = True
                 Select Case Attempt.Outcome
                     Case PluginSourceOutcome.Ok
@@ -5730,7 +5850,7 @@ Public Class PluginHost
                         Plan.Result.Status = "TooLarge"
                         Plan.Result.Bytes = 0
                         Plan.Result.Message = Attempt.Message & "；本次调用已终止"
-                        StopReason = Plan.Result.Message
+                        Budget.StopReason = Plan.Result.Message
                         Return
                     Case PluginSourceOutcome.Canceled
                         '3.10.7：逐文件取消只终止本条；整批取消仍然向上抛
@@ -5777,7 +5897,7 @@ Public Class PluginHost
 
     ''' <summary>3.10.3：从一个源下载到临时文件，SHA-1 校验通过后才提交到目标位置。
     ''' 3.10.7：Resume 时按已有临时文件发 Range，只接受 206 且 Content-Range 与期望一致；200/416/对不上都退回整份重下。</summary>
-    Private Function TryDownloadSource(Plan As PluginDownloadPlan, Source As String, Ctx As PluginTaskContext, Limit As Long, ByRef ActualTotal As Long, UseResume As Boolean, Batch As PluginDownloadBatch) As PluginSourceAttempt
+    Private Function TryDownloadSource(Plan As PluginDownloadPlan, Source As String, Ctx As PluginTaskContext, Limit As Long, Budget As PluginDownloadBudget, UseResume As Boolean, Batch As PluginDownloadBatch, Opts As PluginDownloadOptions, Limiter As PluginRateLimiter) As PluginSourceAttempt
         Dim Outcome As New PluginSourceAttempt
         Dim Response As Net.HttpWebResponse = Nothing
         Dim Output As IO.FileStream = Nothing
@@ -5812,7 +5932,7 @@ Public Class PluginHost
                                 End Try
                             End If
                             If Batch IsNot Nothing Then Batch.SetAbort(Target, Sub() Request.Abort())
-                        End Sub)
+                        End Sub, Opts.ConnectTimeoutMs, Opts.ReadTimeoutMs)
                 Catch ex As Net.WebException
                     Dim RequestCode As Integer = 0
                     Try
@@ -5887,10 +6007,11 @@ Public Class PluginHost
                     Dim Read = Input.Read(Buffer, 0, Buffer.Length)
                     If Read <= 0 Then Exit While
                     '按实际接收字节计量（含之后被丢弃的字节）：恰好到上限允许，多 1 字节即 TooLarge
-                    ActualTotal += Read
                     ThisSource += Read
-                    If ActualTotal > Limit Then Throw New IO.IOException(TooLargeMarker & $"实际接收字节超过本次下载上限（{Limit} 字节），已中止")
+                    Dim RunningTotal As Long = 0
+                    If Not Budget.Add(Read, Limit, RunningTotal) Then Throw New IO.IOException(TooLargeMarker & $"实际接收字节超过本次下载上限（{Limit} 字节），已中止")
                     If ThisSource > Plan.PeakReceived Then Plan.PeakReceived = ThisSource
+                    If Limiter IsNot Nothing Then Limiter.Wait(Read)
                     Output.Write(Buffer, 0, Read)
                     Dim Denom As Long = If(Plan.DeclaredSize > 0, Plan.DeclaredSize, Plan.TotalKnown)
                     Dim Ratio As Double = 0
@@ -6330,14 +6451,14 @@ Public Class PluginHost
     ''' <summary>
     ''' 按允许列表逐跳校验重定向（v7.4，安全审计 V4）。最多 5 跳，每一跳都重新校验主机。
     ''' </summary>
-    Private Function OpenHttp(Url As String, Optional OnRequest As Action(Of Net.HttpWebRequest) = Nothing) As Net.HttpWebResponse
+    Private Function OpenHttp(Url As String, Optional OnRequest As Action(Of Net.HttpWebRequest) = Nothing, Optional TimeoutMs As Integer = 15000, Optional ReadTimeoutMs As Integer = 15000) As Net.HttpWebResponse
         Dim Current = Url
         For Hop As Integer = 1 To 5
             EnsureHostAllowed(Info, Current)
             Dim Request = CType(Net.WebRequest.Create(Current), Net.HttpWebRequest)
             Request.AllowAutoRedirect = False
-            Request.Timeout = 15000
-            Request.ReadWriteTimeout = 15000
+            Request.Timeout = NormalizeTimeoutMs(TimeoutMs)
+            Request.ReadWriteTimeout = NormalizeTimeoutMs(ReadTimeoutMs)
             Request.UserAgent = "PCLHarness-Plugin/" & ApiVersionUi
             If OnRequest IsNot Nothing Then
                 Try

@@ -27,6 +27,10 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 488 Then 'PCL Harness 3.10.11
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "新增: 插件批量下载可设置单请求连接超时与读取超时（1000–600000 毫秒，默认 15 秒）、整批速度上限（字节/秒），以及同时下载的文件数（1–8，默认 1）。"))
+            End If
             If LastVersion < 487 Then 'PCL Harness 3.10.10
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "优化: 插件签名支持覆盖整包 DLL 清单（v2 签名）；目录插件里未被清单覆盖的依赖会被拒绝加载，插件卡片标注「部分依赖未被覆盖（已降级）」，不再用一个入口 DLL 代表整包。"))

@@ -1,6 +1,6 @@
 # PCL Harness 插件开发指南（API v10）
 
-> 适用版本：PCL Harness 3.10.10 及以上（插件 API v10，含 v10.5 续传与逐文件取消、v10.6 签名 v2 与依赖作用域；上游 2.14.0.0 合并后的自编版）
+> 适用版本：PCL Harness 3.10.11 及以上（插件 API v10，含 v10.5 续传与逐文件取消、v10.6 签名 v2 与依赖作用域、v10.7 下载超时/限速/并发；上游 2.14.0.0 合并后的自编版）
 > 插件根目录：`PCLHarness\Plugins\`，每个插件一个子文件夹。
 
 ---
@@ -992,6 +992,11 @@ Handle.CancelFile("mods\a.jar")
 - `PluginTaskHandle.CancelFile(RelativePath)` 只取消一个文件：排队中的直接跳过、不联网也不消耗尝试预算；正在下载的立即中断并返回 `Canceled`（消息「已按请求取消该文件」），同批其它文件继续。路径不在本批或文件已结束返回 `False`。
 - 逐文件取消只在多源/续传的顺序下载路径可用（`AltUrls` 非空或 `Resume=True`）；旧的单 URL 下载路径不支持，`CancelFile` 返回 `False`。
 
+**下载超时、限速与并发（v10.7）**
+
+- PluginDownloadOptions 新增四个可选设置：ConnectTimeoutMs、ReadTimeoutMs（1000–600000 毫秒，默认 15000）、MaxBytesPerSecond（字节/秒，0 不限速）、MaxParallelDownloads（1–8，默认 1）。
+- 传入非默认值时该批下载改用逐源下载器；全部默认时仍走快速路径，旧插件行为不变。
+- 速度上限按整批共享；并发下载时进度事件可能交错，逐文件取消（CancelFile）仍然有效。
 **签名 v2 与依赖作用域（v10.6）**
 
 ```json
@@ -1130,7 +1135,8 @@ Host.ExportModpack("仅 mods", "1.0.0", "PCL/Export/mods-only.mrpack", New List(
 - 前两种都是 overrides-only：所有内容放在 `overrides/`，`files` 留空，**不联网匹配**平台的项目 ID；`zip` 直接把目录打进压缩包。
 - 回读自检：`Host.InspectModpack` 对 `.mrpack` 返回 `Modrinth`、对 CurseForge 包返回 `CurseForge`、对纯 zip 返回 `Archive`（无版本信息）。
 - 默认打包 `mods` / `config` / `defaultconfigs` / `resourcepacks` / `shaderpacks` / `scripts`；第四个参数可覆盖。
-- 导入自检：导出后可以直接把路径交给 `Host.InspectModpack`，应返回 `Format = Modrinth`、名称版本与你传入的一致。
+- 取值约定：`Format` 为小写 `curseforge` / `modrinth` / `hmcl` / `mmc` / `mcbbs` / `launcher` / `archive`；`Loader` 为小写 `forge` / `fabric` / `quilt` 或空（NeoForge 归入 `forge`），不要按显示名比较。
+- 导入自检：导出后可以直接把路径交给 `Host.InspectModpack`，应返回 `Format = modrinth`（小写枚举值）、名称版本与你传入的一致。
 **下载源（v10）**
 
 ```vb
