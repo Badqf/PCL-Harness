@@ -270,7 +270,7 @@ Public Module ModUpnp
         End Using
     End Function
 
-    ''' <summary>把 IPv4 打码成 222.69.*.*，用于日志与界面展示，避免截图泄露。</summary>
+    ''' <summary>把 IPv4 打码成 203.0.113.*.*，用于日志与界面展示，避免截图泄露。</summary>
     Public Function MaskIp(Ip As String) As String
         If String.IsNullOrEmpty(Ip) Then Return ""
         Dim Parts As String() = Ip.Split("."c)

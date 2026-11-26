@@ -639,13 +639,13 @@ End Class
 tools\sign-plugin.ps1 -NewKey -Name Badqf
 
 # 2) 给插件签名，并把公钥登记到插件根目录的 publishers.json（同名发布者会覆盖）。
-tools\sign-plugin.ps1 -Plugin 'F:\PCL2-Release\PCLHarness\Plugins\hello' -Register -Name Badqf
+tools\sign-plugin.ps1 -Plugin '<发布目录>\PCLHarness\Plugins\hello' -Register -Name Badqf
 
 # 3) 单独验签（打印 DLL 哈希、权限指纹、公钥表路径与四态结果）。
-tools\sign-plugin.ps1 -Plugin 'F:\PCL2-Release\PCLHarness\Plugins\hello' -Verify
+tools\sign-plugin.ps1 -Plugin '<发布目录>\PCLHarness\Plugins\hello' -Verify
 
 # 4) 全量自检：扫描插件根目录下所有 plugin.json，发现 Invalid 时退出码为 1。
-tools\sign-plugin.ps1 -PluginsRoot 'F:\PCL2-Release\PCLHarness\Plugins' -VerifyAll
+tools\sign-plugin.ps1 -PluginsRoot '<发布目录>\PCLHarness\Plugins' -VerifyAll
 ```
 
 - 私钥位置可用 `-KeyFile` 指定；`-Publishers` 可指定别的公钥表（默认取插件目录的上一级）。
@@ -777,7 +777,7 @@ End Class
 - 插件会调用的公开成员**不要**用「给已有方法加 Optional 参数」的方式扩展：`Optional` 只在编译期生效，CLR 签名会变，已编译的旧插件会抛 `MissingMethodException`。正确做法是新增重载，并保留旧签名的精确版本（例如 `PluginEventBus.On(String, Delegate)` 与 `On(String, Delegate, Integer, Boolean, String)` 并存）。
 - 事件参数**不要**更换类型。历史上「页面切换」从 `String` 改成了 `Integer`，旧插件按 `(String, String)` 声明就崩了；现在事件总线会按处理器声明的参数类型自动适配，但新事件请直接给出稳定类型。
 - 删除公开成员前先标 `Obsolete`，至少保留一个大版本。
-- 回归样本：`F:\PCL2-Release\PCLHarness\Plugins\hello`（v5「你好插件」）与 `samples\V6Demo`、`samples\InstanceMenu`。
+- 回归样本：`<发布目录>\PCLHarness\Plugins\hello`（v5「你好插件」）与 `samples\V6Demo`、`samples\InstanceMenu`。
 - v5 插件无需改动；`minApiVersion` 写 6 才会用到 v6 能力。
 
 ### 6.11 插件管理接口与动态网络（v6.4）

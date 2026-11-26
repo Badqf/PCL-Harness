@@ -1,8 +1,8 @@
 ﻿# PCL2 2.13.1.1 本机构建脚本（免管理员方案）
 # 依赖：
 #   - .NET Framework 4.8 运行时（Windows 10/11 自带）
-#   - net48 引用程序集：C:\Users\XYM_3\dotnet-fwreal\  （从 Microsoft.NETFramework.ReferenceAssemblies.net48 解出）
-#   - Roslyn net472 编译器：C:\Users\XYM_3\roslyn\tasks\vbc.exe （Microsoft.Net.Compilers.Toolset 4.14.0）
+#   - net48 引用程序集：%USERPROFILE%\dotnet-fwreal\  （从 Microsoft.NETFramework.ReferenceAssemblies.net48 解出）
+#   - Roslyn net472 编译器：%USERPROFILE%\roslyn\tasks\vbc.exe （Microsoft.Net.Compilers.Toolset 4.14.0）
 # 原理：用 Windows 自带的 .NET Framework 版 MSBuild 4.0 驱动官方 WPF 标记编译器（PresentationBuildTasks 4.0），
 #       再用 Roslyn vbc 编译 VB 源码 —— 完全不装 VS / 不需要 UAC。
 param(
@@ -21,8 +21,8 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $proj = Join-Path $root "Plain Craft Launcher 2\Plain Craft Launcher 2.vbproj"
 $msbuild = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe"
-$refasmRoot = "C:\Users\XYM_3\dotnet-fwreal\"
-$roslyn = "C:\Users\XYM_3\roslyn\tasks"
+$refasmRoot = if ($env:PCL_REFASM_ROOT) { $env:PCL_REFASM_ROOT } else { Join-Path $env:USERPROFILE "dotnet-fwreal\" }
+$roslyn = if ($env:PCL_ROSLYN_DIR) { $env:PCL_ROSLYN_DIR } else { Join-Path $env:USERPROFILE "roslyn\tasks" }
 
 foreach ($p in @($proj, $msbuild, "$roslyn\vbc.exe", "$refasmRoot.NETFramework\v4.8\mscorlib.dll")) {
     if (-not (Test-Path $p)) { throw "缺少前置条件: $p" }

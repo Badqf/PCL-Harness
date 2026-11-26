@@ -12,8 +12,8 @@ while ($root -and -not (Test-Path (Join-Path $root "Plain Craft Launcher 2.sln")
 }
 if (-not $root) { throw "Repository root not found (no Plain Craft Launcher 2.sln)." }
 
-$vbc = "C:\Users\XYM_3\roslyn\tasks\vbc.exe"
-$fw = "C:\Users\XYM_3\dotnet-fwreal\.NETFramework\v4.8"
+$vbc = Join-Path $env:USERPROFILE "roslyn\tasks\vbc.exe"
+$fw = Join-Path $env:USERPROFILE "dotnet-fwreal\.NETFramework\v4.8"
 $exe = Join-Path $root "Plain Craft Launcher 2\bin\PCL Harness.exe"
 
 if (-not (Test-Path $vbc)) { throw "vbc not found: $vbc" }

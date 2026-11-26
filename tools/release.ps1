@@ -65,7 +65,7 @@ if ($pwshCommand) {
 
 # ---------------------------------------------------------------- 常量
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$ReleaseDir = 'F:\PCL2-Release'
+$ReleaseDir = if ($env:PCL_RELEASE_DIR) { $env:PCL_RELEASE_DIR } else { Join-Path (Split-Path $RepoRoot -Parent) 'PCL2-Release' }
 $Owner = 'Badqf'
 $Repo = 'PCL-Harness'
 $Tag = "v$Version"
@@ -611,7 +611,7 @@ if ($SkipBuild) {
 
 # ---------------------------------------------------------------- 3. SDK
 Step 3 '打包插件 SDK'
-$sdkAtRoot = "F:\PCL-Harness-Plugin-SDK-$Version.zip"
+$sdkAtRoot = Join-Path (Split-Path $RepoRoot -Parent) "PCL-Harness-Plugin-SDK-$Version.zip"
 if ($SkipSdk) {
     Warn '跳过 SDK'
 } elseif ($DryRun) {

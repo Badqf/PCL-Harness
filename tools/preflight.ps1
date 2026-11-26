@@ -16,6 +16,7 @@
       5  the built exe and the deployed exe are the same bytes
       6  .gitattributes does not treat a PNG as text
       7  no GitHub token or other secret in tracked text files
+      8  no local identity, personal network data or absolute local path
 
 .PARAMETER Build
     Also run build.ps1 and fail if the log contains ": error".
@@ -44,6 +45,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if ($env:PCL_RELEASE_DIR) { $releaseDir = $env:PCL_RELEASE_DIR } else { $releaseDir = Join-Path (Split-Path $root -Parent) 'PCL2-Release' }
 
 # 执行器双模：有 pwsh 7 就用它跑 build.ps1 和交叉语法检查，没有则回退 5.1
 $pwshCommand = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -184,7 +186,7 @@ if (Test-Path $modBase) {
     else { Fail 'ModBase.vb' 'VersionBaseName or VersionCode not found' }
 
     if ($ver) {
-        $zip = Join-Path 'F:\PCL2-Release' ("PCL-Harness-Plugin-SDK-{0}.zip" -f $ver)
+        $zip = Join-Path $releaseDir ("PCL-Harness-Plugin-SDK-{0}.zip" -f $ver)
         if (Test-Path $zip) { Pass 'SDK zip' ((Split-Path $zip -Leaf) + ' present') }
         else { Warn 'SDK zip' ("not packed yet: PCL-Harness-Plugin-SDK-{0}.zip" -f $ver) }
 
@@ -204,7 +206,7 @@ if ($SkipArtifacts) { Section 'artifacts'; Warn 'deployed exe' 'skipped (-SkipAr
 else {
 Section 'artifacts'
 $bin = Join-Path $root 'Plain Craft Launcher 2/bin/PCL Harness.exe'
-$dep = 'F:\PCL2-Release\PCL Harness.exe'
+$dep = Join-Path $releaseDir 'PCL Harness.exe'
 if ((Test-Path $bin) -and (Test-Path $dep)) {
     $h1 = (Get-FileHash $bin -Algorithm SHA256).Hash
     $h2 = (Get-FileHash $dep -Algorithm SHA256).Hash
@@ -225,6 +227,27 @@ if (Test-Path $png) {
 }
 else { Warn 'png is binary' 'site/img/shot-home.png missing' }
 
+# ---------------------------------------------------------------- 8 privacy
+Section 'privacy'
+# 仓库是公开的：禁止把本机身份、个人网络信息与绝对路径写进 tracked 文件。
+# 模式用字符串拼接构造，避免守卫代码自身命中。
+$privacyPatterns = @(
+    ('XYM' + '_3'),
+    ('LAPTOP' + '-9P9RI9RB'),
+    ('X' + 'iang'),
+    ('222' + '\.69\.'),
+    ('F:\\' + 'PCL2')
+)
+$privacyHits = New-Object System.Collections.Generic.List[string]
+foreach ($pat in $privacyPatterns) {
+    $out = & git grep -n -I -E $pat -- . 2>$null
+    if ($out) { foreach ($line in @($out)) { $privacyHits.Add([string]$line) } }
+}
+if ($privacyHits.Count -eq 0) { Pass 'identity' 'no local identity or personal network data' }
+else {
+    $files = @($privacyHits | ForEach-Object { (($_ -split ':')[0]) } | Select-Object -Unique)
+    Fail 'identity' ('local identity / personal network data in: ' + ($files -join ', '))
+}
 # ---------------------------------------------------------------- 7 secrets
 Section 'secrets'
 $pattern = 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'

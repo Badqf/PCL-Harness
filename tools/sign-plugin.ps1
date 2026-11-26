@@ -51,10 +51,10 @@
     tools\sign-plugin.ps1 -NewKey -Name Badqf
 
 .EXAMPLE
-    tools\sign-plugin.ps1 -Plugin 'F:\PCL2-Release\PCLHarness\Plugins\download-page' -Register
+    tools\sign-plugin.ps1 -Plugin '<发布目录>\PCLHarness\Plugins\download-page' -Register
 
 .EXAMPLE
-    tools\sign-plugin.ps1 -PluginsRoot 'F:\PCL2-Release\PCLHarness\Plugins' -VerifyAll
+    tools\sign-plugin.ps1 -PluginsRoot '<发布目录>\PCLHarness\Plugins' -VerifyAll
 #>
 param(
     [string]$Plugin,
