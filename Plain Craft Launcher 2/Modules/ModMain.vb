@@ -200,6 +200,12 @@ EndHint:
         ''' </summary>
         Public WarnLevel As Integer = 0
         ''' <summary>
+        ''' 可展开的详情正文；为空时不显示「查看详情」。
+        ''' </summary>
+        Public DetailText As String = ""
+        Public DetailCollapsedText As String = "查看详情"
+        Public DetailExpandedText As String = "收起详情"
+        ''' <summary>
         ''' 是否为警告弹窗（等同于 WarnLevel = 2）。保留旧名字给已有调用方。
         ''' </summary>
         Public Property IsWarn As Boolean
@@ -247,10 +253,10 @@ EndHint:
                              Optional Button1 As String = "确定", Optional Button2 As String = "", Optional Button3 As String = "",
                              Optional IsWarn As Boolean = False, Optional HighLight As Boolean = True, Optional ForceWait As Boolean = False,
                              Optional Button1Action As Action = Nothing, Optional Button2Action As Action = Nothing, Optional Button3Action As Action = Nothing,
-                             Optional WarnLevel As Integer = 0) As Integer
+                             Optional WarnLevel As Integer = 0, Optional DetailText As String = "") As Integer
         '将弹窗列入队列
         Dim Level As Integer = If(WarnLevel > 0, WarnLevel, If(IsWarn, 2, 0))
-        Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Text, .Button1 = Button1, .Button2 = Button2, .Button3 = Button3, .Text = Caption, .WarnLevel = Level, .Title = Title, .HighLight = HighLight, .ForceWait = True, .Button1Action = Button1Action, .Button2Action = Button2Action, .Button3Action = Button3Action}
+        Dim Converter As New MyMsgBoxConverter With {.Type = MyMsgBoxType.Text, .Button1 = Button1, .Button2 = Button2, .Button3 = Button3, .Text = Caption, .WarnLevel = Level, .Title = Title, .HighLight = HighLight, .ForceWait = True, .Button1Action = Button1Action, .Button2Action = Button2Action, .Button3Action = Button3Action, .DetailText = If(DetailText, "")}
         If Button2.Length > 0 OrElse ForceWait Then
             '若有多个按钮则开始等待
             If FrmMain Is Nothing OrElse FrmMain.PanMsg Is Nothing AndAlso RunInUi() Then

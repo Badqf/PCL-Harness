@@ -27,6 +27,10 @@ Public Class FormMain
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(2, "修复: 没有 files 权限的插件此前能往游戏实例目录里写任意文件（包括改版本 json、覆盖 mods 里的 jar），现在实例目录只能读，写文件必须声明新增的 instance.write 权限。"))
             End If
+            If LastVersion < 486 Then 'PCL Harness 3.10.9
+                FeatureCount += 1
+                FeatureList.Add(New KeyValuePair(Of Integer, String)(3, "优化: 启用插件时的权限确认窗只显示一行摘要；3 项及以上权限收进「查看详情」，1–2 项直接平铺；插件卡片上的权限只显示数量，想细看时点「重新确认权限」。"))
+            End If
             If LastVersion < 485 Then 'PCL Harness 3.10.8
                 FeatureCount += 1
                 FeatureList.Add(New KeyValuePair(Of Integer, String)(1, "修复: 启用未签名或发布者未知的插件时一定会给出说明——零权限插件改为确认框，已确认过权限的插件在提示条里标注未签名/发布者未受信任，不会再悄悄启用。"))

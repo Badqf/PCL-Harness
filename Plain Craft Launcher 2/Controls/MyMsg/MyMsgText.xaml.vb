@@ -13,6 +13,11 @@ Public Class MyMsgText
             MyConverter = Converter
             LabTitle.Text = Converter.Title
             LabCaption.Text = Converter.Text
+            If Not String.IsNullOrWhiteSpace(Converter.DetailText) Then
+                LnkDetail.Text = Converter.DetailCollapsedText
+                LabDetail.Text = Converter.DetailText
+                LnkDetail.Visibility = Visibility.Visible
+            End If
             Btn1.Text = Converter.Button1
             If Converter.WarnLevel >= 1 Then
                 Btn1.ColorType = If(Converter.WarnLevel >= 2, MyButton.ColorState.Red, MyButton.ColorState.Yellow)
@@ -33,6 +38,10 @@ Public Class MyMsgText
         Try
 
             'UI 初始化
+            If LnkDetail.Visibility = Visibility.Visible AndAlso FrmMain?.PanMsg IsNot Nothing Then
+                '限制详情区域高度，长权限列表在弹窗内部滚动而不是把弹窗撑出屏幕
+                PanCaption.MaxHeight = Math.Max(200, FrmMain.PanMsg.ActualHeight - 190)
+            End If
             If Btn2.IsVisible AndAlso Btn1.ColorType = MyButton.ColorState.Normal Then Btn1.ColorType = MyButton.ColorState.Highlight
             Btn1.Focus()
             '动画
@@ -73,6 +82,20 @@ Public Class MyMsgText
             AaDouble(Sub(i) TransformRotate.Angle += i, 6 - TransformRotate.Angle, 150, 0, New AniEaseInFluent(AniEasePower.Weak)),
             AaCode(Sub() CType(Parent, Grid).Children.Remove(Me), , True)
         }, "MyMsgBox " & Uuid)
+    End Sub
+
+    Private Sub LnkDetail_Click(sender As Object, e As MouseButtonEventArgs) Handles LnkDetail.MouseLeftButtonUp
+        Try
+            If LabDetail.Visibility = Visibility.Visible Then
+                LabDetail.Visibility = Visibility.Collapsed
+                LnkDetail.Text = MyConverter.DetailCollapsedText
+            Else
+                LabDetail.Visibility = Visibility.Visible
+                LnkDetail.Text = MyConverter.DetailExpandedText
+            End If
+        Catch ex As Exception
+            Logger.Error(ex, "展开弹窗详情失败")
+        End Try
     End Sub
 
     Public Sub Btn1_Click() Handles Btn1.Click

@@ -439,7 +439,7 @@ Public Class PagePlugin
         End If
 
         Dim MetaExtra As New List(Of String)
-        If Info.Permissions.Count > 0 Then MetaExtra.Add("权限：" & String.Join(", ", Info.Permissions)) Else MetaExtra.Add("权限：未声明（零权限）")
+        If Info.Permissions.Count > 0 Then MetaExtra.Add($"权限：{Info.Permissions.Count} 项") Else MetaExtra.Add("无需额外权限")
         If Info.Dependencies.Count > 0 Then MetaExtra.Add("依赖：" & String.Join(", ", Info.Dependencies))
         If Info.MinApiVersion > 0 Then MetaExtra.Add($"最低 API v{Info.MinApiVersion}")
         '签名状态（P1-1）
@@ -490,66 +490,77 @@ Public Class PagePlugin
         Chk.Checked = Info.Enabled '加载失败但仍处于启用状态时也显示为已勾选，用户才能先取消勾选再重试
         AddHandler Chk.Change, Sub(sender As Object, user As Boolean)
                                    Dim Value As Boolean = Chk.Checked
-                                   'v7.2.1：中风险也弹醒目提示框（黄色），高风险用红色；风险窗已逐条列出权限，确认后不再重复弹权限确认框
-                                   Dim RiskLevel As Integer = ModPlugin.HighestPermissionRisk(Info)
-                                   'v7.5（安全审计 3.8 R5）：已经确认过同一份权限指纹就不再打扰；高风险插件每次启动仍会单独提示一次
-                                   If Value AndAlso RiskLevel >= 1 AndAlso Not ModPlugin.IsTrusted(Info) Then
-                                       Dim IsHigh As Boolean = RiskLevel >= 2
-                                       Dim RiskLines As New List(Of String)
-                                       RiskLines.Add($"插件「{Info.DisplayName}」" & If(IsHigh, "声明了高风险权限：", "声明了需要留意的权限："))
-                                       RiskLines.Add("")
-                                       For Each Perm In Info.Permissions.OrderBy(Function(P) P)
-                                           If ModPlugin.PermissionRisk(Perm) < 1 Then Continue For
-                                           RiskLines.Add($"· {Perm}：{ModPlugin.DescribePermission(Perm)}")
-                                           Dim Cons = ModPlugin.PermissionConsequence(Perm)
-                                           If Not String.IsNullOrEmpty(Cons) Then RiskLines.Add($"  可能的后果：{Cons}")
-                                       Next
-                                       RiskLines.Add("")
-                                       RiskLines.Add("只有在你信任这个插件的来源时才继续；不放心就点「取消」，它不会被启用。")
-                                       Dim RiskChoice = MyMsgBox(String.Join(vbCrLf, RiskLines), If(IsHigh, "插件高风险权限提示", "插件权限风险提示"), "我已了解风险，并愿意继续", "取消", WarnLevel:=RiskLevel)
-                                       If RiskChoice <> 1 Then
-                                           Chk.Checked = False
-                                           Return
-                                       End If
-                                       'v7.2.1：风险窗已经把权限逐条列清楚了，这里直接记为已确认，不再弹一次权限确认框
-                                       ModPlugin.TrustPlugin(Info)
-                                   End If
-                                    If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
-                                        'v10.6（3.10.8）：零权限插件也弹确认框；未签名/未知发布者在这里把来源讲清楚，不再只闪一条提示
-                                        Dim Lines As New List(Of String)
-                                        If Info.Permissions.Count = 0 Then
-                                            Lines.Add($"插件「{Info.DisplayName}」没有声明任何权限：它无法读写文件、联网或启动游戏。")
-                                        Else
-                                            Lines.Add($"插件「{Info.DisplayName}」请求以下权限：")
-                                            Lines.Add("")
-                                            For Each Perm In Info.Permissions.OrderBy(Function(P) P)
-                                                Lines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
-                                            Next
-                                        End If
-                                        Lines.Add("")
-                                        Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
-                                        'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
-                                        Select Case Info.SignatureStatus
-                                            Case ModPlugin.PluginSignatureStatus.Signed
-                                                Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
-                                                Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
-                                            Case ModPlugin.PluginSignatureStatus.UnknownPublisher
-                                                Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
-                                            Case ModPlugin.PluginSignatureStatus.Invalid
-                                                Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
-                                            Case Else
-                                                Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
-                                        End Select
-                                        Lines.Add("")
-                                        Lines.Add("确认后会记住这个插件当前的权限；权限或作用域有变化时会再次询问。")
-                                        Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消")
-                                        If Choice <> 1 Then
-                                            Chk.Checked = False
-                                            Return
-                                        End If
-                                        'v7.5（安全审计 3.8 R5）：点一次「仍然启用」就记住；想撤销请点卡片上的「重新确认权限」
-                                        ModPlugin.TrustPlugin(Info)
-                                    End If
+                                    'v10.7：权限确认窗改为「一行摘要 + 查看详情」；1–2 项权限直接平铺，3 项及以上才出现展开入口
+                                     Dim RiskLevel As Integer = ModPlugin.HighestPermissionRisk(Info)
+                                     'v7.5（安全审计 3.8 R5）：已经确认过同一份权限指纹就不再打扰；高风险插件每次启动仍会单独提示一次
+                                     If Value AndAlso RiskLevel >= 1 AndAlso Not ModPlugin.IsTrusted(Info) Then
+                                         Dim IsHigh As Boolean = RiskLevel >= 2
+                                         Dim HighCount As Integer = Info.Permissions.Where(Function(P) ModPlugin.PermissionRisk(P) >= 2).Count()
+                                         Dim MidCount As Integer = Info.Permissions.Where(Function(P) ModPlugin.PermissionRisk(P) = 1).Count()
+                                         Dim RiskDetail As New List(Of String)
+                                         For Each Perm In Info.Permissions.OrderBy(Function(P) P)
+                                             RiskDetail.Add($"· {Perm}（{RiskLevelText(ModPlugin.PermissionRisk(Perm))}）：{ModPlugin.DescribePermission(Perm)}")
+                                         Next
+                                         Dim RiskSummary As String = $"插件「{Info.DisplayName}」请求 {Info.Permissions.Count} 项权限" &
+                                             If(HighCount > 0, $"，其中 {HighCount} 项高风险", "") &
+                                             If(MidCount > 0, $"，{MidCount} 项中风险", "") & "。"
+                                         Dim RiskTail As String = "只有在你信任这个插件的来源时才继续；不放心就点「取消」，它不会被启用。"
+                                         Dim RiskChoice As Integer
+                                         If Info.Permissions.Count < 3 Then
+                                             '权限很少时直接平铺，不再让用户多点一次
+                                             RiskChoice = MyMsgBox(RiskSummary & vbCrLf & vbCrLf & String.Join(vbCrLf, RiskDetail) & vbCrLf & vbCrLf & RiskTail, If(IsHigh, "插件高风险权限提示", "插件权限风险提示"), "我已了解风险，并愿意继续", "取消", WarnLevel:=RiskLevel)
+                                         Else
+                                             RiskChoice = MyMsgBox(RiskSummary & vbCrLf & vbCrLf & RiskTail, If(IsHigh, "插件高风险权限提示", "插件权限风险提示"), "我已了解风险，并愿意继续", "取消", WarnLevel:=RiskLevel, DetailText:=String.Join(vbCrLf, RiskDetail))
+                                         End If
+                                         If RiskChoice <> 1 Then
+                                             Chk.Checked = False
+                                             Return
+                                         End If
+                                         'v7.2.1：风险窗已经把权限列在详情里，这里直接记为已确认，不再弹一次权限确认框
+                                         ModPlugin.TrustPlugin(Info)
+                                     End If
+                                     If Value AndAlso RiskLevel = 0 AndAlso Not ModPlugin.IsTrusted(Info) Then
+                                         'v10.6（3.10.8）：零权限插件也弹确认框；未签名/未知发布者在这里把来源讲清楚，不再只闪一条提示
+                                         'v10.9：3 项及以上权限收进「查看详情」，1–2 项直接平铺；零权限统一写成「无需额外权限」
+                                         Dim Lines As New List(Of String)
+                                         Dim PermDetail As String = ""
+                                         Dim DetailLines As New List(Of String)
+                                         For Each Perm In Info.Permissions.OrderBy(Function(P) P)
+                                             DetailLines.Add("· " & Perm & "：" & ModPlugin.DescribePermission(Perm))
+                                         Next
+                                         If Info.Permissions.Count = 0 Then
+                                             Lines.Add($"插件「{Info.DisplayName}」无需额外权限：它无法读写文件、联网或启动游戏。")
+                                         ElseIf Info.Permissions.Count < 3 Then
+                                             Lines.Add($"插件「{Info.DisplayName}」请求 {Info.Permissions.Count} 项低风险权限：")
+                                             Lines.AddRange(DetailLines)
+                                         Else
+                                             Lines.Add($"插件「{Info.DisplayName}」请求 {Info.Permissions.Count} 项低风险权限。")
+                                             PermDetail = String.Join(vbCrLf, DetailLines)
+                                         End If
+                                         Lines.Add("")
+                                         Lines.Add($"作者：{If(String.IsNullOrWhiteSpace(Info.Author), "未知", Info.Author)}")
+                                         'v7.5（安全审计 3.8 R6）：按真实校验结果展示，不能只看 signature 字段是否为空
+                                         Select Case Info.SignatureStatus
+                                             Case ModPlugin.PluginSignatureStatus.Signed
+                                                 Lines.Add("签名：已校验，且覆盖权限清单（改动文件或清单都会校验失败）")
+                                                 Lines.Add("仍请确认发布者可信：签名只证明内容没被改过，不证明作者没有恶意。")
+                                             Case ModPlugin.PluginSignatureStatus.UnknownPublisher
+                                                 Lines.Add("签名：内容未被改动，但发布者不在受信任列表里，无法确认身份；只启用你信任来源的插件。")
+                                             Case ModPlugin.PluginSignatureStatus.Invalid
+                                                 Lines.Add("签名：校验失败（文件或清单被改动过）；正常不会走到这一步，加载期就会拒绝。")
+                                             Case Else
+                                                 Lines.Add("来源：未签名，无法验证发布者身份；只启用你信任来源的插件。")
+                                         End Select
+                                         Lines.Add("")
+                                         Lines.Add("确认后会记住这个插件当前的权限；权限或作用域有变化时会再次询问。")
+                                         Dim Choice = MyMsgBox(String.Join(vbCrLf, Lines), "启用插件前确认权限", "仍然启用", "取消", DetailText:=PermDetail)
+                                         If Choice <> 1 Then
+                                             Chk.Checked = False
+                                             Return
+                                         End If
+                                         'v7.5（安全审计 3.8 R5）：点一次「仍然启用」就记住；想撤销请点卡片上的「重新确认权限」
+                                         ModPlugin.TrustPlugin(Info)
+                                     End If
                                     Try
                                        ModPlugin.SetEnabled(Info, Value)
                                         Dim SigLabel As String = ""
@@ -1040,7 +1051,7 @@ Public Class PagePlugin
         AddDocText(Body, "插件页左侧「控制台」提供实时日志窗口与命令回显：help / events / plugins / services / tasks / emit 事件名 / clear。Host.DevLog(...) 或基类的 DevLog(...) 都能往这个窗口写内容；插件抛出的异常也会显示在这里。")
 
         AddDocTitle(Body, "权限指纹与签名（v6.3）")
-        AddDocText(Body, "插件首次启用前会弹出权限确认：逐条展示 permissions 及说明，未声明 permissions 会写明「这个插件没有任何权限」（v7.4 起），未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（schema 2），其中 permissionsHash 是把权限名小写、排序、逗号连接得到的字符串，v7.4 起还会附上 net.hosts / files.read / files.write 的作用域摘要——它只是权限指纹，不含密钥、不是哈希摘要、也不是密码学签名，作用仅是权限或作用域变了就再问一次。")
+        AddDocText(Body, "插件首次启用前会弹出权限确认：正文只写一行摘要（权限总数与风险构成），3 项及以上权限收进「查看详情」按需展开，1–2 项直接平铺；未声明 permissions 会写「无需额外权限」（v7.4 起），未签名会提示来源未知；确认后才加载。确认记录存在 Plugins\trust.json（schema 2），其中 permissionsHash 是把权限名小写、排序、逗号连接得到的字符串，v7.4 起还会附上 net.hosts / files.read / files.write 的作用域摘要——它只是权限指纹，不含密钥、不是哈希摘要、也不是密码学签名，作用仅是权限或作用域变了就再问一次。")
         AddDocText(Body, "清单里的 signature 由宿主真实校验（ECDsa P-256 + SHA-256，见 6.7）：载荷是 id + 版本 + DLL 的 sha256 + 权限指纹的 sha256，所以改动清单里的权限或路径同样会校验失败，失败时插件会被拒绝加载。没有签名仍然可以加载，但界面会显示「未签名（来源需自行确认）」。可选字段还有 homepage、license。")
         AddDocTitle(Body, "实例右键菜单（v6.2）")
         AddDocText(Body, "实现 IPclPluginInstanceMenu 就能往「版本选择」页里每个实例卡片的右键菜单里加操作（插件项 → 分隔线 → 「实例设置」）：每次打开菜单时按当前实例调用一次，返回 PluginMenuItem（Text + Action），Action 抛异常会被隔离并计入熔断。完整示例见开发版 SDK 的 samples\InstanceMenu。")
@@ -1130,6 +1141,18 @@ Public Class PagePlugin
 
     Private Function Res(Key As String) As Brush
         Return CType(FindResource(Key), Brush)
+    End Function
+
+    'v10.9：权限风险等级的中文标签（权限确认窗平铺展示时用）
+    Private Function RiskLevelText(Risk As Integer) As String
+        Select Case Risk
+            Case 2
+                Return "高风险"
+            Case 1
+                Return "中风险"
+            Case Else
+                Return "低风险"
+        End Select
     End Function
 
 End Class
