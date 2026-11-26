@@ -589,7 +589,7 @@ End Class
 - **执行**：卡片按钮 → 确认框（`Info.Loaded` 为真时文案是「插件正在运行，回滚会排队到下次启动」，否则是「会立即把当前版本移入回收目录并换回备份」）→ 当前版本移进 `Plugins\.trash\`，备份换回原位，插件随即被停用；重启启动器后生效。
 - **注意**：回滚后 `permissions` 若与 `trust.json` 里记录的指纹不同，会当作新插件重新询问。
 
-### 6.7 权限指纹与签名（v6.3）
+### 6.7 权限指纹与签名（v6.3；v7.4 加强；3.10.7 文档同步）
 
 **启用前的权限确认**
 
@@ -603,42 +603,61 @@ End Class
 {
   "schema": 2,
   "plugins": {
-    "instance-menu-demo": { "permissionsHash": "events,files,ui" }
+    "download-page|download-page": { "permissionsHash": "p=ui" }
   }
 }
 ```
 
-- `permissionsHash` 的生成方式：把 `permissions` 全部小写、按字母排序、用逗号连接（`events,files,ui`）。
-- 它**没有密钥、不是哈希摘要、也不加密**，唯一作用是「检测权限集合是否变化」，不能证明包是谁发布的。
-- 旧格式（`{"id":"ui,events"}` 或 `{"id":{"signature":"ui,events"}}`）仍可读取，保存时会自动升级为 `schema: 2`。
+- 键是 `id|插件文件夹名`（v7.4 起，同 `id` 的两个插件不共享确认）；`permissionsHash` 是完整的权限指纹，不只是权限名。
+- 指纹格式：`p=<权限名小写、排序、逗号连接>`，再按需拼上 `;net=*`、`;hosts=<小写 Ordinal 排序>`、`;read=…`、`;write=…`。因此把 `net.hosts` 或可读写路径从 A 改成 B，指纹也会变化，会重新询问。
+- 它**没有密钥、也不加密**，唯一作用是「检测权限作用域是否变化」，不能证明包是谁发布的；真正的发布者身份靠下面的签名。
+- 旧格式（`{"id":"ui,events"}` 或 `{"id":{"signature":"ui,events"}}`）仍可读取，保存时自动升级为 `schema: 2`。
 
-**真实验签（v3.7.4 已实现）**
+**真实验签**
 
-- 算法：`ECDsa` P-256 + SHA-256（.NET Framework 4.8 自带）。
-- 签名载荷：`id + "\n" + version + "\n" + sha256(DLL) 的小写十六进制`。注意是 **DLL 的哈希**，不是整包：清单里没写 `sha256` 时启动器会按 `dll` 字段实测补算，所以你改 DLL 而不改清单也会立刻校验失败。
-- 公钥存放：`Plugins\publishers.json`，格式 `{"发布者名":"Base64(SPKI DER)"}`（一个文件可放多个发布者）。
-- 清单字段：`"signature": "<Base64 签名>"`。
-- 显示四态：`签名有效` / `签名无效（文件可能被改动过）` / `签名来自未知发布者`（公钥表为空或没有匹配）/ `未签名（来源需自行确认）`。验签**不**替代权限确认，权限变化照旧重新询问。
+- 算法：ECDSA P-256 + SHA-256，签名是 64 字节 r‖s 的 Base64（通常 88 个字符），写在清单的 `"signature"` 字段。
+- 签名载荷是**四段**（逐行用 LF 连接，末尾没有换行）：
 
-生成签名（PowerShell + .NET，不依赖 SDK）：
+  ```
+  id
+  version
+  小写十六进制 sha256(DLL)
+  小写十六进制 sha256(权限指纹)
+  ```
 
-```powershell
-$dll = 'Plugins\hello\Hello.Plugin.dll'
-$sha = (Get-FileHash $dll -Algorithm SHA256).Hash.ToLower()
-$payload = "hello`n1.1.0`n$sha"
-$key = [System.Security.Cryptography.ECDsa]::Create()
-$key.ImportFromPem((Get-Content 'private.pem' -Raw))   # 或 ImportParameters / CngKey
-$sig = $key.SignData([Text.Encoding]::UTF8.GetBytes($payload), 'SHA256')
-[Convert]::ToBase64String($sig)
-```
+- DLL 哈希优先取清单 `sha256.dll`（或字符串形式的 `sha256`）；清单没写时启动器按 `dll` 字段实测补算，所以改 DLL 而不改清单同样会验签失败。
+- 公钥表：插件根目录下的 `Plugins\publishers.json`，格式 `{"发布者名":"Base64(SPKI DER)"}`，一个文件可放多个发布者；没有这个文件、文件为空或没有匹配的公钥时，带签名的插件显示「签名来自未知发布者」。
+- 加载策略：**只有「签名无效」会拒绝加载**（说明文件或清单在签名之后被改过）。「未签名」与「签名来自未知发布者」都只是提示，是否启用由用户自己确认；签名也不替代权限确认，权限变化照旧重新询问。
 
-导出公钥给用户/市场：
+**完整签名流程（推荐 `tools\sign-plugin.ps1`，Windows PowerShell 5.1 可用）**
 
 ```powershell
-$spki = $key.ExportSubjectPublicKeyInfo()
-[Convert]::ToBase64String($spki)   # 放进 publishers.json 的值
+# 1) 生成密钥，只需一次。私钥默认写到 %USERPROFILE%\.pcl-harness\publisher-key.json，
+#    不要提交进仓库，也不要发给别人；命令会打印公钥。
+tools\sign-plugin.ps1 -NewKey -Name Badqf
+
+# 2) 给插件签名，并把公钥登记到插件根目录的 publishers.json（同名发布者会覆盖）。
+tools\sign-plugin.ps1 -Plugin 'F:\PCL2-Release\PCLHarness\Plugins\hello' -Register -Name Badqf
+
+# 3) 单独验签（打印 DLL 哈希、权限指纹、公钥表路径与四态结果）。
+tools\sign-plugin.ps1 -Plugin 'F:\PCL2-Release\PCLHarness\Plugins\hello' -Verify
+
+# 4) 全量自检：扫描插件根目录下所有 plugin.json，发现 Invalid 时退出码为 1。
+tools\sign-plugin.ps1 -PluginsRoot 'F:\PCL2-Release\PCLHarness\Plugins' -VerifyAll
 ```
 
+- 私钥位置可用 `-KeyFile` 指定；`-Publishers` 可指定别的公钥表（默认取插件目录的上一级）。
+- 脚本只改 `plugin.json` 的 `signature` 字段（已有则替换），保留原有缩进与行尾，并在写回后重新解析一次 JSON。
+- 签名绑定了 `id`、`version`、DLL 字节、权限与作用域：**发布新版本、改权限、改 hosts/路径后必须重签**，否则宿主判为「签名无效」并拒绝加载。
+- 手工签名时注意：载荷四行必须用 LF 连接、末尾不能多换行；签名要 64 字节 r‖s 的 Base64。OpenSSL `dgst -sign` 默认输出 DER（约 70–72 字节），要先转成 P1363 才能用。
+
+`publishers.json` 示例：
+
+```json
+{
+  "Badqf": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE29YZGZhIulMOa0yIXjz7ZQg/BAAS85oSBwCYts8h+wumv/vAQsT3Q5usZqzQZDf+Dw/gLm+bcPzsDkb8aJ0S4g=="
+}
+```
 ### 6.7.1 更新通道、排队更新与回滚（v3.7.4）
 
 **更新地址**
@@ -1002,7 +1021,7 @@ v7.4 起，`plugin.json` 没有 `permissions`（或写成空数组）时，插�
 **4. 签名覆盖权限清单**
 
 - 签名载荷从 `id + version + sha256(DLL)` 扩展为再拼接 `sha256(权限指纹)`，其中指纹已包含 `net.hosts` / `files.read` / `files.write` 的具体值——改清单里的权限或路径同样会让签名失效。
-- 清单里写了 `signature` 但验签失败（文件被改过、公钥不匹配）时，插件**直接拒绝加载**，不再只是界面上的一个徽章。没有签名仍然可以加载，但会显示「未签名（来源需自行确认）」。
+- 清单里写了 `signature` 但验签失败（文件被改过、公钥不匹配）时，插件**直接拒绝加载**，不再只是界面上的一个徽章。没有签名、或公钥表里找不到对应发布者时仍然可以加载，只显示「未签名（来源需自行确认）」/「签名来自未知发布者」提示。
 - `trust.json` 的键改为 `id|插件文件夹名`，同 `id` 的两个不同插件不再共享一次确认。
 
 **5. 权限变化一定会重新确认**
